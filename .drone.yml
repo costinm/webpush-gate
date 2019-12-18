@@ -1,0 +1,8 @@
+build:
+  image: golang:1.13
+  commands:
+    - go mod download
+    - go vet ./pkg
+    - go test ./pkg/...
+    - go build cmd/wp
+    - go build cmd/wps
