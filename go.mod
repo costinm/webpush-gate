@@ -1,4 +1,4 @@
-module github.com/costinm/webpush-gate
+module github.com/costinm/wpgate
 
 go 1.13
 

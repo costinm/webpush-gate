@@ -1,7 +1,6 @@
 package msgs
 
 import (
-	context2 "context"
 	"crypto/rand"
 	"encoding/base64"
 	"io/ioutil"
@@ -10,7 +9,8 @@ import (
 	"net/textproto"
 	"strings"
 
-	"github.com/costinm/webpush-gate/pkg/auth"
+	"github.com/costinm/wpgate/pkg/auth"
+	"golang.org/x/net/websocket"
 )
 
 type Backoff interface {
@@ -22,11 +22,19 @@ var ReceiveBaseUrl = "https://127.0.0.1:5228/"
 
 // Mux corresponds to a server with TLS certificates.
 // MTLS is optional, can be used instead of VAPID tokens.
-func InitMux(mux *http.ServeMux) {
+func (gate *Gateway) InitMux(mux *http.ServeMux) {
 	mux.HandleFunc("/msg/", HTTPHandlerSend)
 	mux.HandleFunc("/s/", HTTPHandlerSend)
 	mux.HandleFunc("/subscribe", SubscribeHandler)
-	mux.HandleFunc("/p/", HTTPHandlerEventStream)
+	mux.HandleFunc("/p/", gate.HTTPHandlerEventStream)
+	ws := &websocket.Server{
+		Config:    websocket.Config{},
+		Handshake: nil,
+		Handler: func(conn *websocket.Conn) {
+			gate.websocketStream(conn)
+		},
+	}
+	mux.Handle("/ws", ws)
 }
 
 // Return the sticky and recent events.
@@ -44,7 +52,7 @@ func DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
 
 // Used to push a message from a remote sender.
 //
-// Mapped to /msg/
+// Mapped to /s/[DESTID]?...
 //
 //
 // q or path can be used to pass command. Body and query string are sent.
@@ -68,7 +76,7 @@ func HTTPHandlerSend(w http.ResponseWriter, r *http.Request) {
 		parts = parts[2:]
 		cmd = strings.Join(parts, " ")
 
-		log.Println("UDS: ", parts, "--", cmd)
+		log.Println("MSG_SEND: ", parts, "--", cmd)
 	}
 
 	params := map[string]string{}
@@ -84,13 +92,8 @@ func HTTPHandlerSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if h, f := DefaultMux.handlers[parts[1]]; f {
-		h.HandleMessage(context2.Background(), cmd, params, body)
-		w.WriteHeader(200)
-	} else {
-		w.WriteHeader(404)
-		return
-	}
+	DefaultMux.HandleMessageForNode(NewMessage(cmd, params).SetDataJSON(body))
+	w.WriteHeader(200)
 }
 
 // Currently mapped to /dmesh/uds - sends a message to a specific connection, defaults to the UDS connection

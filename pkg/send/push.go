@@ -21,15 +21,10 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
-	"strings"
 
-	"github.com/costinm/webpush-gate/pkg/auth"
+	"github.com/costinm/wpgate/pkg/auth"
 )
 
-const (
-	gcmURL     = "https://android.googleapis.com/gcm/send"
-	tempGcmURL = "https://gcm-http.googleapis.com/gcm"
-)
 
 // NewPushRequest creates a valid Web Push HTTP request for sending a message
 // to a subscriber. If the push service requires an authentication header
@@ -37,10 +32,7 @@ const (
 // token parameter.
 // Deprecated - token auth is not part of the spec.
 func NewPushRequest(sub *auth.Subscription, message string, token string) (*http.Request, error) {
-	// If the endpoint is GCM then we temporarily need to rewrite it, as not all
-	// GCM servers support the Web Push protocol. This should go away in the
-	// future.
-	endpoint := strings.Replace(sub.Endpoint, gcmURL, tempGcmURL, 1)
+	endpoint := sub.Endpoint
 
 	req, err := http.NewRequest("POST", endpoint, nil)
 	if err != nil {
@@ -76,7 +68,7 @@ func NewPushRequest(sub *auth.Subscription, message string, token string) (*http
 // NewVapidRequest creates a valid Web Push HTTP request for sending a message
 // to a subscriber, using Vapid authentication. You can add more headers to
 // configure collapsing, TTL.
-func NewRequest(to *auth.Subscription, message string, ttlSec int, vapid *auth.Vapid) (*http.Request, error) {
+func NewRequest(to *auth.Subscription, message string, ttlSec int, vapid *auth.Auth) (*http.Request, error) {
 	// If the endpoint is GCM then we temporarily need to rewrite it, as not all
 	// GCM servers support the Web Push protocol. This should go away in the
 	// future.
@@ -87,7 +79,7 @@ func NewRequest(to *auth.Subscription, message string, ttlSec int, vapid *auth.V
 
 	req.Header.Add("ttl", strconv.Itoa(ttlSec))
 
-	tok := vapid.Token(to.Endpoint)
+	tok := vapid.VAPIDToken(to.Endpoint)
 	req.Header.Add("Authorization", fmt.Sprintf(`Bearer %s`, tok))
 
 	// If there is no payload then we don't actually need encryption
@@ -105,7 +97,7 @@ func NewRequest(to *auth.Subscription, message string, ttlSec int, vapid *auth.V
 	req.Header.Add("Encryption", headerField("salt", payload.Salt))
 	req.Header.Add("Crypto-Key",
 		headerField("dh", payload.ServerPublicKey)+"; p256ecdsa="+
-			vapid.PublicKey)
+			vapid.PubKey)
 	req.Header.Add("Content-Encoding", "aesgcm")
 
 	return req, nil

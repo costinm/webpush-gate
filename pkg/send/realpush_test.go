@@ -5,7 +5,7 @@ import (
 	"net/http/httputil"
 	"testing"
 
-	"github.com/costinm/webpush-gate/pkg/auth"
+	"github.com/costinm/wpgate/pkg/auth"
 )
 
 var (

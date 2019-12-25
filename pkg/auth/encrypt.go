@@ -85,22 +85,6 @@ var (
 	}
 )
 
-// Subscription holds the useful values from a PushSubscription object acquired
-// from the browser
-type Subscription struct {
-	// Endpoint is the URL to send the Web Push message to. Comes from the
-	// endpoint field of the PushSubscription.
-	Endpoint string
-	// Key is the client's public key. From the keys.p256dh field.
-	Key []byte
-	// Auth is a value used by the client to validate the encryption. From the
-	// keys.auth field.
-	Auth []byte
-
-	// Used by the UA to receive messages, as PUSH promises
-	Location string
-}
-
 // SubscriptionFromJSON is a convenience function that takes a JSON encoded
 // PushSubscription object acquired from the browser and returns a pointer to a
 // Subscription

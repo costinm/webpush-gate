@@ -6,7 +6,7 @@ and TO.
 # Setup and config
 
 ```
-$ go get github.com/costinm/webpush-gate/cmd/wp
+$ go get github.com/costinm/wpgate/cmd/wp
 
 $ wp
 ...

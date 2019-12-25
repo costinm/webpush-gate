@@ -22,8 +22,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/costinm/webpush-gate/pkg/auth"
-	"github.com/costinm/webpush-gate/pkg/send"
+	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/wpgate/pkg/send"
 )
 
 func TestSendWebPush(t *testing.T) {

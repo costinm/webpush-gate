@@ -17,11 +17,9 @@ package auth
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"math/big"
 	"net/url"
 	"strings"
 	"time"
@@ -39,30 +37,14 @@ type jwtBody struct {
 	Exp int64  `json:"exp"`
 }
 
-// Vapid represents a sender identity.
-type Vapid struct {
-	// The EC256 public key, base64 urlsafe, uncompressed. This value should be
-	// used in 'subscribe' requests and is included as p256ecdsa in
-	// the Crypto-Key header.
-	PublicKey string
-
-	// The private key used to sign tokens
-	pkey *ecdsa.PrivateKey
-
-	// Sub should be an email or URL, for identification
-	Sub string
-}
-
-// TODO: cache for tokens
-
-// Token creates a token with the specified endpoint, using configured Sub id
+// VAPIDToken creates a token with the specified endpoint, using configured Sub id
 // and a default expiration (1h).
-func (vapid *Vapid) Token(aud string) (res string) {
+func (vapid *Auth) VAPIDToken(aud string) (res string) {
 	url, _ := url.Parse(aud)
 	host := url.Host
 	jwt := jwtBody{Aud: "https://" + host}
-	if vapid.Sub != "" {
-		jwt.Sub = vapid.Sub
+	if vapid.Domain != "" {
+		jwt.Sub = vapid.Domain
 	}
 	jwt.Exp = int64(time.Now().Unix() + 3600)
 	t, _ := json.Marshal(jwt)
@@ -79,7 +61,7 @@ func (vapid *Vapid) Token(aud string) (res string) {
 	hasher := crypto.SHA256.New()
 	hasher.Write(token)
 
-	if r, s, err := ecdsa.Sign(rand.Reader, vapid.pkey, hasher.Sum(nil)); err == nil {
+	if r, s, err := ecdsa.Sign(rand.Reader, vapid.EC256PrivateKey, hasher.Sum(nil)); err == nil {
 		// Vapid key is 32 bytes
 		keyBytes := 32
 		sig := make([]byte, 2*keyBytes)
@@ -105,31 +87,6 @@ func (vapid *Vapid) Token(aud string) (res string) {
 	return
 }
 
-func (vapid *Vapid) Authorization(aud string) (string) {
-	t := vapid.Token(aud)
-
-	return t
-}
-
-
-
-// NewVapid constructs a new Vapid generator from EC256 public and private keys,
-// in uncompressed format.
-func NewVapid(publicKey, privateKey string) (v *Vapid) {
-	publicUncomp, _ := base64.RawURLEncoding.DecodeString(publicKey)
-	privateUncomp, _ := base64.RawURLEncoding.DecodeString(privateKey)
-
-	x, y := elliptic.Unmarshal(curve, publicUncomp)
-	d := new(big.Int).SetBytes(privateUncomp)
-	pubkey := ecdsa.PublicKey{Curve: curve, X: x, Y: y}
-	pkey := ecdsa.PrivateKey{PublicKey: pubkey, D: d}
-
-	v = &Vapid{
-		PublicKey: publicKey,
-		pkey:      &pkey}
-
-	return
-}
 
 // ParseAuth splits the Authorization header, returning the scheme and parameters.
 func ParseAuth(auth string) (string, map[string]string, error) {
@@ -153,5 +110,4 @@ func ParseAuth(auth string) (string, map[string]string, error) {
 	}
 
 	return scheme, params, nil
-
 }

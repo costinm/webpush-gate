@@ -6,20 +6,11 @@ import (
 	"net"
 	"testing"
 
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
-	"errors"
 	"flag"
-	"math/big"
-	"time"
 
+	"github.com/costinm/wpgate/pkg/msgs"
 	"golang.org/x/net/context"
-	"golang.org/x/oauth2/google"
-	"golang.org/x/oauth2/jws"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -54,7 +45,9 @@ func startLocalServer(t *testing.T) (*grpc.Server, string) {
 	t.Log(lis.Addr().String())
 	addr := lis.Addr().String()
 
-	wp := &GrpcService{}
+	wp := &GrpcService{
+		Mux: msgs.DefaultMux,
+	}
 	RegisterAggregatedDiscoveryServiceServer(s, wp)
 	go s.Serve(lis)
 
@@ -91,50 +84,6 @@ func TestGRpc(t *testing.T) {
 	}()
 
 	res.Send(&Request{})
-}
-
-
-// Corresponds to the GCM/webpush test account, from dev console
-
-const priv = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDG6IaKCSJyoS2c\n7FhFWl0stSfq0h8/snEokmpyfsGIxAuW9VSiJnV+4Eph9NikYgXOupkvFlHtEtjK\nQP7lojqhva0i8VLLvbejRL1LrRTv+gTn87iimLYyqdAaIcP+4c3sACkRvkHlxBXC\nlf20Wgxlj1fR5UwAXsiks/rlO3lScTA8//ul7sbYXboIIemubrOZ/KawA6tv53fi\n4dsygW70xacgM93jL0mFSGbLUK6C9PUayhCpfHjvq+mclgutQHvO/gEf5+WfV3Lf\nDkqa/3E48Sbl59ChKfeeQJ7AY883vKxG/zVVuwNoPEhfEH8w1/RP7xXxggn2QWG+\n1ur1bU0rAgMBAAECggEBALwf8B9dxFbmWl2wq0vsy3MdY0OUuDlma+ATmtnvSNwx\nj0SXhBRYi4gUWkWLbdsLWrLLiVYfphyzVpb0IiDN7uZKnxYNaGGKbcTdnquUZ9kQ\nftNij545ERmZwlj01oqaxkgPXsiJSYomiu4fLnUFNfRYPpcmZ1tyShJ8py9nsLdm\n6K9LMcYbDoiZfMYX2bnZikA7qeVnLAYs5qS5MO5lpgarODvH8OelbRd0pxR0PDA4\nVoDtUFYQnWDiZe8ZwyzsEk2J1cluX2L4cBlIMgICBOQqG69DMgvACHknLLecUkyb\nOS852lnRf04rlxhexXZfptmokAl4NbwUIA1iQdciNgECgYEA/RVEPGceroaJzV3X\ne89nEl4eFL2FNhiXPlnpuT7PlIMch51hD2h5yD+av/Emfdrlj41+oCNCfOT3A6R/\n/Bedy12QFgph8nBvWZmc7BcOJNeuMhTgX21Z2GnyNvN8cbgN23A+SagL9blYvpxF\nZeR7VXoD/uL5CguivnyMwiI7J9kCgYEAyTNp7wRYAXC4i2UVkI6YVN6JrfYfwfDI\ntF+8LFyJ/OM/7P7shqZ+tCr5YyWmOPbgc3T1/akdF7lLiUAdyHQAyubwN6i8XV7q\nZh31OKyywbcbCy3xwxTxvW6GjPF5wtS9dkOT0D1L08wNR6m5Zd2WhPWS5a95zeAB\ngwFBgYijnqMCgYAEOIeTzlB3rqy7rRX77aCVcNZlmCeRmGVlV9CLE14Y5vrh1CEb\nRa3KRi1JiDcRIEZ113FGMHBabuMjv2mXBbnO+3d8tp2dknx47RPt6BCHUsWH9ksr\nrEI0VsgAXJ01tFEe2MdhKRlR9s5hF3Ac2+umqEtKw/RNU5ZaQO+ECVgdOQKBgGzN\nUMvgHXcp7aHz1+WENvwuG2XnYuUNwHtKCggzQqtueHNAp8do4busQZBMG8dSOa41\n4ZB6kzDxEtf1xCVSFdujZuOya6pSWY8/RAyR11jKG+W/wq0r9k3qJviw3JdvU8VQ\nZe6GNyshfUzziz56xZrA8d8jNUsPh8HAPBxAN7rhAoGBAIi2/ELz9K7nClvv4s0L\nGMK4AWpA/FN+nHkLVgt3S0xv23ccRivnPss0PhBFHKqc0vu7b+qx5ExQTWvIvob5\ndHuOHo63xWy1+X7sy9VwTtq1zHLeLQihUv6diAAdcGeBut5pwJom05867gqqb5j7\niuipzM5eRINbdYxsie/v3WCI\n-----END PRIVATE KEY-----\n"
-
-const tokCfg = `{
-  "type": "service_account",
-  "project_id": "webtest-c77c7",
-  "private_key_id": "d5980ebb01f252af6921423e20e331d97ab133eb",
-  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDG6IaKCSJyoS2c\n7FhFWl0stSfq0h8/snEokmpyfsGIxAuW9VSiJnV+4Eph9NikYgXOupkvFlHtEtjK\nQP7lojqhva0i8VLLvbejRL1LrRTv+gTn87iimLYyqdAaIcP+4c3sACkRvkHlxBXC\nlf20Wgxlj1fR5UwAXsiks/rlO3lScTA8//ul7sbYXboIIemubrOZ/KawA6tv53fi\n4dsygW70xacgM93jL0mFSGbLUK6C9PUayhCpfHjvq+mclgutQHvO/gEf5+WfV3Lf\nDkqa/3E48Sbl59ChKfeeQJ7AY883vKxG/zVVuwNoPEhfEH8w1/RP7xXxggn2QWG+\n1ur1bU0rAgMBAAECggEBALwf8B9dxFbmWl2wq0vsy3MdY0OUuDlma+ATmtnvSNwx\nj0SXhBRYi4gUWkWLbdsLWrLLiVYfphyzVpb0IiDN7uZKnxYNaGGKbcTdnquUZ9kQ\nftNij545ERmZwlj01oqaxkgPXsiJSYomiu4fLnUFNfRYPpcmZ1tyShJ8py9nsLdm\n6K9LMcYbDoiZfMYX2bnZikA7qeVnLAYs5qS5MO5lpgarODvH8OelbRd0pxR0PDA4\nVoDtUFYQnWDiZe8ZwyzsEk2J1cluX2L4cBlIMgICBOQqG69DMgvACHknLLecUkyb\nOS852lnRf04rlxhexXZfptmokAl4NbwUIA1iQdciNgECgYEA/RVEPGceroaJzV3X\ne89nEl4eFL2FNhiXPlnpuT7PlIMch51hD2h5yD+av/Emfdrlj41+oCNCfOT3A6R/\n/Bedy12QFgph8nBvWZmc7BcOJNeuMhTgX21Z2GnyNvN8cbgN23A+SagL9blYvpxF\nZeR7VXoD/uL5CguivnyMwiI7J9kCgYEAyTNp7wRYAXC4i2UVkI6YVN6JrfYfwfDI\ntF+8LFyJ/OM/7P7shqZ+tCr5YyWmOPbgc3T1/akdF7lLiUAdyHQAyubwN6i8XV7q\nZh31OKyywbcbCy3xwxTxvW6GjPF5wtS9dkOT0D1L08wNR6m5Zd2WhPWS5a95zeAB\ngwFBgYijnqMCgYAEOIeTzlB3rqy7rRX77aCVcNZlmCeRmGVlV9CLE14Y5vrh1CEb\nRa3KRi1JiDcRIEZ113FGMHBabuMjv2mXBbnO+3d8tp2dknx47RPt6BCHUsWH9ksr\nrEI0VsgAXJ01tFEe2MdhKRlR9s5hF3Ac2+umqEtKw/RNU5ZaQO+ECVgdOQKBgGzN\nUMvgHXcp7aHz1+WENvwuG2XnYuUNwHtKCggzQqtueHNAp8do4busQZBMG8dSOa41\n4ZB6kzDxEtf1xCVSFdujZuOya6pSWY8/RAyR11jKG+W/wq0r9k3qJviw3JdvU8VQ\nZe6GNyshfUzziz56xZrA8d8jNUsPh8HAPBxAN7rhAoGBAIi2/ELz9K7nClvv4s0L\nGMK4AWpA/FN+nHkLVgt3S0xv23ccRivnPss0PhBFHKqc0vu7b+qx5ExQTWvIvob5\ndHuOHo63xWy1+X7sy9VwTtq1zHLeLQihUv6diAAdcGeBut5pwJom05867gqqb5j7\niuipzM5eRINbdYxsie/v3WCI\n-----END PRIVATE KEY-----\n",
-  "client_email": "grpctest@webtest-c77c7.iam.gserviceaccount.com",
-  "client_id": "108860539767051267871",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://accounts.google.com/o/oauth2/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/grpctest%40webtest-c77c7.iam.gserviceaccount.com"
-}
-`
-
-func TestJWT(t *testing.T) {
-	ts, err := google.JWTAccessTokenSourceFromJSON([]byte(tokCfg),
-		"https://fcm-stream.googleapis.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Bearer, 1 h exp
-	t.Log(ts.Token())
-	tok, err := ts.Token()
-
-	// Iss: grpctest@webtest-c77c7.iam.gserviceaccount.com
-	// Aud: https://fcm-stream.googleapis.com
-	// Scope: ""
-	// Exp: 1484169314
-	// Iat: 1484165714
-	// Sub: grpctest@webtest-c77c7.iam.gserviceaccount.com
-	// map[]
-
-	// I assume Iss is used to lookup the public key in the auth DB.
-
-	claims, _ := jws.Decode(tok.AccessToken)
-	t.Logf("%+v", claims)
 }
 
 
@@ -199,84 +148,4 @@ F98XJ7tIFfJq
 )
 
 
-
-
-func genCert(cert string, key string) (*tls.Certificate, *x509.CertPool, error) {
-	pair, err := tls.X509KeyPair([]byte(cert), []byte(key))
-	if err != nil {
-		return nil, nil, err
-	}
-	demoKeyPair := &pair
-
-	demoCertPool := x509.NewCertPool()
-	ok := demoCertPool.AppendCertsFromPEM([]byte(cert))
-	if !ok {
-		return nil, nil, errors.New("bad certs")
-	}
-	return demoKeyPair, demoCertPool, nil
-}
-
-func TestTLS(t *testing.T) {
-	k, err := ParseKey([]byte(priv))
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println(k, k.Public())
-
-	notBefore := time.Now()
-	notAfter := notBefore.Add(24 * time.Hour * 7)
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cert := &x509.Certificate{
-		SerialNumber: serialNumber,
-		Subject:      pkix.Name{Organization: []string{"Self-Signed"}},
-		NotBefore:    notBefore,
-		NotAfter:     notAfter,
-		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-
-	derBytes, err := x509.CreateCertificate(rand.Reader, cert, cert, k.Public(), k)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	demoCertPool := x509.NewCertPool()
-	demoCertPool.AppendCertsFromPEM(derBytes)
-
-	creds := credentials.NewServerTLSFromCert(&tls.Certificate{
-		PrivateKey: k,
-		Leaf:       cert,
-	})
-
-	fmt.Println(creds)
-
-}
-
-// ParseKey converts the binary contents of a private key file
-// to an *rsa.PrivateKey. It detects whether the private key is in a
-// PEM container or not. If so, it extracts the the private key
-// from PEM container before conversion. It only supports PEM
-// containers with no passphrase.
-func ParseKey(key []byte) (*rsa.PrivateKey, error) {
-	block, _ := pem.Decode(key)
-	if block != nil {
-		key = block.Bytes
-	}
-	parsedKey, err := x509.ParsePKCS8PrivateKey(key)
-	if err != nil {
-		parsedKey, err = x509.ParsePKCS1PrivateKey(key)
-		if err != nil {
-			return nil, fmt.Errorf("private key should be a PEM or plain PKSC1 or PKCS8; parse error: %v", err)
-		}
-	}
-	parsed, ok := parsedKey.(*rsa.PrivateKey)
-	if !ok {
-		return nil, errors.New("private key is invalid")
-	}
-	return parsed, nil
-}
 

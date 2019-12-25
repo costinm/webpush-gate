@@ -16,8 +16,8 @@ import (
 	"net/http/httputil"
 	"os"
 
-	"github.com/costinm/webpush-gate/pkg/auth"
-	send2 "github.com/costinm/webpush-gate/pkg/send"
+	"github.com/costinm/wpgate/pkg/auth"
+	send2 "github.com/costinm/wpgate/pkg/send"
 )
 
 var (
@@ -141,7 +141,7 @@ func showCurl() {
 
 	payload, err := auth.Encrypt(to, string(msg))
 	payload64 := base64.StdEncoding.EncodeToString(payload.Ciphertext)
-	tok := vapid.Token(to.Endpoint)
+	tok := vapid.VAPIDToken(to.Endpoint)
 
 	fmt.Println(
 		"echo -n " + string(payload64) + " | base64 -d > /tmp/$$.bin; " +
@@ -205,7 +205,7 @@ func genVapid() {
 		a = "https://fcm.googleapis.com"
 	}
 	// TODO: extract the base URL only, if full endpoint provided
-	fmt.Println("-H\"Authorization:WebPush " + vapid.Token(*aud) + "\"" +
+	fmt.Println("-H\"Authorization:WebPush " + vapid.VAPIDToken(*aud) + "\"" +
 		" -H\"Crypto-Key:p256ecdsa=" + pub64 + "\"")
 
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/cloudevents/sdk-go"
 	"github.com/cloudevents/sdk-go/pkg/cloudevents/client"
-	"github.com/costinm/webpush-gate/pkg/msgs"
+	"github.com/costinm/wpgate/pkg/msgs"
 )
 
 

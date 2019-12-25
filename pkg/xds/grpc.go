@@ -7,9 +7,17 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
+	"io"
 	"log"
 	"math/big"
+	"sync"
 	"time"
+
+	"github.com/costinm/wpgate/pkg/msgs"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -22,13 +30,177 @@ import (
 // alt: --go_out=plugins=grpc:.
 
 type GrpcService struct {
+	Mux *msgs.Mux
+	// mutex used to modify structs, non-blocking code only.
+	mutex sync.RWMutex
+
+	// clients reflect active gRPC channels, for both ADS and MCP.
+	// key is Connection.ConID
+	clients map[string]*Connection
+
+	connectionNumber int
+}
+
+// Connection represents a single endpoint.
+// An endpoint typically has 0 or 1 connections - but during restarts and drain it may have >1.
+type Connection struct {
+	mu sync.RWMutex
+
+	// PeerAddr is the address of the client envoy, from network layer
+	PeerAddr string
+
+	NodeID string
+
+	// Time of connection, for debugging
+	Connect time.Time
+
+	// ConID is the connection identifier, used as a key in the connection table.
+	// Currently based on the node name and a counter.
+	ConID string
+
+	// doneChannel will be closed when the client is closed.
+	doneChannel chan int
+
+	// Metadata key-value pairs extending the Node identifier
+	Metadata map[string]string
+
+	// Watched resources for the connection
+	Watched map[string][]string
+
+	NonceSent  map[string]string
+	NonceAcked map[string]string
+
+	// Only one can be set.
+	SStream AggregatedDiscoveryService_StreamAggregatedResourcesServer
+	CStream AggregatedDiscoveryService_StreamAggregatedResourcesClient
+
+	active     bool
+	resChannel chan *Response
+	errChannel chan error
+}
+
+func NewXDS(mux *msgs.Mux) *GrpcService {
+	g:= &GrpcService{Mux: mux,
+		clients: map[string]*Connection{},
+	}
+
+	
+	return g
 }
 
 // Subscribe maps the the webpush subscribe request
-func (s *GrpcService) StreamAggregatedResources(AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
+func (s *GrpcService) StreamAggregatedResources(stream AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
+	peerInfo, ok := peer.FromContext(stream.Context())
+	peerAddr := "0.0.0.0"
+	if ok {
+		peerAddr = peerInfo.Addr.String()
+	}
+
+	t0 := time.Now()
+
+	con := &Connection{
+		Connect:     t0,
+		PeerAddr:    peerAddr,
+		SStream:      stream,
+		NonceSent:   map[string]string{},
+		Metadata:    map[string]string{},
+		Watched:     map[string][]string{},
+		NonceAcked:  map[string]string{},
+		doneChannel: make(chan int, 2),
+		resChannel:  make(chan *Response, 2),
+		errChannel:  make(chan error, 2),
+	}
+
+	// Unlike pilot, this uses the more direct 'main thread handles read' mode.
+	// It also means we don't need 2 goroutines per connection - but we also
+	// can't cancel, but rely on http/grpc stack keepalive to detect lingering
+	// connections and close.
+	firstReq := true
+
+	defer func() {
+		if firstReq {
+			return // didn't get first req, not added
+		}
+		close(con.resChannel)
+		close(con.doneChannel)
+		s.mutex.Lock()
+		delete(s.clients, con.ConID)
+		s.mutex.Unlock()
+
+	}()
+
+	go func() {
+		for {
+			// Blocking. Separate go-routines may use the stream to push.
+			req, err := stream.Recv()
+			if err != nil {
+				if status.Code(err) == codes.Canceled || err == io.EOF {
+					log.Printf("ADS: %q %s terminated %v", con.PeerAddr, con.ConID, err)
+					con.errChannel <- nil
+					return
+				}
+				log.Printf("ADS: %q %s terminated with errors %v", con.PeerAddr, con.ConID, err)
+				con.errChannel <- err
+				return
+			}
+
+			err = s.process(con, req)
+			if err != nil {
+				con.errChannel <- err
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case res, _ := <-con.resChannel:
+			err := stream.Send(res)
+			if err != nil {
+				return err
+			}
+		case err1, _ := <-con.errChannel:
+			return err1
+		}
+	}
+
 	return nil
 }
 
+func (s *GrpcService) process(connection *Connection, request *Request) error {
+	for _, r := range request.Resources {
+		s.Mux.SendMessage(&msgs.Message{
+			Time:       "",
+			Id:         "",
+			To:         request.TypeUrl,
+			Subject:    "",
+			Path:       nil,
+			From:       "",
+			Data:       r,
+			TS:         time.Now(),
+			Meta: map[string]string{},
+			Connection: nil,
+			Topic:      "",
+		})
+	}
+	return nil
+}
+
+func (fx *GrpcService) SendAll(r *Response) {
+	for _, con := range fx.clients {
+		// TODO: only if watching our resource type
+
+		r.Nonce = fmt.Sprintf("%v", time.Now())
+		con.NonceSent[r.TypeUrl] = r.Nonce
+		con.SStream.Send(r)
+	}
+}
+
+func (fx *GrpcService) Send(con *Connection, r *Response) error {
+	r.Nonce = fmt.Sprintf("%v", time.Now())
+	con.NonceSent[r.TypeUrl] = r.Nonce
+	return con.SStream.Send(r)
+}
 
 func Connect(addr string, clientPem string) (*grpc.ClientConn, AggregatedDiscoveryServiceClient, error) {
 	opts := []grpc.DialOption{}

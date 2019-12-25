@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"math/big"
@@ -71,6 +72,8 @@ type Auth struct {
 	// RSA: DER
 	// ED25519: 32B
 	Pub []byte
+	// base64URL encoding of the primary public key
+	PubKey string
 
 	// Private key to use in both server and client authentication. This is the base of the VIP of the node.
 	// ED22519: 32B
@@ -93,6 +96,32 @@ type Auth struct {
 	// TODO: Root certificates to trust, keyed by domain.
 	Roots map[string]*Root
 }
+
+// Subscription holds the useful values from a PushSubscription object acquired
+// from the browser.
+//
+// https://w3c.github.io/push-api/
+//
+// Returned as result of /subscribe
+type Subscription struct {
+	// Endpoint is the URL to send the Web Push message to. Comes from the
+	// endpoint field of the PushSubscription.
+	Endpoint string
+
+	// Key is the client's public key. From the getKey("p256dh") or keys.p256dh field.
+	Key []byte
+
+	// Auth is a value used by the client to validate the encryption. From the
+	// keys.auth field.
+	// The encrypted aes128gcm will have 16 bytes authentication tag derived from this.
+	// This is the pre-shared authentication secret.
+	Auth []byte
+
+	// Used by the UA to receive messages, as PUSH promises
+	Location string
+}
+
+
 
 type Root struct {
 	hosts []string
@@ -147,7 +176,7 @@ type ConfStore interface {
 //
 func NewAuth(cfg ConfStore, name, domain string) *Auth {
 
-	certs := &Auth{
+	auth := &Auth{
 		Config:     cfg,
 		Domain:     domain,
 		Name:       name,
@@ -156,28 +185,48 @@ func NewAuth(cfg ConfStore, name, domain string) *Auth {
 
 	var err error
 	if cfg != nil {
-		err = certs.loadCert()
+		err = auth.loadCert()
 	}
-	if cfg == nil || err != nil || certs.EC256PrivateKey == nil {
+	if cfg == nil || err != nil || auth.EC256PrivateKey == nil {
 		// Can't load the certs - generate new ones.
-		certs.generateCert()
+		auth.generateCert()
 	}
 
-	pub64 := base64.StdEncoding.EncodeToString(certs.Pub)
-	certs.VIP64 = certs.NodeIDUInt()
+	pub64 := base64.StdEncoding.EncodeToString(auth.Pub)
+	auth.VIP64 = auth.NodeIDUInt()
 	// Based on the primary EC256 key
-	log.Println("VIP: ", certs.VIP6)
-	log.Println("ID: ", base64.URLEncoding.EncodeToString(certs.NodeID()), hex.EncodeToString(certs.NodeID()), certs.NodeIDUInt())
+	log.Println("VIP: ", auth.VIP6)
+	log.Println("ID: ", base64.URLEncoding.EncodeToString(auth.NodeID()), hex.EncodeToString(auth.NodeID()), auth.NodeIDUInt())
 	log.Println("PUB(std): ", pub64)
-	sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " + certs.Name + "@" + certs.Domain
+	sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " + auth.Name + "@" + auth.Domain
 	log.Println("PUB(SSH): ", sshPub)
 
 	if cfg != nil {
-		certs.loadKnownHosts()
-		certs.loadAuth()
+		auth.loadKnownHosts()
+		auth.loadAuth()
 	}
 
-	return certs
+	return auth
+}
+// NewVapid constructs a new Vapid generator from EC256 public and private keys,
+// in base64 uncompressed format.
+func NewVapid(publicKey, privateKey string) (v *Auth) {
+	publicUncomp, _ := base64.RawURLEncoding.DecodeString(publicKey)
+	privateUncomp, _ := base64.RawURLEncoding.DecodeString(privateKey)
+
+	x, y := elliptic.Unmarshal(curve, publicUncomp)
+	d := new(big.Int).SetBytes(privateUncomp)
+	pubkey := ecdsa.PublicKey{Curve: curve, X: x, Y: y}
+	pkey := ecdsa.PrivateKey{PublicKey: pubkey, D: d}
+
+	v = &Auth{
+		Pub: publicUncomp,
+		Priv: privateUncomp,
+		Authorized: map[string]string{},
+		PubKey: 						publicKey,
+		EC256PrivateKey:      &pkey}
+
+	return
 }
 
 // Add or update an identity (key) with a set of permissions (roles).
@@ -438,6 +487,7 @@ func (c *Auth) generateCert() {
 	c.Priv = priv
 	c.EC256PrivateKey = &ecdsa.PrivateKey{D: d, PublicKey: pk}
 	c.Pub = elliptic.Marshal(Curve256, x, y) // starts with 0x04 == uncompressed curve
+	c.PubKey = base64.RawURLEncoding.EncodeToString(c.Pub)
 	c.VIP6 = Pub2VIP(c.Pub)
 
 	if c.Name == "" {
@@ -773,4 +823,28 @@ func (h2 *Auth) GetRoots() *x509.CertPool {
 	}
 
 	return caCertPool
+}
+
+// ParseKey converts the binary contents of a private key file
+// to an *rsa.PrivateKey. It detects whether the private key is in a
+// PEM container or not. If so, it extracts the the private key
+// from PEM container before conversion. It only supports PEM
+// containers with no passphrase.
+func ParseKey(key []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(key)
+	if block != nil {
+		key = block.Bytes
+	}
+	parsedKey, err := x509.ParsePKCS8PrivateKey(key)
+	if err != nil {
+		parsedKey, err = x509.ParsePKCS1PrivateKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("private key should be a PEM or plain PKSC1 or PKCS8; parse error: %v", err)
+		}
+	}
+	parsed, ok := parsedKey.(*rsa.PrivateKey)
+	if !ok {
+		return nil, errors.New("private key is invalid")
+	}
+	return parsed, nil
 }

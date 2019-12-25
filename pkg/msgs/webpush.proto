@@ -1,7 +1,7 @@
 syntax = "proto3";
 package webpush;
 
-option go_package="github.com/costinm/webpush-gate/pkg/msgs";
+option go_package="github.com/costinm/wpgate/pkg/msgs";
 
 // Webpush is a GRPC mapping of the webpush protocol. While webpush is defined using
 // Push promise, it is a bit tricky to support with many stacks today. As an alternative,

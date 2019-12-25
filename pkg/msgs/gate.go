@@ -10,6 +10,16 @@ import (
 
 )
 
+// Metric is an interface for libraries updating metrics
+type Metric interface {
+	Add(float64)
+}
+
+type MetricProvider interface {
+	Metric(string) Metric
+}
+
+
 // Gateway handles the incoming and outgoing connections, and adaptation between
 // protocols. Messages for local pod are handled by Mux.
 type Gateway struct {
@@ -117,7 +127,9 @@ func (gate *Gateway) Send(ev *Message) error {
 	if parts[0] == "." {
 		return nil
 	}
-
+	if len(parts) < 2 {
+		return nil
+	}
 	if parts[1] == "I" {
 		return nil
 	}

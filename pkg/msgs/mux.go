@@ -2,10 +2,13 @@
 package msgs
 
 import (
+	"bytes"
 	"container/list"
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +34,11 @@ type Mux struct {
 	// Handlers by path, for processing incoming messages.
 	// Messages are received from a remote connection (like UDS or ssh or http), or created locally.
 	handlers map[string]MessageHandler
+
+	// Allows regular HTTP Handlers to process messages.
+	// A message is mapped to a request. Like CloudEvents, response from the
+	// http request can be mapped to a Send (not supported yet).
+	ServeMux *http.ServeMux
 }
 
 func NewMux() *Mux {
@@ -124,18 +132,65 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 	payload := ev.Binary()
 	log.Println("MSG: ", argv, ev.Meta, ev.From, ev.Data, len(payload))
 
+	if h, f := mux.handlers["*"]; f {
+		h.HandleMessage(context.Background(), ev.To, ev.Meta, payload)
+	}
+
+	if mux.ServeMux != nil {
+		r := &http.Request{
+			URL: &url.URL{
+				Path: ev.To,
+			},
+			Host: argv[0],
+		}
+		h, _ := mux.ServeMux.Handler(r)
+		if h != nil {
+			w := &rw{}
+			h.ServeHTTP(w, r)
+		}
+		return nil
+	}
+
 	if h, f := mux.handlers[topic]; f {
 		h.HandleMessage(context.Background(), ev.To, ev.Meta, payload)
 	} else if h, f = mux.handlers[""]; f {
 		log.Println("UNHANDLED: ", ev.To)
 		h.HandleMessage(context.Background(), ev.To, ev.Meta, payload)
 	}
-	if h, f := mux.handlers["*"]; f {
-		h.HandleMessage(context.Background(), ev.To, ev.Meta, payload)
-	}
 	return nil
 }
 
+type rw struct {
+	Code int
+	HeaderMap http.Header
+	Body *bytes.Buffer
+}
+
+func newHTTPWriter() *rw {
+	return &rw{
+
+	}
+}
+
+func (r *rw) Header() http.Header {
+	m := r.HeaderMap
+	if m == nil {
+		m = make(http.Header)
+		r.HeaderMap = m
+	}
+	return m
+}
+
+func (r *rw) Write(d []byte) (int, error) {
+	return r.Body.Write(d)
+}
+
+func (r *rw) Flush([]byte) {
+}
+
+func (r *rw) WriteHeader(statusCode int) {
+	r.Code = statusCode
+}
 
 // Add a local handler for a specific message type or *
 // This is a local function.
