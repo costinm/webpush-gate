@@ -1,0 +1,60 @@
+name: Go
+on: [push]
+env:
+  GO111MODULE: on
+
+jobs:
+  build-docker:
+    name: Build-in-docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v1
+      - name: Docker build
+        run: |
+          cd /src
+          go mod download
+          go build -v ./cmd/istiod
+    container:
+      image: golang:1.13-alpine
+      volumes:
+            - .:/src
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set up Go 1.13
+      uses: actions/setup-go@v1
+      with:
+        go-version: 1.13
+      id: go
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v1
+
+    - name: Get dependencies
+      run: |
+        go mod download
+
+    - name: Build
+      run: |
+        go build -v ./cmd/istiod
+        go build -v ./cmd/istiod-vm
+
+    services:
+      k8s:
+        image:  rancher/k3s:latest
+        ports:
+          - 6443:6443
+          - 6080:80
+        env:
+          - K3S_KUBECONFIG_OUTPUT=/conf/kubeconfig.yaml
+          - K3S_KUBECONFIG_MODE=666
+        volumes:
+          - .:/conf
+          - k3s-server:/var/lib/rancher/k3s
+        options:
+          - --privileged
+
