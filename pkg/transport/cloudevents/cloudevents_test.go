@@ -1,4 +1,4 @@
-package cncf
+package cloudevents
 
 import (
 	"context"

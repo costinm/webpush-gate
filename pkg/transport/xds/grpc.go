@@ -84,7 +84,7 @@ func NewXDS(mux *msgs.Mux) *GrpcService {
 		clients: map[string]*Connection{},
 	}
 
-	
+
 	return g
 }
 
@@ -132,7 +132,7 @@ func (s *GrpcService) StreamAggregatedResources(stream AggregatedDiscoveryServic
 	go func() {
 		for {
 			// Blocking. Separate go-routines may use the stream to push.
-			req, err := stream.Recv()
+			req, err := Recv()
 			if err != nil {
 				if status.Code(err) == codes.Canceled || err == io.EOF {
 					log.Printf("ADS: %q %s terminated %v", con.PeerAddr, con.ConID, err)
@@ -155,7 +155,7 @@ func (s *GrpcService) StreamAggregatedResources(stream AggregatedDiscoveryServic
 	for {
 		select {
 		case res, _ := <-con.resChannel:
-			err := stream.Send(res)
+			err := Send(res)
 			if err != nil {
 				return err
 			}
@@ -192,14 +192,14 @@ func (fx *GrpcService) SendAll(r *Response) {
 
 		r.Nonce = fmt.Sprintf("%v", time.Now())
 		con.NonceSent[r.TypeUrl] = r.Nonce
-		con.SStream.Send(r)
+		Send(r)
 	}
 }
 
 func (fx *GrpcService) Send(con *Connection, r *Response) error {
 	r.Nonce = fmt.Sprintf("%v", time.Now())
 	con.NonceSent[r.TypeUrl] = r.Nonce
-	return con.SStream.Send(r)
+	return Send(r)
 }
 
 func Connect(addr string, clientPem string) (*grpc.ClientConn, AggregatedDiscoveryServiceClient, error) {

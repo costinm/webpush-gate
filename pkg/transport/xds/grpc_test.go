@@ -67,7 +67,7 @@ func TestGRpc(t *testing.T) {
 	conn, client, err := Connect(addr, CLIENT_PEM)
 	defer conn.Close()
 
-	res, err := client.StreamAggregatedResources(context.Background())
+	res, err := StreamAggregatedResources(context.Background())
 	if err != nil {
 		log.Fatal("Subscribe fail ", err)
 	}
@@ -75,7 +75,7 @@ func TestGRpc(t *testing.T) {
 
 	go func() {
 		for {
-			msg, err := res.Recv()
+			msg, err := Recv()
 			if err != nil {
 				t.Fatal("Error in receive", err)
 			}
@@ -83,7 +83,7 @@ func TestGRpc(t *testing.T) {
 		}
 	}()
 
-	res.Send(&Request{})
+	Send(&Request{})
 }
 
 

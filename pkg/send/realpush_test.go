@@ -37,7 +37,7 @@ func send(t *testing.T, epjson string) {
 	message := "I am the testing walrus"
 
 	vapid := auth.NewVapid(vapidPub, vapidPriv)
-	vapid.Sub = "test@example.com"
+	vapid.Domain = "test@example.com"
 	req, err := NewRequest(sub, message, 0, vapid)
 	res, err := http.DefaultClient.Do(req)
 

@@ -32,7 +32,7 @@ type Gateway struct {
 	// technically we could handle multiple mux and ids in a gateway - but
 	// not clear use case (besides tests)
 	NodeId string
-	mux *Mux
+	Mux    *Mux
 }
 
 
@@ -80,16 +80,18 @@ func (mux *Mux) AddConnection(id string, cp *MsgConnection) {
 	if h, f := mux.handlers["/open"]; f {
 		h.HandleMessage(context.Background(), "/open", map[string]string{"id": id}, nil)
 	}
+	log.Println("/mux/AddConnection", id, cp.SubscriptionsToSend)
 }
 
 func (gate *Gateway) RemoveConnection(id string, cp *MsgConnection) {
-	gate.mux.mutex.Lock()
+	gate.Mux.mutex.Lock()
 	delete(gate.connections, id)
-	gate.mux.mutex.Unlock()
+	gate.Mux.mutex.Unlock()
 
-	if h, f := gate.mux.handlers["/close"]; f {
+	if h, f := gate.Mux.handlers["/close"]; f {
 		h.HandleMessage(context.Background(), "/close", map[string]string{"id": id}, nil)
 	}
+	log.Println("/mux/RemoveConnection", id)
 }
 
 func (mc *MsgConnection) Close() {
@@ -104,10 +106,8 @@ func (mux *Gateway) OnRemoteMessage(ev *Message, from, self string, connName str
 		return nil
 	}
 	if parts[0] == self {
-		mux.mux.HandleMessageForNode(ev)
-		return nil
-	}
-	if parts[1] == "I" || parts[1] == "SYNC" {
+		mux.Mux.HandleMessageForNode(ev)
+		log.Println("/mux/OnRemoteMessageLocal", ev.To)
 		return nil
 	}
 
@@ -116,6 +116,7 @@ func (mux *Gateway) OnRemoteMessage(ev *Message, from, self string, connName str
 			continue
 		}
 		ms.maybeSend(parts, ev, k)
+		log.Println("/mux/OnRemoteMessageFWD", ev.To, k)
 	}
 	return nil
 }
@@ -130,14 +131,12 @@ func (gate *Gateway) Send(ev *Message) error {
 	if len(parts) < 2 {
 		return nil
 	}
-	if parts[1] == "I" {
-		return nil
-	}
 
 	for k, ms := range gate.connections {
 		if k == ev.From { // Exclude the connection where this was received on.
 			continue
 		}
+		log.Println("/mux/SendFWD", ev.To, k)
 		ms.maybeSend(parts, ev, k)
 	}
 	return nil
@@ -154,13 +153,10 @@ func (ms *MsgConnection) maybeSend(parts []string, ev *Message, k string) {
 	if ms.SubscriptionsToSend == nil {
 		return
 	}
-	if Debug {
-		log.Println("MSG: fwd to connection ", ev.To, k, ms.Name)
-	}
+	//if Debug {
+	//	log.Println("MSG: fwd to connection ", ev.To, k, ms.Name)
+	//}
 	topic := parts[1]
-	if topic == "I" {
-		return
-	}
 	hasSub := false
 	for _, s := range ms.SubscriptionsToSend {
 		if topic == s || s == "*" {
@@ -173,6 +169,7 @@ func (ms *MsgConnection) maybeSend(parts []string, ev *Message, k string) {
 	}
 
 	ms.SendMessageToRemote(ev)
+	log.Println("/mux/Remote", ev.To, ms.Name)
 }
 
 // Messages received from remote, over SSH.

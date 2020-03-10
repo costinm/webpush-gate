@@ -57,6 +57,9 @@ type Auth struct {
 
 	// Name and domain to include in the self-signed cert.
 	Name   string
+
+	// Identifies the domain of the node.
+	// Added to the 'sub' field in Vapid messages. Can be an email or domain.
 	Domain string
 
 	// Primary VIP, Created from the Pub key, will be included in the self-signed cert.
@@ -72,7 +75,9 @@ type Auth struct {
 	// RSA: DER
 	// ED25519: 32B
 	Pub []byte
-	// base64URL encoding of the primary public key
+
+	// base64URL encoding of the primary public key.
+	// Will be added to Crypto-Keys p256ecdsa header field.
 	PubKey string
 
 	// Private key to use in both server and client authentication. This is the base of the VIP of the node.

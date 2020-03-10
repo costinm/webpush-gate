@@ -49,7 +49,7 @@ func NewMux() *Mux {
 		handlers:    map[string]MessageHandler{},
 	}
 
-	mux.Gate.mux = mux
+	mux.Gate.Mux = mux
 
 	return mux
 }
@@ -60,12 +60,16 @@ var DefaultMux = NewMux()
 //
 // Local handlers and debug tools/admin can subscribe.
 func Send(msgType string, meta ...string) {
-	DefaultMux.Send(msgType, meta...)
+	DefaultMux.Send(msgType, nil, meta...)
 }
 
 //
-func (mux *Mux) Send(msgType string, meta ...string) error {
-	ev := &Message{To: msgType, Meta: map[string]string{}}
+func (mux *Mux) Send(msgType string, data interface{}, meta ...string) error {
+	ev := &Message{
+		To: msgType,
+		Meta: map[string]string{},
+		Data: data,
+	}
 	for i := 0; i < len(meta); i += 2 {
 		ev.Meta[meta[i]] = meta[i+1]
 	}

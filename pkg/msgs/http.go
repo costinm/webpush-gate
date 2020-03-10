@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"golang.org/x/net/websocket"
 )
 
 type Backoff interface {
@@ -19,23 +18,6 @@ type Backoff interface {
 }
 
 var ReceiveBaseUrl = "https://127.0.0.1:5228/"
-
-// Mux corresponds to a server with TLS certificates.
-// MTLS is optional, can be used instead of VAPID tokens.
-func (gate *Gateway) InitMux(mux *http.ServeMux) {
-	mux.HandleFunc("/msg/", HTTPHandlerSend)
-	mux.HandleFunc("/s/", HTTPHandlerSend)
-	mux.HandleFunc("/subscribe", SubscribeHandler)
-	mux.HandleFunc("/p/", gate.HTTPHandlerEventStream)
-	ws := &websocket.Server{
-		Config:    websocket.Config{},
-		Handshake: nil,
-		Handler: func(conn *websocket.Conn) {
-			gate.websocketStream(conn)
-		},
-	}
-	mux.Handle("/ws", ws)
-}
 
 // Return the sticky and recent events.
 func DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
