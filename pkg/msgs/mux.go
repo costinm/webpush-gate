@@ -249,7 +249,7 @@ func (u *ChannelHandler) HandleMessage(ctx context.Context, cmdS string, meta ma
 }
 
 func (u *ChannelHandler) WaitEvent(name string) *Message {
-	tmax := time.After(20 * time.Second)
+	tmax := time.After(8 * time.Second)
 
 	for {
 		select {

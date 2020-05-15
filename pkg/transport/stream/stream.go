@@ -24,7 +24,6 @@ var (
 // Client or server event-stream connection.
 // Useful for debugging and sending messages to old browsers.
 // This is one of the simplest protocols.
-
 type EventStreamConnection struct {
 	msgs.MsgConnection
 }

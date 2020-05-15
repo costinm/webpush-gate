@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/costinm/wpgate/pkg/xds"
+	"github.com/costinm/wpgate/pkg/transport/xds"
 	"google.golang.org/grpc"
 	"log"
 	"net"
@@ -9,6 +9,7 @@ import (
 	"os"
 )
 
+// WIP: Start a webpush server, exposing common transports.
 func main() {
 	s := grpc.NewServer()
 	wp := &xds.GrpcService{}
