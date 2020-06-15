@@ -1,0 +1,49 @@
+# Very fast: build docker image with ko
+apiVersion: skaffold/v1
+kind: Config
+metadata:
+  name:	wps-ko
+build:
+  insecureRegistries:
+    - localhost:5000
+
+  tagPolicy:
+#    sha256: {}
+      dateTime:
+        format: "2006-01-02_15-04"
+
+  artifacts:
+  # The base image can add debug tools and other utilities
+  # The name must match what's in the manifest
+  # Skaffold is mangling the names - so is ko
+  - image: wps
+    context: .
+
+    # Pushed to pod instead of rebuild
+    sync:
+      manual:
+        - src: "docs/**"
+          dest: "."
+
+    custom:
+      buildCommand: ./bin/build.sh
+      dependencies:
+        # Explicit - can also guess from Dockerfile
+        paths:
+          - "pkg/**"
+          - "cmd/**"
+          - "go.mod"
+          - "go.sum"
+
+deploy:
+  kubectl:
+    manifests:
+      - k8s/wps/wps.yaml
+
+portForward:
+  - resourceType: deployment
+    namespace: wps
+    resourceName: wps
+    port: 8080
+
+

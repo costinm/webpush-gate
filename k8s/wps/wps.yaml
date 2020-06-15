@@ -76,10 +76,17 @@ spec:
       serviceAccountName: default
       containers:
         - name: app
-          image: gcr.io/costin-istio/wps:latest
+          #image: localhost:5000/wps:2020-05-24
+          #image: localhost:5000/wps:2020-05-24
+          image: wps:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
+              name: grpc
+            - containerPort: 8000
+              name: http
+            - containerPort: 9000
+              name: noise1
 #          readinessProbe:
 #            httpGet:
 #              path: /ready

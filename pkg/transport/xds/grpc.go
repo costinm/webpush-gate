@@ -80,10 +80,9 @@ type Connection struct {
 }
 
 func NewXDS(mux *msgs.Mux) *GrpcService {
-	g:= &GrpcService{Mux: mux,
+	g := &GrpcService{Mux: mux,
 		clients: map[string]*Connection{},
 	}
-
 
 	return g
 }
@@ -101,7 +100,7 @@ func (s *GrpcService) StreamAggregatedResources(stream AggregatedDiscoveryServic
 	con := &Connection{
 		Connect:     t0,
 		PeerAddr:    peerAddr,
-		SStream:      stream,
+		SStream:     stream,
 		NonceSent:   map[string]string{},
 		Metadata:    map[string]string{},
 		Watched:     map[string][]string{},
@@ -132,7 +131,7 @@ func (s *GrpcService) StreamAggregatedResources(stream AggregatedDiscoveryServic
 	go func() {
 		for {
 			// Blocking. Separate go-routines may use the stream to push.
-			req, err := Recv()
+			req, err := stream.Recv()
 			if err != nil {
 				if status.Code(err) == codes.Canceled || err == io.EOF {
 					log.Printf("ADS: %q %s terminated %v", con.PeerAddr, con.ConID, err)
@@ -155,7 +154,7 @@ func (s *GrpcService) StreamAggregatedResources(stream AggregatedDiscoveryServic
 	for {
 		select {
 		case res, _ := <-con.resChannel:
-			err := Send(res)
+			err := stream.Send(res)
 			if err != nil {
 				return err
 			}
@@ -178,7 +177,7 @@ func (s *GrpcService) process(connection *Connection, request *Request) error {
 			From:       "",
 			Data:       r,
 			TS:         time.Now(),
-			Meta: map[string]string{},
+			Meta:       map[string]string{},
 			Connection: nil,
 			Topic:      "",
 		})
@@ -192,14 +191,14 @@ func (fx *GrpcService) SendAll(r *Response) {
 
 		r.Nonce = fmt.Sprintf("%v", time.Now())
 		con.NonceSent[r.TypeUrl] = r.Nonce
-		Send(r)
+		con.SStream.Send(r)
 	}
 }
 
 func (fx *GrpcService) Send(con *Connection, r *Response) error {
 	r.Nonce = fmt.Sprintf("%v", time.Now())
 	con.NonceSent[r.TypeUrl] = r.Nonce
-	return Send(r)
+	return con.SStream.Send(r)
 }
 
 func Connect(addr string, clientPem string) (*grpc.ClientConn, AggregatedDiscoveryServiceClient, error) {

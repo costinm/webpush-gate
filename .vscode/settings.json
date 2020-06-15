@@ -1,0 +1,6 @@
+{
+    "idf.pythonSystemBinPath": "/usr/bin/python3",
+    "idf.espIdfPath": "/home/costin/esp-idf",
+    "idf.toolsPath": "/home/costin/.espressif",
+    "cmake.configureOnOpen": false
+}

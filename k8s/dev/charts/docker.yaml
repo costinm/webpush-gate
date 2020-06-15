@@ -1,0 +1,68 @@
+# Runs a docker-mounted dev image.
+# Can build images in the node's docker.
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: docker
+  namespace: dev
+  labels:
+    app: docker
+spec:
+  replicas: 1
+  selector:
+    app: docker
+  template:
+    metadata:
+      labels:
+        app: docker
+      annotations:
+        sidecar.istio.io/proxyImage: istio/proxyv2:1.5.0
+    spec:
+      containers:
+        - name: ubuntu
+          #image: ubuntu
+          image: gcr.io/istio-testing/build-tools:master-2020-05-20T22-13-03
+          command: [ "sleep" ]
+          args: [ "infinity" ]
+
+          volumeMounts:
+          - mountPath: /var/run/docker.sock
+            name: docker-socket-volume
+          - mountPath: /work
+            name: src
+
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 5000
+              name: docker
+              protocol: TCP
+          env:
+            - name: DOCKER_HOST_DIND
+              value: tcp://localhost:2375
+
+
+        # Experimenting with DIND
+        - name: dind
+          image: docker:18.05-dind
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: dind-storage
+              mountPath: /var/lib/docker
+
+      volumes:
+        - name: dind-storage
+          emptyDir: {}
+
+        - name: docker-socket-volume
+          hostPath:
+              path: /var/run/docker.sock
+              type: File
+
+        - name: src
+          persistentVolumeClaim:
+              claimName: src
+
+# Alternative: DIND
+# Will build images in DIND, not docker's node. Must be pushed to registry
