@@ -7,18 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 )
-
-// Metric is an interface for libraries updating metrics
-type Metric interface {
-	Add(float64)
-}
-
-type MetricProvider interface {
-	Metric(string) Metric
-}
-
 
 // Gateway handles the incoming and outgoing connections, and adaptation between
 // protocols. Messages for local pod are handled by Mux.
@@ -35,14 +24,12 @@ type Gateway struct {
 	Mux    *Mux
 }
 
-
 // One connection - incoming or outgoing. Can send messages to the remote end, which may in turn forward
 // messages for other nodes.
 //
 // Incoming messages are dispatched to the mux, which may deliver locally or forward.
 //
 type MsgConnection struct {
-
 	gate *Gateway
 
 	// Key used in mux to track this connection
@@ -202,7 +189,7 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *b
 
 			parts := strings.Split(ev.To, "/")
 			if len(parts) < 2 {
-		 		log.Println("Invalid To", parts)
+				log.Println("Invalid To", parts)
 				continue
 			}
 			top := parts[1]
@@ -239,4 +226,3 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *b
 		}
 	}
 }
-

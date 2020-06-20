@@ -5,6 +5,16 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "wpss",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/wps",
+            "env": {},
+            "trace": "verbose",
+            "args": []
+        },
+        {
             "name": "Launch",
             "type": "go",
             "request": "launch",

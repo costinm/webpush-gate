@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,7 +57,7 @@ type Auth struct {
 	Config ConfStore
 
 	// Name and domain to include in the self-signed cert.
-	Name   string
+	Name string
 
 	// Identifies the domain of the node.
 	// Added to the 'sub' field in Vapid messages. Can be an email or domain.
@@ -126,8 +127,6 @@ type Subscription struct {
 	Location string
 }
 
-
-
 type Root struct {
 	hosts []string
 }
@@ -176,6 +175,32 @@ type ConfStore interface {
 	Set(conf string, data []byte) error
 }
 
+func Conf(cs ConfStore, name, def string) string {
+	if cs == nil {
+		return def
+	}
+	b, _ := cs.Get(name)
+	if b == nil {
+		return def
+	}
+	return string(b)
+}
+
+func ConfInt(cs ConfStore, name string, def int) int {
+	if cs == nil {
+		return def
+	}
+	b, _ := cs.Get(name)
+	if b == nil {
+		return def
+	}
+	v, err := strconv.Atoi(string(b))
+	if err != nil {
+		return def
+	}
+	return v
+}
+
 // Initialize the certificates, loading or generating them.
 // If cfg is nil, will generate certs but not save.
 //
@@ -213,6 +238,7 @@ func NewAuth(cfg ConfStore, name, domain string) *Auth {
 
 	return auth
 }
+
 // NewVapid constructs a new Vapid generator from EC256 public and private keys,
 // in base64 uncompressed format.
 func NewVapid(publicKey, privateKey string) (v *Auth) {
@@ -225,11 +251,11 @@ func NewVapid(publicKey, privateKey string) (v *Auth) {
 	pkey := ecdsa.PrivateKey{PublicKey: pubkey, D: d}
 
 	v = &Auth{
-		Pub: publicUncomp,
-		Priv: privateUncomp,
-		Authorized: map[string]string{},
-		PubKey: 						publicKey,
-		EC256PrivateKey:      &pkey}
+		Pub:             publicUncomp,
+		Priv:            privateUncomp,
+		Authorized:      map[string]string{},
+		PubKey:          publicKey,
+		EC256PrivateKey: &pkey}
 
 	return
 }

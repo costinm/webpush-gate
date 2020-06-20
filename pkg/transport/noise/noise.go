@@ -19,19 +19,18 @@ import (
 
 const printedLength = 8
 
-func New() {
+func New(port uint16) {
 	logger, err := zap.NewDevelopment(zap.AddStacktrace(zap.PanicLevel))
 	defer logger.Sync()
-	log :=logger.Sugar()
+	log := logger.Sugar()
 
-	alice, err := noise.NewNode(noise.WithNodeLogger(logger), 
-		noise.WithNodeBindPort(9000))
-	
+	alice, err := noise.NewNode(noise.WithNodeLogger(logger),
+		noise.WithNodeBindPort(port))
+
 	if err != nil {
 		panic(err)
 	}
 	//node.RegisterMessage(chatMessage{}, unmarshalChatMessage)
-
 
 	events := kademlia.Events{
 		OnPeerAdmitted: func(id noise.ID) {
@@ -42,14 +41,13 @@ func New() {
 		},
 	}
 	overlay := kademlia.New(kademlia.WithProtocolEvents(events))
-	
+
 	alice.Bind(overlay.Protocol())
 
 	alice.Handle(func(ctx noise.HandlerContext) error {
 		if !ctx.IsRequest() {
 			return nil
 		}
-
 
 		//obj, err := ctx.DecodeMessage()
 		//if err != nil {
@@ -60,7 +58,6 @@ func New() {
 		//if !ok {
 		//	return nil
 		//}
-
 
 		log.Debug("Got a message from Alice: '%s'\n", string(ctx.Data()))
 
