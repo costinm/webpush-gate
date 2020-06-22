@@ -3,6 +3,7 @@ package msgs
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -84,10 +85,19 @@ func (gate *Gateway) RemoveConnection(id string, cp *MsgConnection) {
 func (mc *MsgConnection) Close() {
 	mc.gate.RemoveConnection(mc.Name, mc)
 }
+func (mux *Gateway) Id() string {
+	mutex.Lock()
+	defer mutex.Unlock()
+	id++
+	return fmt.Sprintf("%d", id)
+}
 
 // Message from a remote, will be forwarded to subscribed connections.
 func (mux *Gateway) OnRemoteMessage(ev *Message, from, self string, connName string) error {
 	// Local handlers first
+	if ev.Id == "" {
+		ev.Id = mux.Id()
+	}
 	parts := strings.Split(ev.To, "/")
 	if len(parts) < 2 {
 		return nil

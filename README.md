@@ -1,13 +1,14 @@
 # TL;DR
 
-Goal: decentralized and secure messaging, supporting multiple 'backends'
+Goals: 
+- decentralized and secure messaging
+- multiple backends - like NATS, Pubsub, etc via CNCF eventing 
+- multiple transports - envoy XDS, SSH, etc
+- secure multi-hop/mesh/jump hosts between nodes
+- based on transport, create e2e secure streams between nodes.
 
-Messaging protocol: Webpush with e2e encryption, using a gRPC transport based on
-Envoy XDS/UDPA. 
-
-How: Istio-like sidecar intercepting outgoing plain text messages, 
-encryption using Webpush, and delivery using CloudEvents SDK and custom code.
-
+Core messaging protocol: Webpush with e2e encryption
+Core stream transports: SSH and H2 gRPC transport based on Envoy XDS/UDPA. 
 
 # Event and messaging protocols
 
@@ -131,13 +132,16 @@ WIP
 
 ## Code organization
 
+- mesh - core interfaces, model, Gateway
+
 - auth - key pairs, encryption, VAPID JWT, certificates, simple authorization. Because an older version 
 of this was using SSH, it also has support for reading and reusing SSH authorized_keys and known_hosts, and
 may use the ssh keys. Message transport over SSH and streams are in a different repo.
+Also handles basic config (in auth because it'll need to be secured/signed).
 
 - cncf - integration with cloudevents SDS
 
-- h2 - WIP for real standard PUSH_PROMISE delivery of messages. H3 will also be here.
+- h2 - H2 handling code, WIP for real standard PUSH_PROMISE delivery of messages. H3 will also be here.
 
 - msgs - basic interfaces - Mux, Message, protos
 

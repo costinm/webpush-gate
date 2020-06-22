@@ -8,7 +8,9 @@
 # Local: use local docker, faster
 export KO_DOCKER_REPO=localhost:5000
 
-env
+#env
+
+# IMAGE: localhost:5001/wps:TAG
 
 TAG=$(echo $IMAGE | cut -d: -f 3)
 echo TAG $TAG

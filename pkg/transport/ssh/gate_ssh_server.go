@@ -274,6 +274,27 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	log.Println("SSHD: end chans", scon.VIP6)
 }
 
+// Server connection from one SSHClientConn client - inbound
+type SSHServerConn struct {
+	SSHConn
+
+	sshConn *ssh.ServerConn
+	Remote  string
+}
+
+func (sshS *SSHServerConn) ForwardSocks() {
+	panic("implement me")
+}
+
+func (sshS *SSHServerConn) ForwardTCP(local, remote string) error {
+	panic("implement me")
+}
+
+func (sshS *SSHServerConn) Close() error {
+	log.Println("SSHD: Close", sshS.VIP6, sshS.sshConn.RemoteAddr())
+	return sshS.sshConn.Close()
+}
+
 // Global requests
 func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n *mesh.DMNode, nConn net.Conn, conn *ssh.ServerConn, vipHex string, sshGate *SSHGate) {
 	scon.Remote = nConn.RemoteAddr().String()

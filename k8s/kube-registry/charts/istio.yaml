@@ -139,14 +139,14 @@ spec:
     tls:
       mode: DISABLE
 ---
-apiVersion: networking.istio.io/v1beta1
-kind: VirtualService
-metadata:
-  name: kr
-  namespace: kube-registry
-spec:
-  gateways:
-  - istio-system/ingressgateway
-  hosts:
-  - istiod.asm.istio.webinf.info
-  
+#apiVersion: networking.istio.io/v1beta1
+#kind: VirtualService
+#metadata:
+#  name: kr
+#  namespace: kube-registry
+#spec:
+#  gateways:
+#  - istio-system/ingressgateway
+#  hosts:
+#  - istiod.asm.istio.webinf.info
+#

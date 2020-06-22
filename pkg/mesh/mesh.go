@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -23,34 +24,14 @@ type Mesh struct {
 	// connected devices.
 	Nodes map[uint64]*DMNode
 
-	// If set, the p2p- interface name of the current active AP
-	// The name may change - used to adjust the address/zone of nodes.
-	// All nodes have LL addresses including the old zone - might be better to remove any known node,
-	// and wait for it to reannounce or respond to our announce. It'll take some time to reconnect as well.
-	ActiveP2P string
-
 	// Vpns contains trusted VPN servers, or exit points.
 
 	// Vpn is the currently active VPN server. Will be selected from the list of
 	// known VPN servers (in future - for now hardcoded to the test server)
 	Vpn string
 
-	// Set to the SSID of the main connection. 'w' param in the net status message.
-	ConnectedWifi string
-	WifiFreq      string
-	WifiLevel     string
-
 	// User agent - hostname or android build id or custom.
 	UA string
-
-	// Zero if AP is not running. Set to the time when AP started.
-	APStartTime time.Time
-	APRunning   bool
-
-	// SSID and password of the AP
-	AP     string
-	APFreq string
-	PSK    string
 
 	// List of public IPs detected. Updated by registry code.
 	// On a regular SSH server - may be detected using a shell script or dmcli, or known as the address of the
@@ -59,10 +40,6 @@ type Mesh struct {
 
 	// Address of the VPN gateway ( SSH or H2 ), where the device can be reached.
 	GWAddr string
-
-	// UpstreamAP is set if a local announce or registration from an AP has been received. In includes the IP4 and IP6
-	// of the AP and info. Will be used by Dial to initiate multiplexed connections ( SSH, future QUIC )
-	UpstreamAP *DMNode
 }
 
 func NewMesh() Mesh {
@@ -187,6 +164,7 @@ type TunDialer interface {
 	DialProxy(tp *Stream) error
 }
 
+// Glue to TUN, to avoid direct deps.
 // Used to avoid a direct dependency - for example in netstack.
 // TcpProxy implements this interface.
 type StreamProxy interface {
@@ -195,10 +173,25 @@ type StreamProxy interface {
 	Close()
 }
 
-// ClientDialer is implemented by streams like SSH
+// Interface implemented by Gateway.
+type TcpGateway interface {
+	NewStream(addr net.IP, port uint16, ctype string, initialData []byte, clientIn io.ReadCloser, clientOut io.Writer) interface{}
+}
+
+// Interface implemented by the L3 capturing Gateway.
+type UDPGateway interface {
+	// Handle an intercepted UDP packet.
+	HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte)
+}
+
+func (gw *Gateway) HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte) {
+
+}
+
+// JumpHost is implemented by streams like SSH
 // client, that allow jumping to new destinations.
 // Example SSHClientConn.
-type ClientDialer interface {
+type JumpHost interface {
 	TunDialer
 
 	// ForwardSocks opens a port on the gateway which will dynamically
@@ -208,6 +201,10 @@ type ClientDialer interface {
 	// ForwardTCP uses the gateway to forward 'remote' on the
 	// gateway to a local port.
 	ForwardTCP(local, remote string) error
+
+	Close() error
+
+	RemoteVIP() net.IP
 }
 
 // MUXDialer is implemented by a transport that can be
@@ -222,7 +219,7 @@ type MUXDialer interface {
 	// or a child. The subsriptions are used to indicate what messages will be forwarded to the server.
 	// Typically VPN will receive all events, AP will receive subset of events related to topology while
 	// child/peer only receive directed messages.
-	DialMUX(addr string, pub []byte, subs []string) (ClientDialer, error)
+	DialMUX(addr string, pub []byte, subs []string) (JumpHost, error)
 }
 
 // ReverseForwarder is used to tunnel accepted connections over a multiplexed stream.
@@ -313,3 +310,71 @@ type ActiveInterface struct {
 	// True if this interface is connected to an Android DM node.
 	AndroidAPClient bool
 }
+
+type ScanResults struct {
+	// Visible devices at this moment
+	Scan []*MeshDevice `json:"scan,omitempty"`
+
+	Stats string `json:"stat,omitempty"`
+
+	// Visible wifi networks (all kinds)
+	Visible int `json:"visible,omitempty"`
+
+	// My SSID and PSK
+	SSID          string `json:"s,omitempty"`
+	PSK           string `json:"p,omitempty"`
+	ConnectedWifi string `json:"w,omitempty"`
+	Freq          int    `json:"f,omitempty"`
+	Level         int    `json:"l,omitempty"`
+}
+
+// WifiRegistrationInfo contains information about the wifi node sent to the
+// other nodes, to sync up visibility info.
+//
+type WifiRegistrationInfo struct {
+	// Visible P2P devices in the mesh. This includes active APs as well as devices announcing via
+	// BLE or NAN (or other means).
+	Devices map[string]*MeshDevice `json:"devices,omitempty"`
+
+	SSID string `json:"ssid,omitempty"`
+	PSK  string `json:"psk,omitempty"`
+
+	// Network we are connected to.
+	// TODO: In case of chained P2P networks, should be either the path, or a separate field should include the path
+	// and the net should be the 'top level' network of the root.
+	Net string `json:"net,omitempty"`
+
+	// Number of visible wifi networks (all kinds)
+	VisibleWifi int `json:"scanCnt,omitempty"`
+}
+
+// Info about a device from the P2P info.
+type MeshDevice struct {
+	SSID string `json:"s,omitempty"`
+	PSK  string `json:"p,omitempty"`
+
+	// MAC is used with explicit P2P connect ( i.e. no hacks )
+	// User input required on the receiving end ( PBC )
+	MAC string `json:"d,omitempty"`
+
+	Name string `json:"N,omitempty"`
+
+	// Set only if the device is currently visible in scan
+	Level int `json:"l,omitempty"`
+	Freq  int `json:"f,omitempty"`
+
+	// Extracted from DIRECT DNSSD
+	UserAgent string `json:"ua,omitempty"`
+	Net       string `json:"n,omitempty"`
+
+	Cap   string `json:"c,omitempty"`
+	BSSID string `json:"b,omitempty"`
+
+	LastSeen time.Time `json:"lastSeen,omitempty"`
+
+	Self int `json:"self,omitempty"`
+	// Only on supplicant,not on android
+	ServiceUpdateInd int `json:"sui,omitempty"`
+}
+
+func (md *MeshDevice) String() string { return fmt.Sprintf("%s/%d", md.SSID, md.Level) }

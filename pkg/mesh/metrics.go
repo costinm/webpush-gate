@@ -41,9 +41,9 @@ import (
 
 var (
 	// Will be set by one of the metrics options to wrap a handler and transport
-	metricsHandlerWrapper func(http.Handler) http.Handler
+	MetricsHandlerWrapper func(http.Handler) http.Handler
 
-	metricsClientTransportWrapper func(tripper http.RoundTripper) http.RoundTripper
+	MetricsClientTransportWrapper func(tripper http.RoundTripper) http.RoundTripper
 )
 
 // TODO: auto-expose expvar ( see zserge )

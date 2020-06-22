@@ -97,62 +97,7 @@ func NewSSHGate(gw *mesh.Gateway, certs *auth.Auth) *SSHGate {
 	return sg
 }
 
-type SSHConn struct {
-	gate *SSHGate
-	Addr string
-
-	// Key of the remote side ( received )
-	pubKey              []byte
-	Connect             time.Time
-	SubscriptionsToSend []string
-
-	msgChannel ssh.Channel
-	vip        uint64
-	VIP6       net.IP
-
-	Node *mesh.DMNode
-}
-
-func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
-	if sc == nil || sc.msgChannel == nil {
-		return nil
-	}
-	ba := ev.MarshalJSON()
-	sc.msgChannel.Write(ba)
-	sc.msgChannel.Write([]byte{'\n'})
-
-	return nil
-}
-
-// SSHClientConn client connection - outbound.
-type SSHClientConn struct {
-	SSHConn
-
-	sshclient *ssh.Client
-}
-
-// Server connection from one SSHClientConn client - inbound
-type SSHServerConn struct {
-	SSHConn
-
-	sshConn *ssh.ServerConn
-	Remote  string
-}
-
-func (sshS *SSHServerConn) ForwardSocks() {
-	panic("implement me")
-}
-
-func (sshS *SSHServerConn) ForwardTCP(local, remote string) error {
-	panic("implement me")
-}
-
-func (sshS *SSHServerConn) Close() error {
-	log.Println("SSHD: Close", sshS.VIP6, sshS.sshConn.RemoteAddr())
-	return sshS.sshConn.Close()
-}
-
-func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.ClientDialer, error) {
+func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.JumpHost, error) {
 	signer, err := ssh.NewSignerFromKey(sshGate.certs.EC256PrivateKey) // ssh.Signer
 
 	user := "dmesh"
@@ -303,7 +248,48 @@ func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.Cl
 	return ssc, nil
 }
 
-func (sshC *SSHClientConn) Close() {
+type SSHConn struct {
+	gate *SSHGate
+
+	// Remote address (IP:port) of the directly
+	// connected peer.
+	Addr string
+
+	// Key of the remote side ( received )
+	pubKey              []byte
+	Connect             time.Time
+	SubscriptionsToSend []string
+
+	msgChannel ssh.Channel
+	vip        uint64
+	VIP6       net.IP
+
+	Node *mesh.DMNode
+}
+
+func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
+	if sc == nil || sc.msgChannel == nil {
+		return nil
+	}
+	ba := ev.MarshalJSON()
+	sc.msgChannel.Write(ba)
+	sc.msgChannel.Write([]byte{'\n'})
+
+	return nil
+}
+
+func (sc *SSHConn) RemoteVIP() net.IP {
+	return sc.VIP6
+}
+
+// SSHClientConn client connection - outbound.
+type SSHClientConn struct {
+	SSHConn
+
+	sshclient *ssh.Client
+}
+
+func (sshC *SSHClientConn) Close() error {
 	sshC.gate.cmetrics.Active.Add(-1)
 	sshC.gate.cmetrics.Latency.Add(time.Since(sshC.Connect).Seconds())
 
@@ -311,7 +297,7 @@ func (sshC *SSHClientConn) Close() {
 	if sshC.msgChannel != nil {
 		sshC.msgChannel.Close()
 	}
-	sshC.sshclient.Close()
+	return sshC.sshclient.Close()
 }
 
 // Programmatic forward of  port, exposing it on all SSHClientConn VPN gateways we are connected to.

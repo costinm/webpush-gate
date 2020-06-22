@@ -6,30 +6,17 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/stream"
 	ws "golang.org/x/net/websocket"
 )
 
-var (
-	// createBuffer to get a buffer. Inspired from caddy.
-	// See PooledIOCopy for example
-	bufferPoolCopy = sync.Pool{New: func() interface{} {
-		return make([]byte, 0, 8*1024)
-	}}
-)
-
 // Client or server event-stream connection.
 // Useful for debugging and sending messages to old browsers.
 // This is one of the simplest protocols.
 
-type EventStreamConnection struct {
-	msgs.MsgConnection
-}
-
-func WSTransport(gate *msgs.Gateway, mux *http.ServeMux) {
+func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
 	ws := &ws.Server{
 		Config:    ws.Config{},
 		Handshake: nil,
@@ -38,14 +25,13 @@ func WSTransport(gate *msgs.Gateway, mux *http.ServeMux) {
 		},
 	}
 	mux.Handle("/ws", ws)
-
 }
 
 // Websocket stream - each frame is a message.
 // Currently using a special protocol - derived from 'disaster radio' - since
 // I'm testing LoRA and related IoT protocols.
 // Will eventually use protobufs (after I fix the firmware)
-func websocketStream(gate *msgs.Gateway, conn *ws.Conn) {
+func websocketStream(mux *msgs.Mux, conn *ws.Conn) {
 	data := make([]byte, 4096)
 	fr, err := conn.NewFrameReader()
 	if err != nil {
@@ -90,7 +76,7 @@ func websocketStream(gate *msgs.Gateway, conn *ws.Conn) {
 			}
 			// <from> cmd params ?
 			log.Printf("WS: %s %s\n", from, body)
-			gate.Mux.SendMessage(&msgs.Message{
+			mux.SendMessage(&msgs.Message{
 				Id:         fmt.Sprintf("%X%X", data[0], data[1]),
 				To:         "/" + body,
 				Subject:    "",
@@ -108,4 +94,3 @@ func websocketStream(gate *msgs.Gateway, conn *ws.Conn) {
 		}
 	}
 }
-

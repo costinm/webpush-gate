@@ -6,7 +6,7 @@
     <option name="imageRepositoryOverride" value="costinm" />
     <option name="kubernetesContext" />
     <option name="redeployOnChanges" value="true" />
-    <option name="skaffoldConfigurationFilePath" value="$PROJECT_DIR$/../wpgate/skaffold-kube-registry.yaml" />
+    <option name="skaffoldConfigurationFilePath" value="$PROJECT_DIR$/../wpgate/k8s/kube-registry/skaffold.yaml"/>
     <option name="skaffoldNamespace" />
     <option name="skaffoldProfile" />
     <option name="verbosity" value="INFO" />

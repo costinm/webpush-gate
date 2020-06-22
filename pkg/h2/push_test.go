@@ -3,7 +3,6 @@ package h2
 import (
 	"crypto/tls"
 	"fmt"
-	"golang.org/x/net/http2"
 	"io/ioutil"
 	"log"
 	"net"
@@ -11,6 +10,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"golang.org/x/net/http2"
 )
 
 func newLocalListener(t *testing.T) net.Listener {

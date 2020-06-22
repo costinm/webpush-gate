@@ -65,6 +65,12 @@ import (
 // TODO: emulate SSHClientConn protocol over H3 ( H2 connections framed )
 // TODO: send a message to request client to open a reverse TCP channel for each accepted connection
 
+func NewForwarder(gw *mesh.Gateway, cfg *mesh.ListenerConf) {
+	pl, _ := NewPortListener(gw, cfg.Local)
+	pl.AddEndpointHost(cfg.Remote)
+	go pl.Run()
+}
+
 // Create a local port on listenPort, accepting connections to be forwarded to the mesh VIP or a
 // defined IP address. Implements -R in ssh.
 func NewPortListener(gw *mesh.Gateway, listenPort string) (*Listener, error) {

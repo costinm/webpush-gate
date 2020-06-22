@@ -54,11 +54,11 @@ type TcpProxy struct {
 	// - For accept, a net.Conn
 	// - for TCP-over-HTTP server - req.Body
 	// - ...
-	clientIn io.ReadCloser
+	ClientIn io.ReadCloser
 
 	// A chunk of initial data, to be sent before localIn.
 	// Currently not used - SNI proxy and other cases where data is sent along var-len header might use it.
-	initial []byte
+	Initial []byte
 
 	// Client stream writer.
 	//
@@ -68,10 +68,10 @@ type TcpProxy struct {
 	//
 	// When the remoteIn is closed, the appropriate CloseWrite must be called, to send the FIN to the other side.
 	// Note that reading from clientIn might continue.
-	clientOut io.Writer
+	ClientOut io.Writer
 
 	// remoteCtx is a context associated with the remote side connection, for example in http cases.
-	remoteCtx context.CancelFunc
+	RemoteCtx context.CancelFunc
 
 	// Track the status of the 2 FIN. If both FINs are set, the inputs are also closed and proxy is done.
 
@@ -79,7 +79,7 @@ type TcpProxy struct {
 	// Used for VPN-accepted connections,
 	LocalDest bool
 
-	sshConn ReverseForwarder
+	sshConn ReverseForwarder2
 
 	localAddr net.Addr
 }
@@ -108,7 +108,7 @@ func (tp *TcpProxy) Close() error {
 	// will be called 2x - probably need to make sure all proxy creation is associated with a defer close before
 	// Dial() and Gateway()
 	if !tp.ClientClose {
-		closeWrite(tp.clientOut, false)
+		closeWrite(tp.ClientOut, false)
 		tp.ClientClose = true
 	}
 	if !tp.ServerClose {
@@ -141,11 +141,6 @@ func (tp *TcpProxy) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// Glue code for tun
-func (gw *Gateway) NewStream(addr net.IP, port uint16, ctype string, initialData []byte, clientIn io.ReadCloser, clientOut io.Writer) interface{} {
-	return gw.NewTcpProxy(&net.TCPAddr{IP: addr, Port: int(port)}, ctype, initialData, clientIn, clientOut)
-}
-
 // Implements the http.Transport.DialContext function - used for dialing requests using
 // custom net.Conn.
 //
@@ -160,6 +155,11 @@ func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn 
 	return tp, nil
 }
 
+// Glue for interface type. The interface is a StreamProxy
+func (gw *Gateway) NewStream(addr net.IP, port uint16, ctype string, initialData []byte, clientIn io.ReadCloser, clientOut io.Writer) interface{} {
+	return gw.NewTcpProxy(&net.TCPAddr{IP: addr, Port: int(port)}, ctype, initialData, clientIn, clientOut)
+}
+
 // Initiate and track the TcpProxy object.
 // Requires an "Id" key to be set - based on the source only.
 // ctype represents the type of the acceptor.
@@ -168,7 +168,11 @@ func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn 
 // The original source may be different.
 //
 // clientOut can be a http.ResponseWriter or net.Conn
-func (gw *Gateway) NewTcpProxy(src net.Addr, ctype string, initialData []byte, clientIn io.ReadCloser, clientOut io.Writer) *TcpProxy {
+func (gw *Gateway) NewTcpProxy(src net.Addr,
+	ctype string,
+	initialData []byte,
+	clientIn io.ReadCloser,
+	clientOut io.Writer) *TcpProxy {
 	var origIP net.IP
 	var origPort int
 	if tsrc, ok := src.(*net.TCPAddr); ok {
@@ -195,9 +199,9 @@ func (gw *Gateway) NewTcpProxy(src net.Addr, ctype string, initialData []byte, c
 		},
 		localAddr: src,
 		gw:        gw,
-		initial:   initialData,
-		clientIn:  clientIn,
-		clientOut: clientOut,
+		Initial:   initialData,
+		ClientIn:  clientIn,
+		ClientOut: clientOut,
 	}
 
 	gw.trackTcpProxy(tp)
@@ -589,8 +593,8 @@ func (tp *TcpProxy) updateStatsOnClose(g *Gateway) {
 			r.Close()
 		}
 	}
-	if tp.clientIn != nil {
-		tp.clientIn.Close()
+	if tp.ClientIn != nil {
+		tp.ClientIn.Close()
 	}
 
 	log.Printf("TCPC: %d src=%s dst=%s rcv=%d/%d snd=%d/%d la=%v ra=%v op=%v dest=%v %v %s",
@@ -629,14 +633,14 @@ func (tp *TcpProxy) updateStatsOnClose(g *Gateway) {
 //---------------------------------------------------------------------------------
 // Buffer copy and proxy. Blocking. Called after the connection was established (Dial ok).
 func (tp *TcpProxy) ProxyConn(client net.Conn) error {
-	tp.clientIn = client
-	tp.clientOut = client
+	tp.ClientIn = client
+	tp.ClientOut = client
 	return tp.Proxy()
 }
 
 func (tp *TcpProxy) ProxyHTTPInTcpOut(clientOut http.ResponseWriter, clientIn io.ReadCloser) error {
-	tp.clientIn = clientIn
-	tp.clientOut = clientOut
+	tp.ClientIn = clientIn
+	tp.ClientOut = clientOut
 	// Close won't work - special.
 	return tp.Proxy()
 }
@@ -659,14 +663,16 @@ func (tp *TcpProxy) Proxy() error {
 
 	if tp.sshConn != nil {
 		// Special case - remote SSHClientConn.
-		tp.sshConn.ReverseForward(tp.clientIn, tp.clientOut, "0.0.0.0", 5222)
+		tp.sshConn.ReverseForward2(tp.ClientIn, tp.ClientOut,
+			tp.OriginIP, tp.OriginPort,
+			"0.0.0.0", 5222)
 
 	}
 
 	// Need to proxy localIn to remoteOut first.
-	go tp.gw.proxyClientToServer(tp, tp.ServerOut, tp.clientIn, errCh)
+	go tp.gw.proxyClientToServer(tp, tp.ServerOut, tp.ClientIn, errCh)
 
-	_, err := tp.gw.proxyServerToClient(tp, tp.clientOut, tp.ServerIn, errCh, false)
+	_, err := tp.gw.proxyServerToClient(tp, tp.ClientOut, tp.ServerIn, errCh, false)
 
 	tp.updateStatsOnClose(tp.gw)
 
@@ -731,7 +737,7 @@ func closeWrite(dst io.Writer, server bool) {
 func (tp *TcpProxy) proxyHttpServerBodyToClient() error {
 	proxyOverHttpClient.Add(1)
 
-	_, err := tp.CopyBuffered(tp.clientOut, tp.ServerIn, true)
+	_, err := tp.CopyBuffered(tp.ClientOut, tp.ServerIn, true)
 
 	// remote has closed its stream - FIN or RST.
 	// TODO: wait for local to close
@@ -740,7 +746,7 @@ func (tp *TcpProxy) proxyHttpServerBodyToClient() error {
 	tp.ServerIn.Close()
 
 	// Attempt to close out, to propagate the FIN.
-	if out1, ok := tp.clientOut.(io.Closer); ok {
+	if out1, ok := tp.ClientOut.(io.Closer); ok {
 		out1.Close()
 		remoteToLocalClose.Add(1)
 		if Debug {
@@ -794,7 +800,7 @@ func (gw *Gateway) proxyServerToClient(tcpProxy *TcpProxy,
 	errch <- err
 
 	closeIn(remoteIn) // likely already closed (remoteIn.Read returned error or EOF)
-	closeIn(tcpProxy.clientIn)
+	closeIn(tcpProxy.ClientIn)
 
 	return n, err
 }
@@ -805,14 +811,14 @@ func (gw *Gateway) proxyClientToServer(proxy *TcpProxy, remoteOut io.Writer, loc
 	//PooledIoCopy(dst, src)
 	var err error
 
-	if proxy.initial != nil {
-		_, err = proxy.ServerOut.Write(proxy.initial)
+	if proxy.Initial != nil {
+		_, err = proxy.ServerOut.Write(proxy.Initial)
 	}
 
 	// TODO: err, n to be sent on a channel, for metrics
 	if err != nil {
 
-	} else if proxy.clientIn == nil || proxy.ServerOut == nil {
+	} else if proxy.ClientIn == nil || proxy.ServerOut == nil {
 		err = io.EOF
 		log.Println("NULL ", localIn, proxy.ServerOut)
 	} else {

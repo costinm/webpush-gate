@@ -11,7 +11,7 @@ package mesh
 // Applications without support for proxies can be captured transparently- but requires root or CAP_NET.
 
 import (
-	"strconv"
+	"log"
 	"strings"
 
 	"github.com/costinm/wpgate/pkg/auth"
@@ -80,9 +80,6 @@ type Gateway struct {
 	// Set on port 0, to avoid allocating it each time
 	client *net.UDPAddr
 
-	// Timeout for UDP sockets. Default 60 sec.
-	ConnTimeout time.Duration
-
 	// NAT
 	udpLock   sync.RWMutex
 	ActiveUdp map[string]*UdpNat
@@ -90,7 +87,6 @@ type Gateway struct {
 
 	tcpLock   sync.RWMutex
 	ActiveTcp map[int]*TcpProxy
-
 	AllTcpCon map[string]*HostStats
 
 	// Set to true by Close, will result in the maintainance routines to exit
@@ -109,7 +105,7 @@ type Gateway struct {
 	Listeners map[int]Listener
 
 	// Client to VPN
-	SSHClient ClientDialer
+	SSHClient JumpHost
 
 	// Client to mesh expansion - not trusted, set when mesh expansion is in use.
 	// Used as a jump host to connect to the next destination.
@@ -117,29 +113,13 @@ type Gateway struct {
 	// TODO: this can also be used as 'egressGateway'
 	SSHClientUp TunDialer
 
-	activeMutex sync.RWMutex
-
-	// Will be updated with the list of active interfaces.
-	//DirectActiveInterfaces map[string]*DirectActiveInterface
-
-	// Track if any of the interfaces is an Wifi AP.
-	ApStopTime  time.Time
-	ApStartTime time.Time
-	ApRunTime   time.Duration
-
 	annMutex sync.RWMutex
 
 	// Indicate if this node will listen as master, using multicast
 	// Uses more battery, requires to respond and update clients.
 	Master bool
 
-	// Port used to listen for multicast messages. Default 5227.
-	mcPort int
-
-	// QUIC link-local listeners will be started on this port or following ports.
-	// Defaults to 6970
-	baseListenPort int
-	Auth           *auth.Auth
+	Auth *auth.Auth
 
 	// Listening on * for signed messages
 	// Source for sent messages and multicasts
@@ -177,9 +157,9 @@ type HostStats struct {
 type UdpNat struct {
 	Stream
 	// bound to a local port (on the real network).
-	udp *net.UDPConn
+	UDP *net.UDPConn
 
-	closed    bool
+	Closed    bool
 	LocalPort int
 
 	LastRemoteIP    net.IP
@@ -257,10 +237,8 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		AllTcpCon: make(map[string]*HostStats),
 		Listeners: make(map[int]Listener),
 		//upstreamMessageChannel: make(chan packet, 100),
-		ConnTimeout: 60 * time.Second,
-		Auth:        certs,
-		Config:      gcfg,
-		mcPort:      5227,
+		Auth:   certs,
+		Config: gcfg,
 	}
 
 	gw.client = &net.UDPAddr{
@@ -325,29 +303,49 @@ func (gw *Gateway) GetNodeByID(dmFrom uint64) (*DMNode, bool) {
 	return node, f
 }
 
-// Format an address + zone + port for use in HTTP request
-//
-func (gw *Gateway) FixIp6ForHTTP(addr *net.UDPAddr) string {
-	if addr.IP.To4() != nil {
-		return net.JoinHostPort(addr.IP.String(), strconv.Itoa(addr.Port))
-	}
-	if addr.Zone != "" {
-		// Special code for the case the p2p- interface has changed.
-		z := addr.Zone
-		if strings.Contains(addr.Zone, "p2p-") && gw.ActiveP2P != "" {
-			z = gw.ActiveP2P
-		}
-
-		return net.JoinHostPort(addr.IP.String()+"%25"+z, strconv.Itoa(addr.Port))
-	}
-
-	return addr.String()
-}
-
 func (gw *Gateway) IsMeshHost(hostport string) bool {
 	return strings.HasPrefix(hostport, "[fd00::") || strings.HasPrefix(hostport, "fd00::")
 }
 
 func (gw *Gateway) IsMeshAddr(host net.IP) bool {
 	return host.To4() == nil && host[0] == 0xFD && host[1] == 0
+}
+
+var tcpClose = 61 * time.Minute
+
+func (gw *Gateway) FreeIdleSockets() {
+	gw.tcpLock.Lock()
+	t0 := time.Now()
+	var tcpClientsToTimeout []int
+
+	for client, remote := range gw.ActiveTcp {
+		if t0.Sub(remote.LastClientActivity) > tcpClose &&
+			t0.Sub(remote.LastRemoteActivity) > tcpClose {
+			log.Printf("UDPC: %s:%d rcv=%d/%d snd=%d/%d ac=%v ra=%v op=%v la=%s",
+				remote.DestIP, remote.DestPort,
+				remote.RcvdPackets, remote.RcvdBytes,
+				remote.SentPackets, remote.SentBytes,
+				time.Since(remote.LastClientActivity), time.Since(remote.LastRemoteActivity), time.Since(remote.Open),
+				client)
+
+			tcpClientsToTimeout = append(tcpClientsToTimeout, client)
+		}
+	}
+	for _, client := range tcpClientsToTimeout {
+		tp := gw.ActiveTcp[client]
+
+		closeWrite(tp.ServerOut, true)
+		closeWrite(tp.ClientOut, false)
+		closeIn(tp.ServerIn)
+		closeIn(tp.ClientIn)
+
+		if tp.RemoteCtx != nil {
+			tp.RemoteCtx()
+		}
+
+		delete(gw.ActiveTcp, client)
+	}
+
+	gw.tcpLock.Unlock()
+
 }

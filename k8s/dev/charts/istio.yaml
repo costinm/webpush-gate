@@ -14,6 +14,8 @@ spec:
         name: httplocal
       defaultEndpoint: 127.0.0.1:5000
   egress:
+    # Only in NONE
+    # TODO: allow them in normal mode, as additions.
     - port:
         number: 5000
         protocol: HTTP
@@ -31,9 +33,9 @@ spec:
         - kube-registry/kube-registry2.kube-registry
 
     - hosts:
-        - kube-registry/kube-registry.kube-registry
+        #        - kube-registry/kube-registry.kube-registry
 #        - "~/*"
-
+        - "*"
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule

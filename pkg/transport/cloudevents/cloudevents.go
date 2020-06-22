@@ -12,7 +12,6 @@ import (
 	"github.com/costinm/wpgate/pkg/msgs"
 )
 
-
 //
 
 // Adapter to CloudEvents. Will receive CloudEvents via HTTP (or other sources),
@@ -50,7 +49,6 @@ func New(mux *msgs.Mux, c client.Client) (*CloudEvents, error) {
 	// or reuse the port.
 	// Same with the mux
 
-
 	//c, err := cloudevents.NewDefaultClient()
 	// Default:
 	// - http.New WithBinaryEncoding
@@ -58,8 +56,8 @@ func New(mux *msgs.Mux, c client.Client) (*CloudEvents, error) {
 	//
 
 	ce := &CloudEvents{
-		client: c,
-		mux: mux, // for dispatching incoming events
+		client:  c,
+		mux:     mux, // for dispatching incoming events
 		Targets: map[string]string{},
 	}
 
@@ -86,6 +84,7 @@ func New(mux *msgs.Mux, c client.Client) (*CloudEvents, error) {
 var (
 	conid = 1
 )
+
 func NewCloudEvents(mux *msgs.Mux, port int) (*CloudEvents, error) {
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	t, err := cloudevents.NewHTTPTransport(
@@ -104,6 +103,7 @@ func NewCloudEvents(mux *msgs.Mux, port int) (*CloudEvents, error) {
 	return New(mux, c)
 }
 
+// Forward messages to other cloudevents servers
 func (ce *CloudEvents) sendMessageToRemote(ev *msgs.Message) error {
 	event := cloudevents.NewEvent()
 	event.SetID(ev.Id)
@@ -113,14 +113,15 @@ func (ce *CloudEvents) sendMessageToRemote(ev *msgs.Message) error {
 	parts := strings.Split(ev.To, "/")
 
 	event.SetType(parts[1]) // "com.cloudevents.readme.sent")
+	// TODO: use the VIP6 or source
 	event.SetSource("http://localhost:8080/")
 
 	event.SetData(ev.Data)
 
-		t, err := cloudevents.NewHTTPTransport(
-			cloudevents.WithTarget("http://localhost:15004/send"),
-			cloudevents.WithEncoding(cloudevents.HTTPBinaryV02),
-		)
+	t, err := cloudevents.NewHTTPTransport(
+		cloudevents.WithTarget("http://localhost:15004/send"),
+		cloudevents.WithEncoding(cloudevents.HTTPBinaryV02),
+	)
 
 	// Alternatives: cloudevents.WithStructuredEncoding()
 
@@ -152,12 +153,12 @@ func (ce *CloudEvents) receive(ctx context.Context, event cloudevents.Event) { /
 
 	log.Println("MUX EVENT: ", event.Context)
 
-	if evb, ok := event.Data.([]byte) ; ok {
+	if evb, ok := event.Data.([]byte); ok {
 		log.Println("MUX EVENT DATA: ", string(evb))
 	}
 	// TODO: allow sending back a response ?
 	m := &msgs.Message{
-		Time: 			event.Time().String(),
+		Time:       event.Time().String(),
 		Id:         event.ID(),
 		To:         "/" + event.Type(),
 		Subject:    event.Subject(),
@@ -165,7 +166,7 @@ func (ce *CloudEvents) receive(ctx context.Context, event cloudevents.Event) { /
 		From:       event.Source(),
 		Data:       event.Data,
 		TS:         event.Time(),
-		Meta: map[string]string{},
+		Meta:       map[string]string{},
 		Connection: ce.mc,
 	}
 	for k, v := range event.Extensions() {
@@ -175,5 +176,3 @@ func (ce *CloudEvents) receive(ctx context.Context, event cloudevents.Event) { /
 	}
 	ce.mux.HandleMessageForNode(m)
 }
-
-

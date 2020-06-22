@@ -9,17 +9,6 @@ import (
 	"time"
 )
 
-// Interface implemented by the L3 capturing Gateway.
-type GatewayIF interface {
-
-	// Handle an intercepted UDP packet.
-	HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte)
-
-	// Called on capture of a TCP connection.
-	// Returning an interface to avoid hard deps. Will be a StreamProxy
-	NewStream(addr net.IP, port uint16, ctype string, initialData []byte, clientIn io.ReadCloser, clientOut io.Writer) interface{}
-}
-
 // Common to TCP and UDP proxies
 type Stream struct {
 	Open time.Time
@@ -114,10 +103,6 @@ var (
 	// See PooledIOCopy for example
 	bufferPoolCopy = sync.Pool{New: func() interface{} {
 		return make([]byte, 0, 32*1024)
-	}}
-
-	bufferPoolUdp = sync.Pool{New: func() interface{} {
-		return make([]byte, 0, 1600)
 	}}
 )
 
