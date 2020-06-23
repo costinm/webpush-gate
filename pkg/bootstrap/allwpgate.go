@@ -15,6 +15,7 @@ import (
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/accept"
 	"github.com/costinm/wpgate/pkg/transport/cloudevents"
+	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/noise"
 	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
@@ -30,12 +31,22 @@ import (
 // binaries for smaller footprint and reduce functionality.
 
 var (
+	// XDS, etc - istiod port
 	GRPC = 12
 
+	// curl -x http://127.0.0.10.0.0.0:15003
+	HTTP_PROXY   = 3
+
+	//  -x socks5://127.0.0.1:15004
 	SOCKS        = 4
+
+	// Old app uses 5222
 	SSH          = 22
+
+
 	NOISE        = 19
 	CLOUD_EVENTS = 21
+	// Old app, android: 5227
 	HTTP_DEBUG   = 20
 
 	DNS = 13
@@ -52,13 +63,15 @@ type AllWPGate struct {
 }
 
 func StartAll(a *AllWPGate) {
+	// File-based config
 	config := conf.NewConf(a.ConfDir)
 
-	addrN := auth.ConfInt(config, "PORT", 15000)
+	// Default matching Istio range.
+	addrN := a.BasePort
 	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
 
 	// Init or load certificates/keys
-	authz := auth.NewAuth(config, os.Getenv("HOSTNAME"), "")
+	authz := auth.NewAuth(config, os.Getenv("HOSTNAME"), "v.webinf.info")
 
 	// Gateway - common structures
 	a.GW = mesh.New(authz, nil)
@@ -137,6 +150,8 @@ func (a *AllWPGate) StartExtra() {
 
 	go sni.SniProxy(a.GW, a.addr(7))
 
+	httpproxy.HttpProxyCapture(a.laddr(HTTP_PROXY))
+
 	// Local DNS resolver. Can forward up.
 	dns, err := dns.NewDmDns(a.BasePort + DNS)
 	go dns.Serve()
@@ -148,5 +163,6 @@ func (a *AllWPGate) StartExtra() {
 
 	// TODO: also on h2s
 	websocket.WSTransport(msgs.DefaultMux, http.DefaultServeMux)
+
 
 }

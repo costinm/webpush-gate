@@ -16,10 +16,10 @@ import (
 // - 9003: H2S
 // - 9004: HTTP (debug, local)
 func main() {
-	cfgDir := os.Getenv("HOME") + "/.ssh/"
+	cfgDir := os.Getenv("HOME") + "/.ssh/wpgate/"
 	all := &bootstrap.AllWPGate{
 		ConfDir:  cfgDir,
-		BasePort: 9000,
+		BasePort: 15000,
 	}
 	bootstrap.StartAll(all)
 

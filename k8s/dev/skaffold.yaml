@@ -1,0 +1,50 @@
+# Start a remote docker machine for debug/dev
+
+# Forward registry port to 5001
+# In-cluster registry runs on localhost:5001
+
+# Also forwards Istio ports for debug
+
+apiVersion: skaffold/v2beta4
+kind: Config
+metadata:
+  name:	dev
+deploy:
+  kubectl:
+    manifests:
+      - ns.yaml
+      - charts/*.yaml
+
+portForward:
+  # deployment, pod, service
+
+  - resourceType: service
+    namespace: istio-system
+    resourceName: istiod
+    port: 15010
+    localPort: 16010
+
+  - resourceType: deployment
+    namespace: istio-system
+    resourceName: istiod
+    port: 8080
+    localPort: 16080
+
+  - resourceType: replicationcontroller
+    namespace: dev
+    resourceName: docker
+    port: 2375
+    localPort: 2375
+
+# For debugging
+#  - resourceType: service
+#    namespace: prometheus
+#    resourceName: prometheus-prometheus
+#    port: 9090
+#    localPort: 9090
+#
+#  - resourceType: service
+#    namespace: prometheus
+#    resourceName: prometheus-grafana
+#    port: 80
+#    localPort: 9001

@@ -231,6 +231,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 	gw := &Gateway{
 		closed:    false,
 		Mesh:      NewMesh(),
+		Conf:      certs.Config,
 		ActiveUdp: make(map[string]*UdpNat),
 		ActiveTcp: make(map[int]*TcpProxy),
 		AllUdpCon: make(map[string]*HostStats),

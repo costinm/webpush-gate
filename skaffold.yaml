@@ -44,7 +44,7 @@ deploy:
 
   kubectl:
     manifests:
-      - k8s/wps/wps.yaml
+      - k8s/wps/charts/*
 
 portForward:
   - resourceType: deployment

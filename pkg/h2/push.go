@@ -53,7 +53,7 @@ func HTTPHandlerPushPromise(w http.ResponseWriter, req *http.Request) {
 				},
 			}
 			// This will result in a separate handler to get the message
-			if err := w.(http.Pusher).Push("/push/" + ev.Id, opt); err != nil {
+			if err := w.(http.Pusher).Push("/push/"+ev.Id, opt); err != nil {
 				fmt.Println("error pushing", err)
 				return
 			}

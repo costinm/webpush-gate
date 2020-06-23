@@ -1,0 +1,59 @@
+apiVersion: skaffold/v1 #2beta4
+kind: Config
+metadata:
+  name:	wps
+build:
+
+  # Requires /etc/hosts to have this entry, and a kube-proxy
+  # This is used by skaffold to access the registry
+  insecureRegistries:
+    - kube-registry.kube-registry.svc:5000
+    - localhost:5000
+
+  tagPolicy:
+#    sha256: {}
+    dateTime:
+      format: "2006-01-02_15-04"
+      timezone: "Local"
+  cluster:
+    namespace: kube-registry
+    #namespace: istio-system
+
+#    volumes:
+#      - name: kaniko-cache
+#        persistentVolumeClaim:
+#          claimName: kaniko-cache
+
+      #sync:	# 	beta local files synced to pods instead of triggering an image build when modified.
+      # manual:	# 	manual sync rules indicating the source and destination.
+      #- src: "css/**/*.css"	# 	a glob pattern to match local paths against. Directories should be delimited by / on all platforms.
+      # dest: "app/"	# 	destination path in the container where the files should be synced to.
+    #strip: "css/"	# 	specifies the path prefix to remove from the source path when transplanting the files into the destination folder.
+    #infer: []
+
+  artifacts:
+  - #image: gcr.io/costin-istio/wps
+    image: build
+    #image: localhost:5000/wps
+    context: .
+
+    kaniko:
+      dockerfile: Dockerfile
+      target: build-base
+      flags:
+        - --insecure-registry=localhost:5000
+      cache: {}
+
+
+deploy:
+  kubectl:
+    manifests:
+      - k8s/dev/charts/dind.yaml
+
+portForward:
+  - resourceType: deployment
+    namespace: wps
+    resourceName: wps
+    port: 8080
+
+

@@ -1,0 +1,49 @@
+# kube-registry-proxy starts Gateway on the node
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  # TODO: istio-node-gateway, in istio install
+  name: kube-registry-proxy
+  namespace: kube-registry
+  labels:
+    app: kube-registry-proxy
+spec:
+  selector:
+    matchLabels:
+      app: kube-registry-proxy
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/interceptionMode: NONE
+        sidecar.istio.io/proxyImage: istio/proxyv2:1.6.0
+      labels:
+        app: kube-registry-proxy
+    spec:
+      containers:
+        # For debugging. This is injected ( NONE ), so a sidecar present
+        # The sidecar is configured to forward 5000
+        # It has access to the node's docker.
+        - name: ubuntu
+          image: ubuntu
+          command: [ "sleep" ]
+          args: [ "infinity" ]
+          volumeMounts:
+            - mountPath: /var/run/docker.sock
+              name: docker-socket-volume
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 5000
+              name: docker
+              protocol: TCP
+              hostPort: 5000
+
+
+      volumes:
+        - name: docker-socket-volume
+          hostPath:
+            path: /var/run/docker.sock
+            type: File
+
+---

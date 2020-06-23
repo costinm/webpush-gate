@@ -1,44 +1,5 @@
 ---
 apiVersion: v1
-kind: Namespace
-metadata:
-  name: wps
----
-apiVersion: autoscaling/v2beta1
-kind: HorizontalPodAutoscaler
-metadata:
-  name: wps
-  namespace: wps
-  labels:
-    release: wps
-spec:
-  maxReplicas: 1
-  minReplicas: 1
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: wps
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        targetAverageUtilization: 80
----
-apiVersion: policy/v1beta1
-kind: PodDisruptionBudget
-metadata:
-  name: wps
-  namespace: wps
-  labels:
-    release: wps
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: wps
-      release: wps
----
-apiVersion: v1
 kind: Service
 metadata:
   name: wps
@@ -47,8 +8,8 @@ metadata:
     release: wps
 spec:
   ports:
-    - port: 8080
-      name: http
+    - port: 15022
+      name: ssh
   selector:
     app: wps
 ---
