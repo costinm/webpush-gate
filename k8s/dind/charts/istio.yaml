@@ -1,0 +1,33 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Sidecar
+metadata:
+  name: default
+  namespace: dind
+spec:
+  ingress:
+    - port:
+        number: 6001
+        protocol: HTTP
+        name: httplocal
+      defaultEndpoint: 127.0.0.1:5000
+  egress:
+    # Only in NONE
+    # TODO: allow them in normal mode, as additions.
+    - port:
+        number: 5000
+        protocol: HTTP
+        name:  registry
+      bind: 127.0.0.1
+      hosts:
+        - kube-registry/kube-registry.kube-registry
+    - port:
+        number: 5001
+        protocol: HTTP
+        name:  registry1
+      bind: 127.0.0.1
+      captureMode: NONE
+      hosts:
+        - kube-registry/kube-registry2.kube-registry
+
+    - hosts:
+        - "*/*"
