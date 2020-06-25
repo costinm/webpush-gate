@@ -89,8 +89,12 @@ type DMNode struct {
 	// Pub
 	PublicKey []byte `json:"pub,omitempty"`
 
-	// Last packet or registration from the peer.
-	LastSeen time.Time `json:"t"`
+	// Information from the node - from an announce or message.
+	NodeAnnounce *NodeAnnounce
+
+	Labels map[string]string `json:"l,omitempty"`
+
+	Bacokff time.Duration `json:"-"`
 
 	// Last LL GW address used by the peer.
 	// Public IP addresses are stored in Reg.IPs.
@@ -99,17 +103,25 @@ type DMNode struct {
 	// remote address.
 	GW *net.UDPAddr `json:"gw,omitempty"`
 
-	Bacokff time.Duration `json:"-"`
-
-	Labels map[string]string `json:"l,omitempty"`
-
-	// Set if this remote node has an active incoming TUN.
+	// Set if the gateway has an active incoming connection from this
+	// node, with the node acting as client.
+	// Streams will be forwarded to the node using special 'accept' mode.
+	// This is similar with PUSH in H2.
 	TunSrv TunDialer `json:"-"`
 
 	// Existing tun to the remote node, previously dialed.
 	TunClient TunDialer `json:"-"`
 
+	// IP4 address of last announce
+	Last4 *net.UDPAddr `json:"-"`
+
+	// IP6 address of last announce
+	Last6 *net.UDPAddr `json:"-"`
+
 	FirstSeen time.Time
+
+	// Last packet or registration from the peer.
+	LastSeen time.Time `json:"t"`
 
 	// In seconds since first seen, last 100
 	Seen []int `json:"-"`
@@ -117,14 +129,8 @@ type DMNode struct {
 	// LastSeen in a multicast announce
 	LastSeen4 time.Time
 
-	// IP4 address of last announce
-	Last4 *net.UDPAddr `json:"-"`
-
 	// LastSeen in a multicast announce
 	LastSeen6 time.Time `json:"-"`
-
-	// IP6 address of last announce
-	Last6 *net.UDPAddr `json:"-"`
 
 	// Number of multicast received
 	Announces int
@@ -134,9 +140,6 @@ type DMNode struct {
 
 	// Numbers of announces received from that node on the P2P interface
 	AnnouncesFromP2P int
-
-	// Information from the node - from an announce or message.
-	NodeAnnounce *NodeAnnounce
 }
 
 type NodeGetter func(pub []byte) *DMNode
@@ -155,15 +158,6 @@ func NewDMNode() *DMNode {
 	}
 }
 
-// Dial a stream over a multiplexed connection.
-type TunDialer interface {
-	// DialProxy will use the remote gateway to jump to
-	// a different destination, indicated by stream.
-	// On return, the stream ServerOut and ServerIn will be
-	// populated, and connected to stream Dest.
-	DialProxy(tp *Stream) error
-}
-
 // Glue to TUN, to avoid direct deps.
 // Used to avoid a direct dependency - for example in netstack.
 // TcpProxy implements this interface.
@@ -179,7 +173,7 @@ type TcpGateway interface {
 }
 
 // Interface implemented by the L3 capturing Gateway.
-type UDPGateway interface {
+type UDPGate interface {
 	// Handle an intercepted UDP packet.
 	HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte)
 }
@@ -188,22 +182,35 @@ func (gw *Gateway) HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, l
 
 }
 
-// JumpHost is implemented by streams like SSH
-// client, that allow jumping to new destinations.
+// Dial a stream over a multiplexed connection.
+type TunDialer interface {
+	// DialProxy will use the remote gateway to jump to
+	// a different destination, indicated by stream.
+	// On return, the stream ServerOut and ServerIn will be
+	// populated, and connected to stream Dest.
+	DialProxy(tp *Stream) error
+}
+
+// JumpHost is implemented by streams like SSH client, that allow jumping to new destinations.
 // Example SSHClientConn.
 type JumpHost interface {
+	// Main interface - forward a Stream to a random destination (egress)
 	TunDialer
 
-	// ForwardSocks opens a port on the gateway which will dynamically
-	// connect to local destinations.
-	ForwardSocks() error
+	// AcceptDial opens a virtual port on the gateway which will dynamically
+	// connect to local destinations. It works like RemoteAccept, but with a prefix
+	// similar with SOCKS, indicating the destination.
+	// For untrusted servers only the mesh port is allowed in dialed addresses.
+	AcceptDial() error
 
-	// ForwardTCP uses the gateway to forward 'remote' on the
+	// RemoteAccept uses the gateway to forward 'remote' on the
 	// gateway to a local port.
-	ForwardTCP(local, remote string) error
+	// Equivalent with -R
+	RemoteAccept(remoteListenAddr, forwardDest string) error
 
 	Close() error
 
+	// The VIP of the remote host.
 	RemoteVIP() net.IP
 }
 
@@ -220,14 +227,6 @@ type MUXDialer interface {
 	// Typically VPN will receive all events, AP will receive subset of events related to topology while
 	// child/peer only receive directed messages.
 	DialMUX(addr string, pub []byte, subs []string) (JumpHost, error)
-}
-
-// ReverseForwarder is used to tunnel accepted connections over a multiplexed stream.
-// Implements -R in ssh.
-// TODO: h2 implementation
-// Used by acceptor.
-type ReverseForwarder2 interface {
-	ReverseForward2(in io.ReadCloser, out io.Writer, ip net.IP, port int, hostKey string, portKey uint32)
 }
 
 // IPResolver uses DNS cache or lookups to return the name

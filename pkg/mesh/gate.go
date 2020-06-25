@@ -124,6 +124,9 @@ type Gateway struct {
 	// Listening on * for signed messages
 	// Source for sent messages and multicasts
 	UDPMsgConn *net.UDPConn
+
+	// Handles UDP packets (if in TPROXY or TUN capture)
+	UDPGate UDPGate
 }
 
 var UDPMsgPort = 5228

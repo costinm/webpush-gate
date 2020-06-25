@@ -6,24 +6,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 )
-
-// Gateway handles the incoming and outgoing connections, and adaptation between
-// protocols. Messages for local pod are handled by Mux.
-type Gateway struct {
-	mutex sync.RWMutex
-
-	// MessageSenders tracks all connections that support SendMessageDirect() to send to the remote end.
-	// For example UDS connections, SSH, etc.
-	connections map[string]*MsgConnection
-
-	// technically we could handle multiple mux and ids in a gateway - but
-	// not clear use case (besides tests)
-	NodeId string
-	Mux    *Mux
-}
 
 // One connection - incoming or outgoing. Can send messages to the remote end, which may in turn forward
 // messages for other nodes.
@@ -31,7 +15,7 @@ type Gateway struct {
 // Incoming messages are dispatched to the mux, which may deliver locally or forward.
 //
 type MsgConnection struct {
-	gate *Gateway
+	gate *Mux
 
 	// Key used in mux to track this connection
 	Name string
@@ -59,9 +43,9 @@ type MsgConnection struct {
 //
 func (mux *Mux) AddConnection(id string, cp *MsgConnection) {
 	cp.Name = id
-	cp.gate = mux.Gate
+	cp.gate = mux
 	mux.mutex.Lock()
-	mux.Gate.connections[id] = cp
+	mux.connections[id] = cp
 	mux.mutex.Unlock()
 
 	// Notify any handler of a new connection
@@ -71,12 +55,12 @@ func (mux *Mux) AddConnection(id string, cp *MsgConnection) {
 	log.Println("/mux/AddConnection", id, cp.SubscriptionsToSend)
 }
 
-func (gate *Gateway) RemoveConnection(id string, cp *MsgConnection) {
-	gate.Mux.mutex.Lock()
+func (gate *Mux) RemoveConnection(id string, cp *MsgConnection) {
+	gate.mutex.Lock()
 	delete(gate.connections, id)
-	gate.Mux.mutex.Unlock()
+	gate.mutex.Unlock()
 
-	if h, f := gate.Mux.handlers["/close"]; f {
+	if h, f := gate.handlers["/close"]; f {
 		h.HandleMessage(context.Background(), "/close", map[string]string{"id": id}, nil)
 	}
 	log.Println("/mux/RemoveConnection", id)
@@ -85,7 +69,8 @@ func (gate *Gateway) RemoveConnection(id string, cp *MsgConnection) {
 func (mc *MsgConnection) Close() {
 	mc.gate.RemoveConnection(mc.Name, mc)
 }
-func (mux *Gateway) Id() string {
+
+func (mux *Mux) Id() string {
 	mutex.Lock()
 	defer mutex.Unlock()
 	id++
@@ -93,7 +78,7 @@ func (mux *Gateway) Id() string {
 }
 
 // Message from a remote, will be forwarded to subscribed connections.
-func (mux *Gateway) OnRemoteMessage(ev *Message, from, self string, connName string) error {
+func (mux *Mux) OnRemoteMessage(ev *Message, from, self string, connName string) error {
 	// Local handlers first
 	if ev.Id == "" {
 		ev.Id = mux.Id()
@@ -103,7 +88,7 @@ func (mux *Gateway) OnRemoteMessage(ev *Message, from, self string, connName str
 		return nil
 	}
 	if parts[0] == self {
-		mux.Mux.HandleMessageForNode(ev)
+		mux.HandleMessageForNode(ev)
 		log.Println("/mux/OnRemoteMessageLocal", ev.To)
 		return nil
 	}
@@ -119,7 +104,7 @@ func (mux *Gateway) OnRemoteMessage(ev *Message, from, self string, connName str
 }
 
 // Send a message to one or more connections.
-func (gate *Gateway) Send(ev *Message) error {
+func (gate *Mux) SendMsg(ev *Message) error {
 	parts := strings.Split(ev.To, "/")
 
 	if parts[0] == "." {

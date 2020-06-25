@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-
 // Local processing of messages. Interface doesn't use any specific struct,
 // to avoid creating deps.
 type MessageHandler interface {
@@ -28,8 +27,11 @@ type MessageHandler interface {
 // Mux handles processing messages for this node, and sending messages from
 // local code.
 type Mux struct {
-	Gate  *Gateway
 	mutex sync.RWMutex
+
+	// MessageSenders tracks all connections that support SendMessageDirect() to send to the remote end.
+	// For example UDS connections, SSH, etc.
+	connections map[string]*MsgConnection
 
 	// Handlers by path, for processing incoming messages.
 	// Messages are received from a remote connection (like UDS or ssh or http), or created locally.
@@ -43,13 +45,9 @@ type Mux struct {
 
 func NewMux() *Mux {
 	mux := &Mux{
-		Gate: &Gateway{
-			connections: map[string]*MsgConnection{},
-		},
+		connections: map[string]*MsgConnection{},
 		handlers:    map[string]MessageHandler{},
 	}
-
-	mux.Gate.Mux = mux
 
 	return mux
 }
@@ -66,7 +64,7 @@ func Send(msgType string, meta ...string) {
 //
 func (mux *Mux) Send(msgType string, data interface{}, meta ...string) error {
 	ev := &Message{
-		To: msgType,
+		To:   msgType,
 		Meta: map[string]string{},
 		Data: data,
 	}
@@ -77,7 +75,7 @@ func (mux *Mux) Send(msgType string, data interface{}, meta ...string) error {
 }
 
 var (
-	id int
+	id    int
 	mutex sync.Mutex
 )
 
@@ -95,8 +93,7 @@ func (mux *Mux) SendMessage(ev *Message) error {
 	}
 	mux.HandleMessageForNode(ev)
 
-
-	return mux.Gate.Send(ev)
+	return mux.SendMsg(ev)
 }
 
 // Called for local events (host==. or empty).
@@ -165,15 +162,13 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 }
 
 type rw struct {
-	Code int
+	Code      int
 	HeaderMap http.Header
-	Body *bytes.Buffer
+	Body      *bytes.Buffer
 }
 
 func newHTTPWriter() *rw {
-	return &rw{
-
-	}
+	return &rw{}
 }
 
 func (r *rw) Header() http.Header {
@@ -208,10 +203,11 @@ func (mux *Mux) AddHandler(path string, cp MessageHandler) {
 const EV_BUFFER = 200
 
 var events = list.New()
+
 // debug
 func (mux *Mux) save(ev *Message) {
 	if ev.To == "SYNC/LL" ||
-			ev.To == "SYNC/LLSRV" {
+		ev.To == "SYNC/LLSRV" {
 		//log.Println("EV:", ev.Type, ev.Msg, ev.Meta)
 		return
 	}
@@ -223,7 +219,6 @@ func (mux *Mux) save(ev *Message) {
 	}
 	mux.mutex.Unlock()
 }
-
 
 // Adapter from func to interface
 type HandlerCallbackFunc func(ctx context.Context, cmdS string, meta map[string]string, data []byte)
@@ -268,5 +263,3 @@ func (u *ChannelHandler) WaitEvent(name string) *Message {
 
 	return nil
 }
-
-

@@ -15,6 +15,7 @@ import (
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/accept"
 	"github.com/costinm/wpgate/pkg/transport/cloudevents"
+	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/noise"
 	"github.com/costinm/wpgate/pkg/transport/sni"
@@ -35,19 +36,19 @@ var (
 	GRPC = 12
 
 	// curl -x http://127.0.0.10.0.0.0:15003
-	HTTP_PROXY   = 3
+	HTTP_PROXY = 3
 
 	//  -x socks5://127.0.0.1:15004
-	SOCKS        = 4
+	SOCKS = 4
 
 	// Old app uses 5222
-	SSH          = 22
-
+	SSH = 22
 
 	NOISE        = 19
 	CLOUD_EVENTS = 21
+
 	// Old app, android: 5227
-	HTTP_DEBUG   = 20
+	HTTP_DEBUG = 27
 
 	DNS = 13
 )
@@ -73,7 +74,7 @@ func StartAll(a *AllWPGate) {
 	// Init or load certificates/keys
 	authz := auth.NewAuth(config, os.Getenv("HOSTNAME"), "v.webinf.info")
 
-	// Gateway - common structures
+	// HTTPGate - common structures
 	a.GW = mesh.New(authz, nil)
 
 	// GRPC XDS transport
@@ -109,6 +110,7 @@ func StartAll(a *AllWPGate) {
 
 	// Non-critical, for testing
 	a.StartExtra()
+	a.StartDebug()
 
 	a.StartMsg()
 }
@@ -118,6 +120,12 @@ func (a *AllWPGate) laddr(off int) string {
 }
 func (a *AllWPGate) addr(off int) string {
 	return fmt.Sprintf("0.0.0.0:%d", a.BasePort+off)
+}
+
+func (a *AllWPGate) StartDebug() {
+	mux := http.DefaultServeMux
+
+	mux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
 }
 
 func (a *AllWPGate) StartMsg() {
@@ -163,6 +171,5 @@ func (a *AllWPGate) StartExtra() {
 
 	// TODO: also on h2s
 	websocket.WSTransport(msgs.DefaultMux, http.DefaultServeMux)
-
 
 }

@@ -16,7 +16,7 @@ import (
 // Experimental, not the main capture mode - TUN and SOCKS should be used if possible.
 
 func HttpProxyCapture(addr string) error {
-	gw := &Gateway{}
+	gw := &HTTPGate{}
 	// For http proxy we need a dedicated plain HTTP port
 	nl, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -39,7 +39,7 @@ func HttpProxyCapture(addr string) error {
 }
 
 // WIP: HTTP proxy with absolute address, to a QUIC server (or sidecar)`
-func (gw *Gateway) CaptureHttpProxyAbsURL(w http.ResponseWriter, r *http.Request) {
+func (gw *HTTPGate) CaptureHttpProxyAbsURL(w http.ResponseWriter, r *http.Request) {
 	// HTTP proxy mode - uses the QUIC client to connect to the node
 	// TODO: redirect via VPN, only root VPN can do plaintext requests
 
@@ -80,7 +80,7 @@ func (gw *Gateway) CaptureHttpProxyAbsURL(w http.ResponseWriter, r *http.Request
 // a TCP UdpNat to a mesh node, from localhost or from a net node.
 // Only used to capture local traffic - should be bound to localhost only, like socks.
 // It speaks HTTP/1.1, no QUIC
-func (gw *Gateway) HandleConnect(w http.ResponseWriter, r *http.Request) {
+func (gw *HTTPGate) HandleConnect(w http.ResponseWriter, r *http.Request) {
 	hij, ok := w.(http.Hijacker)
 	if !ok {
 		w.WriteHeader(503)

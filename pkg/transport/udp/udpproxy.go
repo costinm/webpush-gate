@@ -136,6 +136,8 @@ type UDPGate struct {
 func NewUDPGate() *UDPGate {
 	return &UDPGate{
 		ConnTimeout: 60 * time.Second,
+		ActiveUdp:   map[string]*mesh.UdpNat{},
+		AllUdpCon:   map[string]*mesh.HostStats{},
 	}
 }
 
@@ -244,9 +246,9 @@ func (gw *UDPGate) HandleDNS(dstAddr net.IP, dstPort uint16, src *net.UDPAddr, d
 	}
 }
 
-// HandleUDP is processing a captured UDP packet. It can be iptables TPROXY or
+// HandleUDP is processing a captured UDP packet. It can be captured by iptables TPROXY or
 // netstack TUN.
-func HandleUdp(gw *UDPGate, dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte) {
+func (gw *UDPGate) HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte) {
 	if dstPort == 1900 {
 		return
 	}

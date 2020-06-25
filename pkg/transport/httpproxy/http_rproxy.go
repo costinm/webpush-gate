@@ -20,7 +20,7 @@ import (
 //
 // The request will be sent to target host via TCP-TUN (SSH or other transport).
 // - A node can open a TCP accept port on a node with public IP
-// - A Gateway/VPN may open 80/443 and terminate TLS, than forward via TCP-TUN
+// - A HTTPGate/VPN may open 80/443 and terminate TLS, than forward via TCP-TUN
 // - TODO: 443 can be forwarded using SNI sniffing
 //
 // Gateways terminates HTTP/HTTPS/QUIC, and forward to other hosts.
@@ -43,7 +43,8 @@ Typical params:
 - transparent - X-Forwarded-Proto, X-Real-IP, Host
 */
 
-type Gateway struct {
+// HTTPGate handles HTTP requests
+type HTTPGate struct {
 	H2 h2.H2
 
 	Auth *auth.Auth
@@ -52,7 +53,7 @@ type Gateway struct {
 
 // ReverseForward a request to a normal HTTP host.
 // Used if the Host header found is configured explicitly to forward to a specific address.
-func (gw *Gateway) ForwardHTTP(w http.ResponseWriter, r *http.Request, pathH string) {
+func (gw *HTTPGate) ForwardHTTP(w http.ResponseWriter, r *http.Request, pathH string) {
 	r.Host = pathH
 	r1, cancel := createUpstreamRequest(w, r)
 	defer cancel()
@@ -73,17 +74,17 @@ func (gw *Gateway) ForwardHTTP(w http.ResponseWriter, r *http.Request, pathH str
 // Host headers:
 // - NODEID.dm -> forwarded to node, using connected client or parent.
 // - configured host -> forwarded via HTTP/1.1 or H2, local named hosts
-func (gw *Gateway) Forward443(w http.ResponseWriter, r *http.Request) {
+func (gw *HTTPGate) Forward443(w http.ResponseWriter, r *http.Request) {
 	gw.proxy(w, r)
 }
 
-func (gw *Gateway) Forward80(w http.ResponseWriter, r *http.Request) {
+func (gw *HTTPGate) Forward80(w http.ResponseWriter, r *http.Request) {
 	gw.proxy(w, r)
 }
 
 // Http proxy to a configured HTTP host. Hostname to HTTP address explicitly
 // configured. Also hostnmae to file serving.
-func (gw *Gateway) proxy(w http.ResponseWriter, r *http.Request) bool {
+func (gw *HTTPGate) proxy(w http.ResponseWriter, r *http.Request) bool {
 	// TODO: if host is XXXX.m.SUFFIX -> forward to node.
 
 	host, found := gw.H2.Hosts[r.Host]
@@ -110,7 +111,7 @@ func (gw *Gateway) proxy(w http.ResponseWriter, r *http.Request) bool {
 // the nodes. Exit node will initiate a HTTP(s) connection
 //
 // Exposed only on the loopback interface.
-func (gw *Gateway) HttpForwardPath(w http.ResponseWriter, r *http.Request) {
+func (gw *HTTPGate) HttpForwardPath(w http.ResponseWriter, r *http.Request) {
 	newPath := r.Header.Get("x-dm-p")
 	if newPath == "" {
 		if newPathC, err := r.Cookie("x-dm-p"); err == nil {
@@ -194,7 +195,7 @@ func (gw *Gateway) HttpForwardPath(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func (gw *Gateway) HttpForwardPath2(w http.ResponseWriter, r *http.Request) {
+func (gw *HTTPGate) HttpForwardPath2(w http.ResponseWriter, r *http.Request) {
 	newPath := r.Header.Get("x-dm-p")
 	if newPath == "" {
 		if newPathC, err := r.Cookie("x-dm-p"); err == nil {
@@ -378,11 +379,11 @@ var hopHeaders = []string{
 	"Alternate-Protocol",
 	"Connection",
 	"Keep-Alive",
-	"Gateway-Authenticate",
-	"Gateway-Authorization",
-	"Gateway-Connection", // non-standard but still sent by libcurl and rejected by e.g. google
-	"Te",                 // canonicalized version of "TE"
-	"Trailer",            // not Trailers per URL above; http://www.rfc-editor.org/errata_search.php?eid=4522
+	"HTTPGate-Authenticate",
+	"HTTPGate-Authorization",
+	"HTTPGate-Connection", // non-standard but still sent by libcurl and rejected by e.g. google
+	"Te",                  // canonicalized version of "TE"
+	"Trailer",             // not Trailers per URL above; http://www.rfc-editor.org/errata_search.php?eid=4522
 	"Transfer-Encoding",
 	"Upgrade",
 }
@@ -455,7 +456,7 @@ func SendBackResponse(w http.ResponseWriter, r *http.Request,
 //
 // path is either a URL on the destination host or a forward.
 //
-func (gw *Gateway) DMNodeHttpRequestViaNeighbor(or *http.Request, w http.ResponseWriter,
+func (gw *HTTPGate) DMNodeHttpRequestViaNeighbor(or *http.Request, w http.ResponseWriter,
 	oldPath, oldPathIp string,
 	neighborLocalAddr *net.UDPAddr, path string) error {
 	var nurl string
@@ -492,7 +493,7 @@ func (gw *Gateway) DMNodeHttpRequestViaNeighbor(or *http.Request, w http.Respons
 	return nil
 }
 
-func (gw *Gateway) ProxyHttp(cl *http.Client, or *http.Request, w http.ResponseWriter, nurl, oldPath string) error {
+func (gw *HTTPGate) ProxyHttp(cl *http.Client, or *http.Request, w http.ResponseWriter, nurl, oldPath string) error {
 
 	var r *http.Request
 	var err error
@@ -521,7 +522,7 @@ func (gw *Gateway) ProxyHttp(cl *http.Client, or *http.Request, w http.ResponseW
 
 // See http.ProxyFromEnvironment(req) - using HTTP_PROXY, HTTPS_PROXY and NO_PROXY
 // HTTPS_PROXY has precedence.
-// Gateway URL can be http, https or socks5 scheme
+// HTTPGate URL can be http, https or socks5 scheme
 
 // Also used in httpproxy_capture, for forward http proxy
 func CopyHeaders(dst, src http.Header) {

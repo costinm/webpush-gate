@@ -1,4 +1,5 @@
-
+build:
+	go build ./cmd/wps
 
 skaffold:
 	SKAFFOLD_DEFAULT_REPO=gcr.io/costin-istio  skaffold dev --cleanup=false --tail  --port-forward=true

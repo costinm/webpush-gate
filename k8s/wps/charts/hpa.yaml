@@ -2,7 +2,7 @@ apiVersion: autoscaling/v2beta1
 kind: HorizontalPodAutoscaler
 metadata:
   name: wps
-  namespace: wps
+  namespace: istio-system
   labels:
     release: wps
 spec:
@@ -22,7 +22,7 @@ apiVersion: policy/v1beta1
 kind: PodDisruptionBudget
 metadata:
   name: wps
-  namespace: wps
+  namespace: istio-system
   labels:
     release: wps
 spec:

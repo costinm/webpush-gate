@@ -1,13 +1,20 @@
+# https://github.com/kubernetes/kubernetes/issues/23880
+# Can't create UDP + TCP LB - workaround is to create 2 services,
+# and use the first service IP.
 apiVersion: v1
 kind: Service
 metadata:
   name: wpslb
-  namespace: wps
+  namespace: istio-system
 spec:
   selector:
     app: wps
   type: LoadBalancer
   ports:
+    - name: ssh
+      port: 22
+      protocol: TCP
+      targetPort: 15022
     - name: http
       port: 80
       protocol: TCP
@@ -17,7 +24,7 @@ spec:
     - name: tls-dns
       port: 953
       protocol: TCP
-    - name: ssh
+    - name: ssh2
       port: 15022
       protocol: TCP
     - name: h2-xds
