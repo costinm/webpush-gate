@@ -28,8 +28,11 @@ type MessageHandler interface {
 // Mux handles processing messages for this node, and sending messages from
 // local code.
 type Mux struct {
-	Gate  *Gateway
 	mutex sync.RWMutex
+
+	// MessageSenders tracks all connections that support SendMessageDirect() to send to the remote end.
+	// For example UDS connections, SSH, etc.
+	connections map[string]*MsgConnection
 
 	// Handlers by path, for processing incoming messages.
 	// Messages are received from a remote connection (like UDS or ssh or http), or created locally.
@@ -43,13 +46,9 @@ type Mux struct {
 
 func NewMux() *Mux {
 	mux := &Mux{
-		Gate: &Gateway{
-			connections: map[string]*MsgConnection{},
-		},
+		connections: map[string]*MsgConnection{},
 		handlers:    map[string]MessageHandler{},
 	}
-
-	mux.Gate.Mux = mux
 
 	return mux
 }
@@ -96,7 +95,7 @@ func (mux *Mux) SendMessage(ev *Message) error {
 	mux.HandleMessageForNode(ev)
 
 
-	return mux.Gate.Send(ev)
+	return mux.SendMsg(ev)
 }
 
 // Called for local events (host==. or empty).

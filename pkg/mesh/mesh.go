@@ -196,10 +196,12 @@ type JumpHost interface {
 
 	// ForwardSocks opens a port on the gateway which will dynamically
 	// connect to local destinations.
+	// This is equivalent with -L in ssh
 	ForwardSocks() error
 
 	// ForwardTCP uses the gateway to forward 'remote' on the
 	// gateway to a local port.
+	// Equivalent with -R
 	ForwardTCP(local, remote string) error
 
 	Close() error

@@ -1,10 +1,8 @@
 package ssh
 
 import (
-	"bufio"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -19,7 +17,10 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// Server side auth
 func (sshGate *SSHGate) authPub(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+	// SSH certificates are different from HTTP - one layer only.
+	//
 	if cert, ok := key.(*ssh.Certificate); ok {
 		if cert.CertType != ssh.UserCert {
 			return nil, fmt.Errorf("ssh: cert has type %d", cert.CertType)
@@ -163,6 +164,7 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 		return
 	}
 
+	role := conn.Permissions.Extensions["role"]
 	vips := conn.Permissions.Extensions["key"]
 	if vips == "" {
 		conn.Close()
@@ -172,14 +174,13 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 		return
 	}
 
-	// conn: SendMessage,
-
 	scon := &SSHServerConn{
 		sshConn: conn,
 		SSHConn: SSHConn{
 			gate:    sshGate,
 			Connect: time.Now(),
 			Addr:    nConn.RemoteAddr().String(),
+			open: true,
 		},
 	}
 
@@ -187,6 +188,9 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	scon.vip = auth.Pub2ID(vipsb)
 	scon.VIP6 = auth.Pub2VIP(vipsb)
 	scon.pubKey = vipsb
+
+	scon.role = role
+
 	vipHex := fmt.Sprintf("%x", scon.vip)
 	//scon.key =
 	sshGate.metrics.Active.Add(1)
@@ -224,7 +228,6 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 		n.TunSrv = nil
 	}()
 
-	role := conn.Permissions.Extensions["role"]
 	log.Println("SSHD: CONNECTION FROM ", nConn.RemoteAddr(), auth.Pub2VIP(vipsb), role)
 
 	//msgs.Send("/gate/ssh", "remote",
@@ -233,7 +236,7 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	//	"role", role)
 
 	// The incoming Request channel: accept forwarding of hosts port to the destination
-	// This is for 'global requests'.
+	// This is for 'global requests': keepalive and '-R'
 	go scon.handleServerConnRequests(globalSrvReqs, n, nConn, conn, vipHex, sshGate)
 
 	// Service the incoming Channel channel.
@@ -252,17 +255,18 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 			}
 
 			// TODO: allow connections to mesh VIPs
-			//if role == ROLE_GUEST {
-			//	newChannel.Reject(ssh.UnknownChannelType, "only authorized users can proxy")
-			//	continue
-			//}
-			log.Println("-L: forward request", req.Laddr, req.Lport, req.Raddr, req.Rport)
+			if role == ROLE_GUEST && req.Rport != SSH_MESH_PORT {
+				newChannel.Reject(ssh.UnknownChannelType, "only authorized users can proxy")
+				continue
+			}
+			log.Println("-L: forward request", req.Laddr, req.Lport, req.Raddr, req.Rport, role)
 
 			go scon.handleDirectTcpip(newChannel, req.Raddr, req.Rport, req.Laddr, req.Lport)
 			conId++
 
 		case "session":
 			// session channel - the main interface for shell, exec
+			// Used for messages.
 			scon.handleServerSessionChannel(n, newChannel, role)
 
 		default:
@@ -282,13 +286,13 @@ type SSHServerConn struct {
 	Remote  string
 }
 
-func (sshS *SSHServerConn) ForwardSocks() {
-	panic("implement me")
-}
-
-func (sshS *SSHServerConn) ForwardTCP(local, remote string) error {
-	panic("implement me")
-}
+//func (sshS *SSHServerConn) ForwardSocks() {
+//	panic("implement me")
+//}
+//
+//func (sshS *SSHServerConn) ForwardTCP(local, remote string) error {
+//	panic("implement me")
+//}
 
 func (sshS *SSHServerConn) Close() error {
 	log.Println("SSHD: Close", sshS.VIP6, sshS.sshConn.RemoteAddr())
@@ -313,9 +317,14 @@ func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n 
 				r.Reply(false, nil)
 				continue
 			}
-			if req.BindPort == 5222 {
+
+			if req.BindPort == SSH_MESH_PORT {
 				scon.handleMeshNodeForward(req, n, r, vipHex)
 			} else {
+				if scon.role == ROLE_GUEST && req.BindPort != SSH_MESH_PORT {
+					r.Reply(false, nil)
+					continue
+				}
 				listener := scon.handleTcpipForward(req, r)
 				if listener != nil {
 					defer func() {
@@ -342,8 +351,8 @@ func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n 
 	}
 }
 
-// For -R on 5222, special reverse TCP mode.
-//
+// For -R on 5222, special reverse TCP mode similar with SOCKS.
+// No listener is created - this is used internally
 func (scon *SSHServerConn) handleMeshNodeForward(req tcpipForwardRequest,
 	clientNode *mesh.DMNode,
 	r *ssh.Request, vipHex string) {
@@ -360,7 +369,6 @@ func (scon *SSHServerConn) handleMeshNodeForward(req tcpipForwardRequest,
 		"remote", scon.Remote,
 		"key", base64.StdEncoding.EncodeToString([]byte(scon.sshConn.Permissions.Extensions["key"])),
 		"vip", vipHex) // TODO: configure the public addresses !
-
 }
 
 // -R handling - create accepting socket to forward over this conn.
@@ -385,12 +393,13 @@ func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Re
 		return nil
 	}
 
-	//msgs.Send("/ssh/accept",
-	//	"remote", nConn.RemoteAddr().String(),
-	//	"req", fmt.Sprintf("%d", req.BindPort),
-	//	"vip", vipHex,
-	//	"key", base64.StdEncoding.EncodeToString([]byte(conn.Permissions.Extensions["key"])),
-	//	"addr",fmt.Sprintf("%s:%d", "", forPort)) // TODO: configure the public addresses !
+	msgs.Send("/ssh/accept",
+		"remote", scon.sshConn.RemoteAddr().String(),
+		"req", fmt.Sprintf("%d", req.BindPort),
+		"vip", scon.VIP6.String(),
+		"key", base64.StdEncoding.EncodeToString([]byte(scon.sshConn.Permissions.Extensions["key"])),
+		"addr",fmt.Sprintf("%s:%d", "", forPort)) // TODO: configure the public addresses !
+
 	var res tcpipForwardResponse
 	forPort32, _ := strconv.Atoi(port)
 	forPort = uint32(forPort32)
@@ -407,6 +416,9 @@ func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Re
 }
 
 // For -R, when a remote conn is received on a TCP accept.
+// Will open a 'forwarded-tcpip' channel from server to client, associated
+// with the previous -R.
+// Called from acceptor, for an explicit listen port.
 func (sshS *SSHServerConn) ReverseForward2(in io.ReadCloser, out io.Writer,
 	ip net.IP, port int, hostKey string, portKey uint32) {
 
@@ -487,12 +499,7 @@ func (sshS *SSHServerConn) DialProxy(tp *mesh.Stream) error {
 		}
 	}()
 
-	// TODO: send SOCKS-like header based on dest !!!
-	head := []byte{0, 0}
-	binary.BigEndian.PutUint16(head, uint16(len(tp.Dest)))
-
-	channel.Write(head)
-	channel.Write([]byte(tp.Dest))
+	marshalAddress(channel, tp.Dest)
 
 	t0 := time.Now()
 	tp.Closer = func() {
@@ -506,44 +513,23 @@ func (sshS *SSHServerConn) DialProxy(tp *mesh.Stream) error {
 	return nil
 }
 
-func (sshC *SSHClientConn) ForwardSocks() error {
+func marshalAddress(c io.Writer, addr string) {
+	// TODO: send SOCKS-like header based on dest !!!
+	head := []byte{0, 0}
+	binary.BigEndian.PutUint16(head, uint16(len(addr)))
 
-	// TODO: as optimization, allow an option to take the Listener and pass it to http, with a mux - make it H2, with TLS
-
-	l, err := sshC.sshclient.Listen("tcp", "0.0.0.0:5222")
-	if err != nil {
-		log.Println("unable to register tcp forward", err)
-		return err
-	}
-
-	sshC.gate.gw.GWAddr = sshC.Addr
-	msgs.Send("./gate/sshc", "addr", sshC.Addr)
-
-	for {
-		c, err := l.Accept()
-		if err != nil {
-			l.Close()
-			return nil
-		}
-
-		go func() {
-			// TODO: reuse buffer, reuse method, use a proto ?
-			head := make([]byte, 512)
-			c.Read(head[0:2])
-			sz := binary.BigEndian.Uint16(head)
-			c.Read(head[0:sz])
-
-			p := sshC.gate.gw.NewTcpProxy(c.RemoteAddr(), "SSHRSOCKS", nil, c, c)
-
-			err = p.Dial(string(head[0:sz]), nil)
-
-			p.Proxy()
-		}()
-	}
-	// Serve HTTP with your SSHClientConn server acting as a reverse proxy.
-
-	return nil
+	c.Write(head)
+	c.Write([]byte(addr))
 }
+
+func extractAddress(c net.Conn) string {
+	head := make([]byte, 512)
+	c.Read(head[0:2])
+	sz := binary.BigEndian.Uint16(head)
+	c.Read(head[0:sz])
+	return string(head[0:sz])
+}
+
 
 // Handles SOCKS (-D) and local fwd (-L), mapping remote ports to connections to a host:port
 // It is equivalent with /dmesh/tcp/IP/port request.
@@ -585,49 +571,6 @@ func (sshS *SSHServerConn) handleDirectTcpip(newChannel ssh.NewChannel, host str
 
 const ROLE_GUEST = "guest"
 
-// Channel contains 'exec' and 'shell' sessions.
-// We use this as interface to the messaging system. On stock SSH servers we expect an app called 'dmeshMsg'
-// that is execed, using stdin and stdout for communication.
-// TODO: reuse UDS protocol parsing (or eventing)
-// TODO: ACL (possibly reused from eventing) - command messages only from trusted sources, forwarding, etc
-func (sshS *SSHServerConn) handleServerSessionChannel(node *mesh.DMNode, newChannel ssh.NewChannel, role string) {
-	channel, requests, err := newChannel.Accept()
-	if err != nil {
-		log.Println("could not accept channel.")
-		return
-	}
-
-	sshS.msgChannel = channel
-
-	// Sessions have out-of-band requests such as "shell",
-	// "pty-req" and "env".  Here we handle only the
-	// "shell" request.
-	go sshS.handleServerRequestChan(node, requests)
-
-	// ssh: pty-req, shell session req
-	// exec - command passed when env and exec is received.
-	// We use this just for one command right now - dmeshMsg
-
-	mconn := &msgs.MsgConnection{
-		SubscriptionsToSend: nil, // Don't send all messages down - only if explicit subscription.
-		SendMessageToRemote: sshS.SendMessageToRemote,
-	}
-
-	//if role != ROLE_GUEST {
-	msgs.DefaultMux.AddConnection("sshs-"+sshS.VIP6.String(), mconn)
-	//}
-
-	br := bufio.NewReader(channel)
-
-	go handleMessageStream(node, br, sshS.VIP6.String(), sshS.gate.certs.VIP6.String(), mconn, true)
-
-	mconn.SendMessageToRemote(msgs.NewMessage("/endpoint/sshs", map[string]string{
-		//"remote", nConn.RemoteAddr().String(),
-		//"key": base64.StdEncoding.EncodeToString(sshC.gate.certs.Pub),
-		//"vip": sshC.gate.certs.VIP6.String(), // TODO: configure the public addresses !
-		"ua": sshS.gate.gw.UA,
-	}))
-}
 
 // As a server, handle out-of-band requests on a session.
 // server may have multiple sessions
@@ -669,57 +612,6 @@ func (sshS *SSHServerConn) handleServerRequestChan(n *mesh.DMNode, in <-chan *ss
 	}
 }
 
-// Messages received from remote, over SSH.
-//
-// from is the authenticated VIP of the sender.
-// self is my own VIP
-//
-//
-func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string, self string, mconn *msgs.MsgConnection, isServer bool) {
-	mconn.HandleMessageStream(func(ev *msgs.Message) {
-		// Direct message from the client, with its own info
-		if ev.Topic == "endpoint" {
-			if node.NodeAnnounce == nil {
-				node.NodeAnnounce = &mesh.NodeAnnounce{}
-			}
-			node.NodeAnnounce.UA = ev.Meta["ua"]
-		}
-		newEv, _ := json.Marshal(ev)
-		fmt.Println(string(newEv))
-
-	}, br, from, self)
-
-	log.Println("Message mux closed")
-}
-
-// SSH client: handles the connection with the server.
-//
-// Messages from server are dispatched to the mux, for local forwarding
-// Messages from local mux are sent to the server - sub is *.
-//
-// The mux is responsible for eliminating loops and forwarding.
-func (sshC *SSHClientConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Channel, subs []string) {
-	mconn := &msgs.MsgConnection{
-		SubscriptionsToSend: subs,
-		SendMessageToRemote: sshC.SendMessageToRemote,
-	}
-
-	msgs.DefaultMux.AddConnection("sshc-"+sshC.VIP6.String(), mconn)
-
-	// From and path will be populated by forwarder code.
-	mconn.SendMessageToRemote(msgs.NewMessage("/endpoint/sshc", map[string]string{
-		//"remote", nConn.RemoteAddr().String(),
-		//"key": base64.StdEncoding.EncodeToString(sshC.gate.certs.Pub),
-		//"vip": sshC.gate.certs.VIP6.String(), // TODO: configure the public addresses !
-		"ua": sshC.gate.gw.UA,
-	}))
-
-	br := bufio.NewReader(channel)
-	handleMessageStream(node, br, sshC.VIP6.String(), sshC.gate.certs.VIP6.String(), mconn, false)
-
-	// Disconnected
-	node.TunClient = nil
-}
 
 // Private SSHClientConn structs
 

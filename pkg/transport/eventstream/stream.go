@@ -34,7 +34,7 @@ type EventStreamConnection struct {
 // Used to receive (subscribe) to messages, using HTTP streaming protocol.
 //
 // TODO: pass the list of subscriptions, filter, 'start' message
-func Handler(gate *msgs.Gateway) func(w http.ResponseWriter, req *http.Request) {
+func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		req.Header.Get("last-event-id")
 		req.Header.Get("accept") // should be text/event-stream for event source, otherwise it's a GET
@@ -64,7 +64,7 @@ func Handler(gate *msgs.Gateway) func(w http.ResponseWriter, req *http.Request) 
 }
 
 
-func MonitorNode(gate *msgs.Gateway, hc *http.Client, idhex *net.IPAddr) error {
+func MonitorNode(gate *msgs.Mux, hc *http.Client, idhex *net.IPAddr) error {
 	t0 := time.Now()
 	url := "http://127.0.0.1:5227/debug/eventss"
 	//p := "/"

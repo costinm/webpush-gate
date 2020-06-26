@@ -79,8 +79,6 @@ type TcpProxy struct {
 	// Used for VPN-accepted connections,
 	LocalDest bool
 
-	sshConn ReverseForwarder2
-
 	localAddr net.Addr
 }
 
@@ -661,13 +659,6 @@ func (tp *TcpProxy) Proxy() error {
 		//h	return tp.gw.DNS.DNSOverTCP(tp.clientIn, tp.clientOut)
 	}
 
-	if tp.sshConn != nil {
-		// Special case - remote SSHClientConn.
-		tp.sshConn.ReverseForward2(tp.ClientIn, tp.ClientOut,
-			tp.OriginIP, tp.OriginPort,
-			"0.0.0.0", 5222)
-
-	}
 
 	// Need to proxy localIn to remoteOut first.
 	go tp.gw.proxyClientToServer(tp, tp.ServerOut, tp.ClientIn, errCh)

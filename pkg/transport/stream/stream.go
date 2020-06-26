@@ -54,7 +54,7 @@ func EventStream(reqContext context.Context, req string, sender func(ev *msgs.Me
 	log.Println("DM HTTP EVENT STREAM ", req)
 
 	defer func() {
-		msgs.DefaultMux.Gate.RemoveConnection(id, mc)
+		msgs.DefaultMux.RemoveConnection(id, mc)
 		log.Println("DM HTTP EVENT STREAM CLOSE ", req)
 	}()
 

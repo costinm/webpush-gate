@@ -115,7 +115,7 @@ func (mux *Mux) HTTPUDS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ch := mux.Gate.connections[h]
+	ch := mux.connections[h]
 	if ch != nil {
 		ch.SendMessageToRemote(NewMessage(cmd, params).SetDataJSON(body))
 		w.WriteHeader(200)
