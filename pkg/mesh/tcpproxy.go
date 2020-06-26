@@ -459,7 +459,7 @@ func (tp *TcpProxy) DialMeshLocal(node *DMNode) bool {
 				go func() {
 
 					// Blocking - will be closed when the ssh connection is closed.
-					sshVpn.ForwardSocks()
+					sshVpn.AcceptDial()
 
 					node.TunClient = nil
 					sshVpn.(io.Closer).Close()
@@ -658,7 +658,6 @@ func (tp *TcpProxy) Proxy() error {
 	if tp.DestPort == 53 {
 		//h	return tp.gw.DNS.DNSOverTCP(tp.clientIn, tp.clientOut)
 	}
-
 
 	// Need to proxy localIn to remoteOut first.
 	go tp.gw.proxyClientToServer(tp, tp.ServerOut, tp.ClientIn, errCh)

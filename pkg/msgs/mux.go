@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-
 // Local processing of messages. Interface doesn't use any specific struct,
 // to avoid creating deps.
 type MessageHandler interface {
@@ -65,7 +64,7 @@ func Send(msgType string, meta ...string) {
 //
 func (mux *Mux) Send(msgType string, data interface{}, meta ...string) error {
 	ev := &Message{
-		To: msgType,
+		To:   msgType,
 		Meta: map[string]string{},
 		Data: data,
 	}
@@ -76,7 +75,7 @@ func (mux *Mux) Send(msgType string, data interface{}, meta ...string) error {
 }
 
 var (
-	id int
+	id    int
 	mutex sync.Mutex
 )
 
@@ -93,7 +92,6 @@ func (mux *Mux) SendMessage(ev *Message) error {
 		mutex.Unlock()
 	}
 	mux.HandleMessageForNode(ev)
-
 
 	return mux.SendMsg(ev)
 }
@@ -164,15 +162,13 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 }
 
 type rw struct {
-	Code int
+	Code      int
 	HeaderMap http.Header
-	Body *bytes.Buffer
+	Body      *bytes.Buffer
 }
 
 func newHTTPWriter() *rw {
-	return &rw{
-
-	}
+	return &rw{}
 }
 
 func (r *rw) Header() http.Header {
@@ -207,10 +203,11 @@ func (mux *Mux) AddHandler(path string, cp MessageHandler) {
 const EV_BUFFER = 200
 
 var events = list.New()
+
 // debug
 func (mux *Mux) save(ev *Message) {
 	if ev.To == "SYNC/LL" ||
-			ev.To == "SYNC/LLSRV" {
+		ev.To == "SYNC/LLSRV" {
 		//log.Println("EV:", ev.Type, ev.Msg, ev.Meta)
 		return
 	}
@@ -222,7 +219,6 @@ func (mux *Mux) save(ev *Message) {
 	}
 	mux.mutex.Unlock()
 }
-
 
 // Adapter from func to interface
 type HandlerCallbackFunc func(ctx context.Context, cmdS string, meta map[string]string, data []byte)
@@ -267,5 +263,3 @@ func (u *ChannelHandler) WaitEvent(name string) *Message {
 
 	return nil
 }
-
-

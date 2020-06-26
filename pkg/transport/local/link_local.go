@@ -158,7 +158,7 @@ func (gw *LLDiscovery) OnLocalNetworkFunc(node *mesh.DMNode, addr *net.UDPAddr, 
 			node.TunClient = sshVpn
 
 			// Blocking - will be closed when the ssh connection is closed.
-			sshVpn.ForwardSocks()
+			sshVpn.AcceptDial()
 
 			node.TunClient = nil
 			sshVpn.Close()
@@ -225,7 +225,7 @@ func (gw *LLDiscovery) ensureConnectedUp(laddr *net.UDPAddr, node *mesh.DMNode) 
 					gw.gw.SSHClientUp = conMux
 
 					// Blocking - will be closed when the ssh connection is closed.
-					conMux.ForwardSocks()
+					conMux.AcceptDial()
 					gw.gw.SSHClientUp = nil
 					// TODO: shorter timeout with exponential backoff
 					conMux.Close()

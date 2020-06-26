@@ -1,6 +1,7 @@
 package accept
 
 import (
+	"io"
 	"log"
 	"net"
 	"strconv"
@@ -67,7 +68,7 @@ import (
 
 func NewForwarder(gw *mesh.Gateway, cfg *mesh.ListenerConf) {
 	pl, _ := NewPortListener(gw, cfg.Local)
-	pl.AddEndpointHost(cfg.Remote)
+	pl.cfg.Remote = cfg.Remote
 	go pl.Run()
 }
 
@@ -121,9 +122,13 @@ type Listener struct {
 	// Set if the listener forward to a ssh connection
 	// used for ssh - this is the original IP:port in the -R request, might not match the actual
 	// port we are listening on.
-	sshConn     mesh.ReverseForwarder2
-	sshBindHost string
-	sshBindPort uint32
+	acceptForwarder AcceptForwarder
+
+	// Original bind host and port, as requested by client
+	// May be different from actual port.
+	// Used with the acceptForwarder to track the binding.
+	bindHost string
+	bindPort uint32
 
 	// Real listener for the port
 	Listener net.Listener
@@ -131,16 +136,23 @@ type Listener struct {
 	GW *mesh.Gateway
 }
 
-// Accepted connections will be sent to 'con'
-func (ll *Listener) AddEndpointSSH(con mesh.ReverseForwarder2, bindKey string, bindPort uint32) *Listener {
-	ll.sshConn = con
-	ll.sshBindPort = bindPort
-	ll.sshBindHost = bindKey
-	return ll
+// AcceptForwarder is used to tunnel accepted connections over a multiplexed stream.
+// Implements -R in ssh.
+// TODO: h2 implementation
+// Used by acceptor.
+type AcceptForwarder interface {
+	// Called when a connection was accepted.
+	//
+	AcceptForward(in io.ReadCloser, out io.Writer,
+		remoteIP net.IP, remotePort int,
+		bindHost string, bindPort uint32)
 }
 
-func (ll *Listener) AddEndpointHost(host string) *Listener {
-	ll.cfg.Remote = host
+// Accepted connections will be sent to 'con'
+func (ll *Listener) SetAcceptForwarder(con AcceptForwarder, bindKey string, bindPort uint32) *Listener {
+	ll.acceptForwarder = con
+	ll.bindPort = bindPort
+	ll.bindHost = bindKey
 	return ll
 }
 
@@ -153,7 +165,7 @@ func (ll *Listener) Close() {
 // will forward to a port/app.
 // Blocking.
 func (ll Listener) Run() {
-	log.Println("Gateway: open on ", ll.cfg.Local, ll.sshBindHost, ll.sshBindPort, ll.cfg.Remote)
+	log.Println("Gateway: open on ", ll.cfg.Local, ll.bindHost, ll.bindPort, ll.cfg.Remote)
 	for {
 		remoteConn, err := ll.Listener.Accept()
 		if err != nil {
@@ -169,9 +181,9 @@ func (ll *Listener) handleAcceptedConn(c net.Conn) error {
 
 	ra := c.RemoteAddr().(*net.TCPAddr)
 
-	if ll.sshConn != nil {
-		ll.sshConn.ReverseForward2(c, c, ra.IP, ra.Port,
-			ll.sshBindHost, ll.sshBindPort)
+	if ll.acceptForwarder != nil {
+		ll.acceptForwarder.AcceptForward(c, c, ra.IP, ra.Port,
+			ll.bindHost, ll.bindPort)
 		return nil
 	}
 

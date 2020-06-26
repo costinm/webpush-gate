@@ -10,6 +10,7 @@ import (
 	"github.com/costinm/wpgate/pkg/msgs"
 	"golang.org/x/crypto/ssh"
 )
+
 // Channel contains 'exec' and 'shell' sessions.
 // We use this as interface to the messaging system. On stock SSH servers we expect an app called 'dmeshMsg'
 // that is execed, using stdin and stdout for communication.
@@ -64,7 +65,6 @@ func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
 
 	return nil
 }
-
 
 // Messages received from remote, over SSH.
 //
@@ -165,5 +165,3 @@ func (sshC *SSHClientConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh
 	// Disconnected
 	node.TunClient = nil
 }
-
-

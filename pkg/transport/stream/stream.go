@@ -8,17 +8,8 @@ import (
 	"io"
 	"log"
 	"strings"
-	"sync"
 
 	"github.com/costinm/wpgate/pkg/msgs"
-)
-
-var (
-	// createBuffer to get a buffer. Inspired from caddy.
-	// See PooledIOCopy for example
-	bufferPoolCopy = sync.Pool{New: func() interface{} {
-		return make([]byte, 0, 8*1024)
-	}}
 )
 
 // Client or server event-stream connection.
@@ -73,7 +64,6 @@ func EventStream(reqContext context.Context, req string, sender func(ev *msgs.Me
 	}
 }
 
-
 // Process a stream of messages - framing, parsing.
 // Current implementation: 2-byte prefix,
 //
@@ -112,7 +102,6 @@ type Stream struct {
 
 	Writer *io.Writer
 }
-
 
 //type PacketReader struct {
 //	r   io.Reader

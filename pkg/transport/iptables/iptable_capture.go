@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/costinm/dmesh/dm/gate"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
@@ -159,7 +158,8 @@ func StartIstioCapture(p *mesh.Gateway, addr string) error {
 			//	memcpy (&dstaddr, CMSG_DATA(cmsg), sizeof (dstaddr));
 			//	dstaddr.sin_family = AF_INET;
 			//}
-			go gate.HandleUdp(p, origIP, origPort, addr.IP, uint16(addr.Port), data[0:n])
+
+			go p.UDPGate.HandleUdp(p, origIP, origPort, addr.IP, uint16(addr.Port), data[0:n])
 		}
 	}()
 	return nil

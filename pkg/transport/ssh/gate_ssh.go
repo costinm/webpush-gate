@@ -50,8 +50,7 @@ import (
 // Primary port is 5222, but connections may be received over tunnels.
 // A SSH gateway has one key pair and set of configs.
 type SSHGate struct {
-
-	mutex        sync.RWMutex
+	mutex sync.RWMutex
 
 	// Active outbound SSHClientConn tunnels. May be direct to a neighbor/reachable IP, or tunneled in sshUp.
 	// Key is the host:Port or IP:port used in Dial
@@ -71,8 +70,8 @@ type SSHGate struct {
 
 	serverConfig *ssh.ServerConfig
 
-	metrics  *mesh.ServiceMetrics
-	cmetrics *mesh.ServiceMetrics
+	metrics   *mesh.ServiceMetrics
+	cmetrics  *mesh.ServiceMetrics
 	localFwdS *mesh.ServiceMetrics
 	rAccept   mesh.Metric
 	rMesh     *mesh.ServiceMetrics
@@ -111,7 +110,6 @@ type SSHConn struct {
 
 	Node *mesh.DMNode
 }
-
 
 //func (sg *SSHGate) HandleMessage(ctx context2.Context, cmdS string, meta map[string]string, data []byte) {
 //	// TODO: extract UA from /endpoint. Pass up any direct known connections
@@ -155,7 +153,7 @@ func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.Ju
 			gate:                sshGate,
 			Connect:             time.Now(),
 			SubscriptionsToSend: subs,
-			open: true,
+			open:                true,
 		},
 	}
 
@@ -244,7 +242,6 @@ func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.Ju
 
 	return sshC, nil
 }
-
 
 func (sshGate *SSHGate) keepalive(client *ssh.Client, n *mesh.DMNode) func() {
 	return func() {
@@ -363,12 +360,12 @@ func (sshC *SSHClientConn) DialProxy(tp *mesh.Stream) error {
 	return nil
 }
 
-// ForwardSocks create a virtual listener (magic port 5222) on the
+// AcceptDial create a virtual listener (magic port 5222) on the
 // server. The server will be able to initiate connections in reverse
 // to this client.
 // TODO: make it work with standard ssh servers - for example
 // get a dynamic port, and bounce it as an incoming ssh connection.
-func (sshC *SSHClientConn) ForwardSocks() error {
+func (sshC *SSHClientConn) AcceptDial() error {
 
 	// TODO: as optimization, allow an option to take the Listener and pass it to http, with a mux - make it H2, with TLS
 
@@ -413,7 +410,7 @@ func (sshC *SSHClientConn) ForwardSocks() error {
 // vpn is the address of the vpn server
 // dest is the address to forward incoming listener connections, passed as parameter to handler
 // handler is a function capable of 2-way forwarding.
-func (sshC *SSHClientConn) ForwardTCP(remoteListenAddr string, dest string) error {
+func (sshC *SSHClientConn) RemoteAccept(remoteListenAddr string, dest string) error {
 
 	// TODO: as optimization, allow an option to take the Listener and pass it to http, with a mux - make it H2, with TLS
 
@@ -505,18 +502,18 @@ func MaintainVPNConnection(gw *mesh.Gateway) {
 			gw.SSHClient = sshVpn
 
 			for _, v := range gw.Config.Listeners {
-				go sshVpn.ForwardTCP(v.Local, v.Remote)
+				go sshVpn.RemoteAccept(v.Local, v.Remote)
 			}
 
 			// Will not create a real listener, just SNI-based forward for the H2 port
 			if os.Getenv("ANDROID_ROOT") != "" {
-				go sshVpn.ForwardTCP("0.0.0.0:5555", "localhost:5555")
+				go sshVpn.RemoteAccept("0.0.0.0:5555", "localhost:5555")
 			} else {
-				go sshVpn.ForwardTCP("0.0.0.0:2222", "localhost:22")
+				go sshVpn.RemoteAccept("0.0.0.0:2222", "localhost:22")
 			}
 
 			// Blocking - will be closed when the ssh connection is closed.
-			sshVpn.ForwardSocks()
+			sshVpn.AcceptDial()
 			gw.SSHClient = nil
 			// TODO: shorter timeout with exponential backoff
 

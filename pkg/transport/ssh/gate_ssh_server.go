@@ -180,7 +180,7 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 			gate:    sshGate,
 			Connect: time.Now(),
 			Addr:    nConn.RemoteAddr().String(),
-			open: true,
+			open:    true,
 		},
 	}
 
@@ -286,14 +286,6 @@ type SSHServerConn struct {
 	Remote  string
 }
 
-//func (sshS *SSHServerConn) ForwardSocks() {
-//	panic("implement me")
-//}
-//
-//func (sshS *SSHServerConn) ForwardTCP(local, remote string) error {
-//	panic("implement me")
-//}
-
 func (sshS *SSHServerConn) Close() error {
 	log.Println("SSHD: Close", sshS.VIP6, sshS.sshConn.RemoteAddr())
 	return sshS.sshConn.Close()
@@ -386,7 +378,7 @@ func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Re
 
 	// BindIP and BindPort must be sent back  via ReverseForward, so client can
 	// match the -R.. request
-	listener.AddEndpointSSH(scon, req.BindIP, req.BindPort)
+	listener.SetAcceptForwarder(scon, req.BindIP, req.BindPort)
 	_, port, err := net.SplitHostPort(listener.Listener.Addr().String())
 	if err != nil {
 		r.Reply(false, nil)
@@ -419,7 +411,7 @@ func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Re
 // Will open a 'forwarded-tcpip' channel from server to client, associated
 // with the previous -R.
 // Called from acceptor, for an explicit listen port.
-func (sshS *SSHServerConn) ReverseForward2(in io.ReadCloser, out io.Writer,
+func (sshS *SSHServerConn) AcceptForward(in io.ReadCloser, out io.Writer,
 	ip net.IP, port int, hostKey string, portKey uint32) {
 
 	log.Println("FWD Connection ", ip, port, portKey)
@@ -571,7 +563,6 @@ func (sshS *SSHServerConn) handleDirectTcpip(newChannel ssh.NewChannel, host str
 
 const ROLE_GUEST = "guest"
 
-
 // As a server, handle out-of-band requests on a session.
 // server may have multiple sessions
 func (sshS *SSHServerConn) handleServerRequestChan(n *mesh.DMNode, in <-chan *ssh.Request) {
@@ -611,7 +602,6 @@ func (sshS *SSHServerConn) handleServerRequestChan(n *mesh.DMNode, in <-chan *ss
 
 	}
 }
-
 
 // Private SSHClientConn structs
 

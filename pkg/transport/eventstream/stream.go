@@ -25,7 +25,7 @@ var (
 
 // Client or server event-stream connection.
 // Useful for debugging and sending messages to old browsers.
-// This is one of the simplest protocols.
+// This is one of the simplest protocols, line based.
 
 type EventStreamConnection struct {
 	msgs.MsgConnection
@@ -62,7 +62,6 @@ func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 		})
 	}
 }
-
 
 func MonitorNode(gate *msgs.Mux, hc *http.Client, idhex *net.IPAddr) error {
 	t0 := time.Now()
@@ -118,6 +117,3 @@ func MonitorNode(gate *msgs.Mux, hc *http.Client, idhex *net.IPAddr) error {
 		}
 	}
 }
-
-
-

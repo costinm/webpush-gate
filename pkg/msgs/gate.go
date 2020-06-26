@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-
 // One connection - incoming or outgoing. Can send messages to the remote end, which may in turn forward
 // messages for other nodes.
 //
