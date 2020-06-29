@@ -87,7 +87,7 @@ var (
 )
 
 // A set of transport and servers, and associated ports/settings.
-type AllWPGate struct {
+type ServerAll struct {
 	BasePort int
 	ConfDir  string
 
@@ -101,7 +101,11 @@ type AllWPGate struct {
 	UI *ui.DMUI
 }
 
-func StartAll(a *AllWPGate) {
+func (sa *ServerAll) Close() {
+
+}
+
+func StartAll(a *ServerAll) {
 	// File-based config
 	config := conf.NewConf(a.ConfDir)
 
@@ -131,7 +135,7 @@ func StartAll(a *AllWPGate) {
 	wp := &xds.GrpcService{}
 	xds.RegisterAggregatedDiscoveryServiceServer(s, wp)
 
-	// Server GRPC
+	// ServerAll GRPC
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", addrN+GRPC))
 	if err != nil {
 		log.Fatal(err)
@@ -174,21 +178,21 @@ func StartAll(a *AllWPGate) {
 	h2s.InitMTLSServer(a.BasePort+H2, h2s.MTLSMux)
 }
 
-func (a *AllWPGate) laddr(off int) string {
+func (a *ServerAll) laddr(off int) string {
 	return fmt.Sprintf("127.0.0.1:%d", a.BasePort+off)
 }
-func (a *AllWPGate) addr(off int) string {
+func (a *ServerAll) addr(off int) string {
 	return fmt.Sprintf("0.0.0.0:%d", a.BasePort+off)
 }
 
-func (a *AllWPGate) StartDebug() {
+func (a *ServerAll) StartDebug() {
 	mux := http.DefaultServeMux
 
 	mux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
 }
 
-func (a *AllWPGate) StartMsg() {
-	// Server - accept from other sources
+func (a *ServerAll) StartMsg() {
+	// ServerAll - accept from other sources
 	cloudevents.NewCloudEvents(msgs.DefaultMux, a.BasePort+CLOUD_EVENTS)
 	// TODO: list of sinks, add NATS in-process
 
@@ -204,7 +208,7 @@ func (a *AllWPGate) StartMsg() {
 	}))
 }
 
-func (a *AllWPGate) StartExtra() {
+func (a *ServerAll) StartExtra() {
 	var err error
 	// accept: used for SSH -R
 

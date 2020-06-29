@@ -8,7 +8,7 @@
 apiVersion: skaffold/v2beta4
 kind: Config
 metadata:
-  name:	dev
+  name:	dind
 deploy:
   kubectl:
     manifests:
@@ -16,23 +16,9 @@ deploy:
       - charts/*.yaml
 
 portForward:
-  # deployment, pod, service
-
   - resourceType: replicationcontroller
-    namespace: dev
-    resourceName: docker
+    namespace: dind
+    resourceName: dind
     port: 2375
     localPort: 2375
 
-# For debugging
-#  - resourceType: service
-#    namespace: prometheus
-#    resourceName: prometheus-prometheus
-#    port: 9090
-#    localPort: 9090
-#
-#  - resourceType: service
-#    namespace: prometheus
-#    resourceName: prometheus-grafana
-#    port: 80
-#    localPort: 9001

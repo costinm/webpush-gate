@@ -37,32 +37,8 @@ spec:
             - containerPort: 5000
               name: docker
               protocol: TCP
-          env:
-            - name: DOCKER_HOST_DIND
-              value: tcp://localhost:2375
-
-
-        # Experimenting with DIND
-        # - alpine container, busybox
-        # - tcp://0.0.0.0:2375 (env: PORT)
-        # - runc
-        # Port can be used on a remote machine, with forwarding.
-        - name: dind
-          image: docker:18.05-dind
-          securityContext:
-            privileged: true
-          ports:
-            - containerPort: 2375
-              name: dind
-              protocol: TCP
-          volumeMounts:
-            - name: dind-storage
-              mountPath: /var/lib/docker
 
       volumes:
-        - name: dind-storage
-          emptyDir: {}
-
         - name: docker-socket-volume
           hostPath:
               path: /var/run/docker.sock
@@ -72,5 +48,3 @@ spec:
           persistentVolumeClaim:
               claimName: src
 
-# Alternative: DIND
-# Will build images in DIND, not docker's node. Must be pushed to registry

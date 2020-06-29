@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dind
+  labels:
+#    istio.io/rev: canary
+    istio-injection: enabled
+
+---

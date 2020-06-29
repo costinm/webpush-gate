@@ -17,7 +17,7 @@ import (
 // - 9004: HTTP (debug, local)
 func main() {
 	cfgDir := os.Getenv("HOME") + "/.ssh/"
-	all := &bootstrap.AllWPGate{
+	all := &bootstrap.ServerAll{
 		ConfDir:  cfgDir,
 		BasePort: 5200,
 	}
