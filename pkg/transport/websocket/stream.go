@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/costinm/wpgate/pkg/msgs"
-	"github.com/costinm/wpgate/pkg/transport/stream"
+	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	ws "golang.org/x/net/websocket"
 )
 
@@ -40,7 +40,7 @@ func websocketStream(mux *msgs.Mux, conn *ws.Conn) {
 	}
 	fw, _ := conn.NewFrameWriter(conn.PayloadType)
 	go func() {
-		stream.EventStream(conn.Request().Context(), conn.Request().RemoteAddr, func(ev *msgs.Message) error {
+		eventstream.EventStream(conn.Request().Context(), conn.Request().RemoteAddr, func(ev *msgs.Message) error {
 			bo := bytes.Buffer{}
 			ba := ev.MarshalJSON()
 			bo.Write([]byte{0, 1, 'c', '|'})

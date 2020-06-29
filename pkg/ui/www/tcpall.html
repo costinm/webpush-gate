@@ -1,0 +1,50 @@
+<script lang="javascript">
+    "use strict";
+
+    $(document).ready(function () {
+        updateTCP();
+        updateUDP();
+        $("#do_sync").click(function () {
+            updateTCP();
+            updateUDP();
+        });
+    })
+</script>
+
+<div class='container-fluid'>
+    <div class="row">
+        <table class="table" id="tcptable">
+            <thead>
+            <thead>
+            <th>Remote</th>
+            <th>Cnt</th>
+            <th>Sent</th>
+            <th>Rcv</th>
+            <th>Last close</th>
+            <th>Last len</th>
+            <th>Last bps</th>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+        </p>
+    </div>
+
+    <div class="row">
+        <table class="table" id="udptable">
+            <thead>
+            <thead>
+            <th>Remote</th>
+            <th>Cnt</th>
+            <th>Sent</th>
+            <th>Rcv</th>
+            <th>Last close</th>
+            <th>Last len</th>
+            <th>Last bps</th>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+        </p>
+    </div>
+</div>

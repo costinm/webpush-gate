@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -31,15 +30,13 @@ import (
 // H2 provides network communication over HTTP/2, QUIC, SSH
 // It also handles the basic config loading - in particular certificates.
 //
-//
 type H2 struct {
-	*H2Conf
-
 	quicClientsMux sync.RWMutex
 	quicClients    map[string]*http.Client
 
-	// HttpsClient with mesh certificates.
-	HttpsClient *http.Client
+	// HttpsClient with mesh certificates, H2.
+	// Call Client() to get it - or the Quic one
+	httpsClient *http.Client
 
 	VIP6 net.IP
 
@@ -60,24 +57,6 @@ type H2 struct {
 	Certs *auth.Auth
 }
 
-// Params:
-// dest - data passed when the acceptor was created.
-// acceptAddr - the port where the connection was accepted.
-// con - the accepted stream.
-type InHandler func(dest string, acceptAddr string, conn io.ReadWriteCloser) error
-
-type OutHandler interface {
-	Dial(dest string, localIn io.ReadCloser, clientMeta string, ctype string) (TcpProxy, error)
-}
-
-// TcpProxy is an interface for proxying to a remote address.
-// The input and output are a local reader or writer.
-// The proxy is created using Dial()
-type TcpProxy interface {
-	// Blocking method, will return when both sides have finished.
-	ProxyConn(localIn io.ReadCloser, localOut io.Writer)
-}
-
 var (
 	// Set to the address of the AP master
 	AndroidAPMaster string
@@ -85,70 +64,23 @@ var (
 	AndroidAPLL     net.IP
 )
 
-type Host struct {
-	// Address and port of a HTTP server to forward the domain.
-	Addr string
-
-	// Directory to serve static files. Used if Addr not set.
-	Dir string
-	Mux http.Handler `json:"-"`
-}
-
-// Conf that can be saved to disk to preserve h2 settings.
-// This is a compact form for listeners, ports, etc.
-//
-type H2Conf struct {
-	// Must include leading ., used as a suffix
-	Domain string
-
-	// Name is the base64-encoded form of the ID or a local name (hostname)
-	Name string
-
-	// HTTP address to listen on. Defaults to :2080 or :80 if running as root.
-	// Will act as an inbound gateway
-	//GatewayHTTPAddr  string
-	//GatewayHTTPSAddr string
-
-	// Set of hosts with certs to configure in the h2 server.
-	// The cert is expected in CertDir/HOSTNAME.[key,crt]
-	// The server will terminate TLS and HTTP, forward to the host as plain text.
-	Hosts map[string]*Host `json:"Hosts,omitempty"`
-
-	// Conf is configured from Android side with the config (settings)
-	// ssid, pass, vpn_ext
-	Conf map[string]string `json:"Conf,omitempty"`
-}
-
-// NewH2 will load config dir. If missing, will initiate a config.
-// If the parameter is empty, new in-memory config will be created (for tests or apps that save
-// config in their own format)
-// Deprecated
+// Deprecated, test only
 func NewH2(confdir string) (*H2, error) {
-	return NewTransport(nil, &H2Conf{})
+	name, _ := os.Hostname()
+	certs := auth.NewAuth(nil, name, "m.webinf.info")
+	return NewTransport(certs)
 }
 
-func NewTransport(config auth.ConfStore, h2Cfg *H2Conf) (*H2, error) {
-
+func NewTransport(authz *auth.Auth) (*H2, error) {
 	h2 := &H2{
-		H2Conf:      h2Cfg,
 		MTLSMux:     &http.ServeMux{},
 		LocalMux:    &http.ServeMux{},
 		quicClients: map[string]*http.Client{},
 	}
 
-	if h2.Domain == "" {
-		h2.Domain = "m.webinf.info"
-	}
-	if h2.Conf == nil {
-		h2.Conf = map[string]string{}
-	}
-
-	name, _ := os.Hostname()
-	h2.Certs = auth.NewAuth(config, name, h2.Domain)
+	h2.Certs = authz
 
 	h2.VIP6 = auth.Pub2VIP(h2.Certs.Pub)
-
-	h2.Name = hex.EncodeToString(h2.VIP6[8:])
 
 	ctls := h2.Certs.GenerateTLSConfigClient()
 	ctls.VerifyPeerCertificate = verify("")
@@ -166,7 +98,7 @@ func NewTransport(config auth.ConfStore, h2Cfg *H2Conf) (*H2, error) {
 		rtt = mesh.MetricsClientTransportWrapper(rtt)
 	}
 
-	h2.HttpsClient = &http.Client{
+	h2.httpsClient = &http.Client{
 		Timeout: 15 * time.Minute,
 		//Timeout:   5 * time.Second,
 		Transport: rtt,
@@ -175,48 +107,12 @@ func NewTransport(config auth.ConfStore, h2Cfg *H2Conf) (*H2, error) {
 	return h2, nil
 }
 
-var (
-	useQuic = false // os.Getenv("VPN_QUIC") != "0"
-)
-
 func CleanQuic(httpClient *http.Client) {
 	//hrt, ok := httpClient.Transport.(*h2quic.RoundTripper)
 	hrt, ok := httpClient.Transport.(io.Closer)
 	if ok {
 		hrt.Close()
 	}
-}
-
-func (h2 *H2) Client(host string) *http.Client {
-	if strings.Contains(host, "/") {
-		parts := strings.Split(host, "/")
-		host = parts[2] // http(0)/(1)/HOST(2)/...
-	}
-	if UseQuic {
-		if strings.Contains(host, "p2p") ||
-			(strings.Contains(host, "wlan") && strings.HasPrefix(host, AndroidAPMaster)) {
-			h2.quicClientsMux.RLock()
-			if c, f := h2.quicClients[host]; f {
-				h2.quicClientsMux.RUnlock()
-				return c
-			}
-			h2.quicClientsMux.RUnlock()
-
-			h2.quicClientsMux.Lock()
-			if c, f := h2.quicClients[host]; f {
-				h2.quicClientsMux.Unlock()
-				return c
-			}
-			c := h2.InitQuicClient()
-			h2.quicClients[host] = c
-			h2.quicClientsMux.Unlock()
-
-			log.Println("TCP-H2 QUIC", host)
-			return c
-		}
-	}
-
-	return h2.HttpsClient
 }
 
 // Start QUIC and HTTPS servers on port, using handler.
@@ -245,10 +141,10 @@ func (h2 *H2) InitH2Server(port string, handler http.Handler, mtls bool) error {
 		log.Println("Failed to listen https ", port)
 		return err
 	}
-	return h2.InitH2ServerListener(tcpConn, handler, mtls)
+	return h2.initH2ServerListener(tcpConn, handler, mtls)
 }
 
-func (h2 *H2) InitH2ServerListener(tcpConn *net.TCPListener, handler http.Handler, mtls bool) error {
+func (h2 *H2) initH2ServerListener(tcpConn *net.TCPListener, handler http.Handler, mtls bool) error {
 
 	tlsServerConfig := h2.Certs.GenerateTLSConfigServer()
 	if mtls {

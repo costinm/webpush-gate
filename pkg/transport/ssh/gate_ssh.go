@@ -366,6 +366,12 @@ func (sshC *SSHClientConn) DialProxy(tp *mesh.Stream) error {
 // TODO: make it work with standard ssh servers - for example
 // get a dynamic port, and bounce it as an incoming ssh connection.
 func (sshC *SSHClientConn) AcceptDial() error {
+	// Options:
+	// 1. Expose a SSH listener - will expose this node as ssh server
+	// 2. Expose the H2 port (ideal)
+	// 3. Expose SOCKS - not a good idea if it's a real exposed port.
+	// That works for the virtual port - as long as forward is restricted
+	// to trusted source.
 
 	// TODO: as optimization, allow an option to take the Listener and pass it to http, with a mux - make it H2, with TLS
 

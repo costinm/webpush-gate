@@ -19,11 +19,12 @@ func main() {
 	cfgDir := os.Getenv("HOME") + "/.ssh/"
 	all := &bootstrap.AllWPGate{
 		ConfDir:  cfgDir,
-		BasePort: 15000,
+		BasePort: 5200,
 	}
 	bootstrap.StartAll(all)
 
 	// Debug interface
 	log.Println("Starting WPS server on ", all.BasePort)
-	http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", all.BasePort+bootstrap.HTTP_DEBUG), nil)
+
+	http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", all.BasePort+bootstrap.HTTP_DEBUG), all.UI)
 }

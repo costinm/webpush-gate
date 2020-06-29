@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 )
 
@@ -15,8 +16,17 @@ import (
 
 // Experimental, not the main capture mode - TUN and SOCKS should be used if possible.
 
-func HttpProxyCapture(addr string) error {
-	gw := &HTTPGate{}
+func NewHTTPGate(gw *mesh.Gateway, h2 *h2.H2) *HTTPGate {
+	return &HTTPGate{
+		gw: gw,
+		h2: h2,
+	}
+}
+
+// Start listening on the addr, as a HTTP_PROXY
+// Handles CONNECT and PROXY requests using the gateway
+// for streams.
+func (gw *HTTPGate) HttpProxyCapture(addr string) error {
 	// For http proxy we need a dedicated plain HTTP port
 	nl, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -25,13 +35,13 @@ func HttpProxyCapture(addr string) error {
 	}
 	go http.Serve(nl, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "CONNECT" {
-			gw.HandleConnect(w, r)
+			gw.handleConnect(w, r)
 			return
 		}
 		// This is a real HTTP proxy
 		if r.URL.IsAbs() {
 			log.Println("HTTPPRX", r.Method, r.Host, r.RemoteAddr, r.URL)
-			gw.CaptureHttpProxyAbsURL(w, r)
+			gw.captureHttpProxyAbsURL(w, r)
 			return
 		}
 	}))
@@ -39,7 +49,7 @@ func HttpProxyCapture(addr string) error {
 }
 
 // WIP: HTTP proxy with absolute address, to a QUIC server (or sidecar)`
-func (gw *HTTPGate) CaptureHttpProxyAbsURL(w http.ResponseWriter, r *http.Request) {
+func (gw *HTTPGate) captureHttpProxyAbsURL(w http.ResponseWriter, r *http.Request) {
 	// HTTP proxy mode - uses the QUIC client to connect to the node
 	// TODO: redirect via VPN, only root VPN can do plaintext requests
 
@@ -80,7 +90,7 @@ func (gw *HTTPGate) CaptureHttpProxyAbsURL(w http.ResponseWriter, r *http.Reques
 // a TCP UdpNat to a mesh node, from localhost or from a net node.
 // Only used to capture local traffic - should be bound to localhost only, like socks.
 // It speaks HTTP/1.1, no QUIC
-func (gw *HTTPGate) HandleConnect(w http.ResponseWriter, r *http.Request) {
+func (gw *HTTPGate) handleConnect(w http.ResponseWriter, r *http.Request) {
 	hij, ok := w.(http.Hijacker)
 	if !ok {
 		w.WriteHeader(503)

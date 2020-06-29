@@ -3,6 +3,7 @@ package uds
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -41,6 +42,8 @@ type UdsConn struct {
 	msgs.MsgConnection
 
 	con *net.UnixConn
+
+	Handler msgs.MessageHandler
 
 	Reader *bufio.Reader
 	oob    []byte
@@ -111,6 +114,7 @@ func Dial(ifname string, mux *msgs.Mux, initial map[string]string) (*UdsConn, er
 		initial: initial,
 		mux:     mux,
 	}
+	uds.SendMessageToRemote = uds.SendMessage
 	err := uds.Redial()
 
 	return uds, err
@@ -145,14 +149,16 @@ func (uds *UdsServer) accept() (*UdsConn, error) {
 	if err != nil {
 		log.Println("Error enabling unix creds ", err)
 	}
-	return &UdsConn{
+	uc := &UdsConn{
 		con:    inS,
 		oob:    make([]byte, syscall.CmsgSpace(256)),
 		buffer: make([]byte, 32*1024),
 		Name:   uds.Name,
 		mux:    uds.mux,
 		Reader: bufio.NewReader(inS),
-	}, nil
+	}
+	uc.SendMessageToRemote = uc.SendMessage
+	return uc, nil
 }
 
 //
@@ -237,15 +243,13 @@ func (uds *UdsServer) serverStream(conn *UdsConn) {
 
 func (conn *UdsConn) streamCommon() {
 	conn.SubscriptionsToSend = []string{"I", "ble", "bt", "N", "wifi", "net"}
-	conn.SendMessageToRemote = conn.SendMessage
-
 
 	conn.mux.AddConnection(conn.Name, &conn.MsgConnection)
 
 	defer func() {
 		log.Println("Connection closed ", conn.Name)
 		conn.con.Close()
-		conn.mux.Gate.RemoveConnection(conn.Name, &conn.MsgConnection)
+		conn.mux.RemoveConnection(conn.Name, &conn.MsgConnection)
 	}()
 
 	for !conn.closed {
@@ -275,9 +279,13 @@ func (conn *UdsConn) streamCommon() {
 			msg.Data = string(payload)
 		}
 
+		if conn.Handler != nil {
+			conn.Handler.HandleMessage(context.Background(),
+				cmd, meta, payload)
+		}
+
 		// Don't forward messages from the UDS.
 		conn.mux.HandleMessageForNode(msg)
-
 	}
 }
 
@@ -385,6 +393,10 @@ func (uds *UdsConn) Read(out []byte) (int, error) {
 
 // Return a Len-prefixed slice containing the next message.
 // The content must be handled before next call - will be replaced.
+// Format: same as gRPC stream:
+// - type 1B
+// - len 4B
+// - content
 func (uds *UdsConn) nextMessage() (int, []byte, error) {
 	endData := 0
 

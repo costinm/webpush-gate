@@ -159,7 +159,7 @@ func (h2 *H2) InitQuicServer(port int, handler http.Handler) error {
 func (h2 *H2) InitQuicServerConn(port int, conn net.PacketConn, handler http.Handler) error {
 	conn = &PacketConnWrapper{
 		PacketConn: conn,
-		useApHack:  h2.Conf["p2p_multicast"] == "true",
+		useApHack:  false,
 	}
 
 	mtlsServerConfig := h2.Certs.GenerateTLSConfigServer()

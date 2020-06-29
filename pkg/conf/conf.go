@@ -3,6 +3,7 @@
 package conf
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"log"
 	"os"
@@ -19,21 +20,34 @@ import (
 type Conf struct {
 	// Base directory. If not set, no config will be saved and read will fail.
 	base string
+	// Conf is configured from Android side with the config (settings)
+	// ssid, pass, vpn_ext
+	Conf map[string]string `json:"Conf,omitempty"`
 }
 
+// Returns a config stsore.
+// Implements auth.ConfStore interface
 func NewConf(base string) *Conf {
 	// TODO: https for remote - possibly using local creds and K8S style or XDS
-	return &Conf{base: base}
-}
-
-type ConfStore interface {
-	Get(name string) ([]byte, error)
-	Set(conf string, data []byte) error
-	List(name string, tp string) ([]string, error)
+	return &Conf{base: base, Conf: map[string]string{}}
 }
 
 func (h2 *Conf) List(name string, tp string) ([]string, error) {
 	return nil, nil
+}
+
+func Get(h2 *Conf, name string, to interface{}) error {
+	raw, err := h2.Get("gate.json")
+	if err != nil {
+		log.Println("gate.json:", err)
+		raw = []byte("{}")
+		//return nil
+	}
+	if err := json.Unmarshal(raw, to); err != nil {
+		log.Println(err)
+		return err
+	}
+	return nil
 }
 
 // Secrets - pem, acl

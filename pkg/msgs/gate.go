@@ -3,6 +3,7 @@ package msgs
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"strings"
@@ -48,6 +49,13 @@ func (mux *Mux) AddConnection(id string, cp *MsgConnection) {
 	mux.connections[id] = cp
 	mux.mutex.Unlock()
 
+	if mux.Auth != nil {
+		// Special message sent at connect time: /I (identity)
+		b64 := base64.URLEncoding.EncodeToString(mux.Auth.NodeID())
+
+		// TODO: change to /I, with id as param ?
+		cp.SendMessageToRemote(NewMessage("/I/"+b64, nil))
+	}
 	// Notify any handler of a new connection
 	if h, f := mux.handlers["/open"]; f {
 		h.HandleMessage(context.Background(), "/open", map[string]string{"id": id}, nil)

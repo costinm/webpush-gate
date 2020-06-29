@@ -1,4 +1,3 @@
-
 FROM golang:latest AS build-base
 #FROM golang:alpine AS build-base
 
@@ -18,12 +17,10 @@ ENV GOPROXY=https://proxy.golang.org
 ########
 #FROM golang:latest AS build_base
 #
-#RUN apt-get update && apt install less net-tools
-#RUN go get github.com/go-delve/delve/cmd/dlv && \
-#   go get github.com/google/ko/cmd/ko@v0.4.0
+RUN apt-get update && apt install less net-tools
+RUN go get github.com/go-delve/delve/cmd/dlv && \
+   go get github.com/google/ko/cmd/ko@v0.4.0
 ENTRYPOINT /bin/sh
-
-RUN curl localhost:15020/quitquitquit
 
 ################################################################################
 ##### Run the build on alpine - istiod doesn't need more.
@@ -49,13 +46,14 @@ RUN curl localhost:15020/quitquitquit
 ##RUN apt-get update && apt install less net-tools
 #
 ################################################################################
-#FROM build-base AS build
-#
-#COPY cmd ./cmd
-#COPY pkg ./pkg
-#
-## Runs in /go directory
-#RUN go build -a -gcflags='all=-N -l' -ldflags '-extldflags "-static"' -o wps ./cmd/wps
+FROM build-base AS build
+
+COPY cmd ./cmd
+COPY pkg ./pkg
+
+# Runs in /go directory
+RUN go build -a -gcflags='all=-N -l' -ldflags '-extldflags "-static"' -o wps ./cmd/wps
+
 #
 ################################################################################
 #### Container running the combined control plane, with an alpine base ( smaller than distroless but with shell )
@@ -66,22 +64,22 @@ RUN curl localhost:15020/quitquitquit
 ##FROM debian:10-slim AS wps
 #
 ## Same base as Istio debug
-#FROM ubuntu:bionic AS wps
-## Or distroless
-##FROM docker.io/istio/base:default AS wps
-#
-#COPY --from=build /ws/wps /usr/local/bin/wps
-#
-#WORKDIR /
-##RUN mkdir -p /etc/certs && \
-##    mkdir -p /etc/istio/proxy && \
-##    mkdir -p /etc/istio/config && \
-##    mkdir -p /var/lib/istio/envoy && \
-##    mkdir -p /var/lib/istio/config && \
-##    mkdir -p /var/lib/istio/proxy && \
-##    chown -R 1337 /etc/certs /etc/istio /var/lib/istio
-#
-## Defaults
-##COPY ./var/lib/istio /var/lib/istio/
-#USER 5228:5228
-#ENTRYPOINT /usr/local/bin/wps
+FROM ubuntu:bionic AS wps
+# Or distroless
+#FROM docker.io/istio/base:default AS wps
+
+COPY --from=build /ws/wps /usr/local/bin/wps
+
+WORKDIR /
+#RUN mkdir -p /etc/certs && \
+#    mkdir -p /etc/istio/proxy && \
+#    mkdir -p /etc/istio/config && \
+#    mkdir -p /var/lib/istio/envoy && \
+#    mkdir -p /var/lib/istio/config && \
+#    mkdir -p /var/lib/istio/proxy && \
+#    chown -R 1337 /etc/certs /etc/istio /var/lib/istio
+
+# Defaults
+#COPY ./var/lib/istio /var/lib/istio/
+USER 5228:5228
+ENTRYPOINT /usr/local/bin/wps

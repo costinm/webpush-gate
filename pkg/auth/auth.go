@@ -167,12 +167,15 @@ var (
 // 0 0 0 65 :
 const SSH_ECPREFIX = "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABB"
 
-// ConfStore abstracts config and secret storage.
 type ConfStore interface {
+	// Get a config blob by name
 	Get(name string) ([]byte, error)
 
-	// keys used: ec-key.pem ec-cert.pem id_ecdsa.pub authorized_keys.save
+	// Save a config blob
 	Set(conf string, data []byte) error
+
+	// List the configs starting with a prefix, of a given type
+	List(name string, tp string) ([]string, error)
 }
 
 func Conf(cs ConfStore, name, def string) string {

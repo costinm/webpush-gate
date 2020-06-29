@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 )
@@ -45,10 +44,11 @@ Typical params:
 
 // HTTPGate handles HTTP requests
 type HTTPGate struct {
-	H2 h2.H2
+	// H2 used to create HttpClient with mesh credentials
+	h2 *h2.H2
 
-	Auth *auth.Auth
-	gw   *mesh.Gateway
+	//Auth *auth.Auth
+	gw *mesh.Gateway
 }
 
 // ReverseForward a request to a normal HTTP host.
@@ -66,7 +66,7 @@ func (gw *HTTPGate) ForwardHTTP(w http.ResponseWriter, r *http.Request, pathH st
 	// can add more headers
 	// can add headers to the response
 
-	res, err := gw.H2.HttpsClient.Transport.RoundTrip(r1)
+	res, err := gw.h2.Client(r1.URL.Host).Transport.RoundTrip(r1)
 	SendBackResponse(w, r, res, err)
 }
 
@@ -87,7 +87,7 @@ func (gw *HTTPGate) Forward80(w http.ResponseWriter, r *http.Request) {
 func (gw *HTTPGate) proxy(w http.ResponseWriter, r *http.Request) bool {
 	// TODO: if host is XXXX.m.SUFFIX -> forward to node.
 
-	host, found := gw.H2.Hosts[r.Host]
+	host, found := gw.gw.Config.Hosts[r.Host]
 	if !found {
 		return false
 	}
@@ -139,17 +139,12 @@ func (gw *HTTPGate) HttpForwardPath(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Invalid device ID"))
 		return
 	}
-	key := binary.BigEndian.Uint64(id)
+	//key := binary.BigEndian.Uint64(id)
 
 	ip6 := make([]byte, 16)
 	copy(ip6[8:], id)
 	ip6[0] = 0xfd
 
-	//	newUrl := fmt.Sprintf("https://%v:%d/%s", ip6,)
-
-	if key == gw.Auth.VIP64 {
-
-	}
 	url := ""
 
 	ht := &http.Transport{
@@ -172,7 +167,7 @@ func (gw *HTTPGate) HttpForwardPath(w http.ResponseWriter, r *http.Request) {
 		} else {
 			url = "http://" + url
 		}
-		gw.ProxyHttp(gw.H2.Client(""), r, w, url, oldPath)
+		gw.ProxyHttp(gw.h2.Client(""), r, w, url, oldPath)
 		return
 	}
 
@@ -225,9 +220,9 @@ func (gw *HTTPGate) HttpForwardPath2(w http.ResponseWriter, r *http.Request) {
 	}
 	key := binary.BigEndian.Uint64(id)
 
-	if key == gw.Auth.VIP64 {
-
-	}
+	//if key == gw.Auth.VIP64 {
+	//
+	//}
 	url := ""
 
 	if len(next) > 3 && next[3] == "c" {
@@ -248,7 +243,7 @@ func (gw *HTTPGate) HttpForwardPath2(w http.ResponseWriter, r *http.Request) {
 		} else {
 			url = "http://" + url
 		}
-		gw.ProxyHttp(gw.H2.Client(""), r, w, url, oldPath)
+		gw.ProxyHttp(gw.h2.Client(""), r, w, url, oldPath)
 		return
 	}
 
@@ -479,7 +474,7 @@ func (gw *HTTPGate) DMNodeHttpRequestViaNeighbor(or *http.Request, w http.Respon
 	r.Header.Add("x-dm", oldPath)
 	r.Header.Add("x-dm-ip", oldPathIp+","+neighborLocalAddr.IP.String())
 
-	cl := gw.H2.Client(r.URL.Host)
+	cl := gw.h2.Client(r.URL.Host)
 	res, err := cl.Do(r)
 	if err != nil {
 		h2.CleanQuic(cl)

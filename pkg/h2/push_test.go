@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"golang.org/x/net/http2"
@@ -26,30 +25,21 @@ func newLocalListener(t *testing.T) net.Listener {
 	return ln
 }
 
-const transportHost = "www.webinf.info"
-
 var tlsConfigInsecure = &tls.Config{InsecureSkipVerify: true}
 
-func TestTransportExternal(t *testing.T) {
-	req, _ := http.NewRequest("GET", "https://"+transportHost+"/", nil)
-	rt := &http2.Transport{TLSClientConfig: tlsConfigInsecure}
-	res, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("%v", err)
-	}
-	res.Write(os.Stdout)
-}
-
+// Used by a H2 server to 'fake' a secure connection.
 type fakeTLSConn struct {
 	net.Conn
 }
 
 func (c *fakeTLSConn) ConnectionState() tls.ConnectionState {
 	return tls.ConnectionState{
-		Version: tls.VersionTLS12,
+		Version:     tls.VersionTLS12,
+		CipherSuite: 0xC02F,
 	}
 }
 
+// Start a H2 server with fake TLS
 func startH2cServer(t *testing.T) net.Listener {
 	h2Server := &http2.Server{}
 	l := newLocalListener(t)
@@ -59,9 +49,12 @@ func startH2cServer(t *testing.T) net.Listener {
 			t.Error(err)
 			return
 		}
-		h2Server.ServeConn(&fakeTLSConn{conn}, &http2.ServeConnOpts{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprintf(w, "Hello, %v, http: %v", r.URL.Path, r.TLS == nil)
-		})})
+		h2Server.ServeConn(
+			&fakeTLSConn{conn},
+			&http2.ServeConnOpts{
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					fmt.Fprintf(w, "Hello, %v, http: %v", r.URL.Path, r.TLS == nil)
+				})})
 	}()
 	return l
 }
@@ -97,21 +90,26 @@ func TestTransportH2c(t *testing.T) {
 
 func Test_Service(t *testing.T) {
 	mux := http.NewServeMux()
-	//InitMux(mux)
 
+	// Real TLS server listener, httptest.Server
 	srv := httptest.NewTLSServer(mux)
 	defer srv.Close()
 
 	http2.ConfigureServer(srv.Config, &http2.Server{})
-	// httptest.NewServer(mux)
-
 	log.Println(srv.URL)
+
 	url := srv.URL
 
 	// h2 - inspired from h2demo
 	http2.VerboseLogs = true
 
-	res, err := http.Get(url + "/subscribe")
+	tr := &http.Transport{
+		TLSClientConfig: tlsConfigInsecure,
+	}
+	hc := http.Client{
+		Transport: tr,
+	}
+	res, err := hc.Get(url + "/subscribe")
 	if err != nil {
 		t.Fatal("subscribe", err)
 	}
@@ -119,5 +117,4 @@ func Test_Service(t *testing.T) {
 	if len(loc) == 0 {
 		t.Fatal("location", res)
 	}
-
 }

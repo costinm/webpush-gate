@@ -5,11 +5,19 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/wpgate/pkg/bootstrap/tests"
 	"github.com/costinm/wpgate/pkg/h2"
 )
 
+// Verify mutual cert authentication
 func TestCerts(t *testing.T) {
-	h2srv, _ := h2.NewH2("")
+	gw := tests.TestGateway(16000)
+	defer gw.Close()
+
+	bCerts := auth.NewAuth(nil, "bob", "m.webinf.info")
+	bH2, _ := h2.NewTransport(bCerts)
+
 	http.HandleFunc("/hello", func(writer http.ResponseWriter, r *http.Request) {
 		if len(r.TLS.PeerCertificates) > 0 {
 			log.Println("Client cert", r.TLS.PeerCertificates)
@@ -18,10 +26,12 @@ func TestCerts(t *testing.T) {
 			writer.WriteHeader(501)
 		}
 	})
-	h2srv.InitMTLSServer(16009, http.DefaultServeMux)
+	bH2.InitMTLSServer(16009, http.DefaultServeMux)
 
-	h2c, _ := h2.NewH2("")
-	res, err := h2c.Client("localhost:16009").Get("https://localhost:16009/hello")
+	aCerts := auth.NewAuth(nil, "alice", "m.webinf.info")
+	aH2, _ := h2.NewTransport(aCerts)
+
+	res, err := aH2.Client("localhost:16009").Get("https://localhost:16009/hello")
 	if err != nil {
 		t.Fatal("Get error ", err)
 	}

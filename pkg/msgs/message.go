@@ -2,6 +2,7 @@ package msgs
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -29,14 +30,13 @@ import (
 // ce-id: "1234-1234-1234"
 // ce-source: "/mycontext/subcontext"
 
-
 // Records recent received messages and broadcasts, for debug and UI
 type Message struct {
 
 	//RFC3339 "2018-04-05T17:31:00Z"
 	Time string `json:"time,omitempty"`
 
-	// ID of event, to dedup.
+	// ID of event, to dedup. Included as meta 'id'
 	Id string `json:"id,omitempty"`
 
 	// Can be 'topic', or destination
@@ -72,10 +72,19 @@ type Message struct {
 // TODO: websocket to watch events
 // TODO: push events to debug server
 
+// NewMessage creates a new message, originated locally
 func NewMessage(cmdS string, meta map[string]string) *Message {
 	ev := &Message{Meta: map[string]string{}}
 	ev.To = cmdS
 	ev.Meta = meta
+
+	ev.Id = meta["id"]
+	if ev.Id == "" {
+		mutex.Lock()
+		ev.Id = fmt.Sprintf("%d", id)
+		id++
+		mutex.Unlock()
+	}
 
 	return ev
 }

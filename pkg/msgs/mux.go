@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/costinm/wpgate/pkg/auth"
 )
 
 // Local processing of messages. Interface doesn't use any specific struct,
@@ -41,6 +43,8 @@ type Mux struct {
 	// A message is mapped to a request. Like CloudEvents, response from the
 	// http request can be mapped to a Send (not supported yet).
 	ServeMux *http.ServeMux
+
+	Auth *auth.Auth
 }
 
 func NewMux() *Mux {

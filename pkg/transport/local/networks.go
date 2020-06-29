@@ -11,7 +11,7 @@ import (
 )
 
 // Periodic refresh and registration.
-func PeriodicThread(gw *LLDiscovery) error {
+func (gw *LLDiscovery) PeriodicThread() error {
 	// TODO: dynamically adjust the timer
 	// TODO: CON and AP events should be sufficient - check if Refresh is picking anything
 	// new.
@@ -21,7 +21,7 @@ func PeriodicThread(gw *LLDiscovery) error {
 		for {
 			select {
 			case <-ticker.C:
-				RefreshNetworks(gw)
+				gw.RefreshNetworks()
 				// TODO: keepalive or register on VPN, if DirectActiveInterface (may use different timer)
 			case <-quit:
 				return
@@ -42,7 +42,7 @@ func PeriodicThread(gw *LLDiscovery) error {
 		}
 	}()
 
-	RefreshNetworks(gw)
+	gw.RefreshNetworks()
 	return nil
 }
 
@@ -55,7 +55,7 @@ func PeriodicThread(gw *LLDiscovery) error {
 // - Called from android using "r" message, on connectivity changes
 // - Also called from android at startup and property changes ( "P" - properties ).
 // - 15-min thread on link local
-func RefreshNetworks(gw *LLDiscovery) {
+func (gw *LLDiscovery) RefreshNetworks() {
 	refreshMutex.Lock()
 	defer refreshMutex.Unlock()
 

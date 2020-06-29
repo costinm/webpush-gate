@@ -1,15 +1,12 @@
-package bootstrap
+package tests
 
 import "C"
 import (
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
-	"time"
 
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
@@ -19,8 +16,7 @@ import (
 )
 
 var (
-	TestEnv1   *TestEnv
-	socksProxy *url.URL
+	TestEnv1 *TestEnv
 
 	// client side gateway under test on 5357 (mesh), 16004(socks), 16005(http)
 	ClientGW   *mesh.Gateway
@@ -43,12 +39,7 @@ func TestGateway(baseport int) *mesh.Gateway {
 	h2c.InitMTLSServer(baseport, h2c.MTLSMux)
 
 	gw := mesh.New(h2c.Certs,
-		&mesh.GateCfg{
-			SocksAddr:     fmt.Sprintf(":%d", baseport+1),
-			HttpProxyAddr: fmt.Sprintf(":%d", baseport+2),
-			SSHAddr:       fmt.Sprintf(":%d", baseport+22),
-			DNSPort:       baseport + 7,
-		})
+		&mesh.GateCfg{})
 
 	// /tcp ingress circuits
 	// ingress only via SSHClientConn and accepted connections
@@ -60,35 +51,6 @@ func TestGateway(baseport int) *mesh.Gateway {
 	})
 
 	return gw
-}
-
-// Returns a HTTP client using SOCKS.
-func SocksHttp(addr string) *http.Client {
-	// Configure a hcSocks http client using localhost SOCKS
-	socksProxy, _ = url.Parse("socks5://" + addr)
-	return &http.Client{
-		Timeout: 2 * time.Second,
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(socksProxy),
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}
-}
-
-// Returns a HTTP client using HTTP PROXY
-func ProxyHttp(addr string) *http.Client {
-	// Configure a HTTP CONNECT client to be used against the clientGW
-	proxyUrl, _ := url.Parse("http://" + addr)
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-			Proxy: http.ProxyURL(proxyUrl),
-		},
-	}
 }
 
 // Init common (fixed) est env.
@@ -108,15 +70,15 @@ func InitCommonGateways() {
 		return
 	}
 	ClientGW = TestGateway(16000)
-	HSClientGW = SocksHttp("127.0.0.1:" + strconv.Itoa(16001))
-	HPClientGW = ProxyHttp("127.0.0.1:" + strconv.Itoa(16002))
+	HSClientGW = h2.SocksHttp("127.0.0.1:" + strconv.Itoa(16001))
+	HPClientGW = h2.ProxyHttp("127.0.0.1:" + strconv.Itoa(16002))
 
 	TestEnv1 = NewTestEnv(3000)
 
 	// VPN server on 14000(mesh)
 	VpnGW = TestGateway(14000)
-	HSVpnGW = SocksHttp("127.0.0.1:" + strconv.Itoa(14001))
-	HPVpnGW = ProxyHttp("127.0.0.1:" + strconv.Itoa(14002))
+	HSVpnGW = h2.SocksHttp("127.0.0.1:" + strconv.Itoa(14001))
+	HPVpnGW = h2.ProxyHttp("127.0.0.1:" + strconv.Itoa(14002))
 
 }
 

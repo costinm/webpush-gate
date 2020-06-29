@@ -1,0 +1,60 @@
+<div class='container-fluid'>
+    <div class="row">
+        <p>Local: {{ .Mesh.GW.UA}} </p>
+    </div>
+    <div class="row">
+        <p><b>VPN:</b> <a href="{{ .Mesh.GW.Vpn}}/status">{{ .Mesh.GW.Vpn}}</a></p>
+    </div>
+    <div class="row">
+        Active TCP
+        <table class="table table-striped table-bordered table-hover table-sm">
+            <thead>
+            <th>Remote</th>
+            <th>S/R</th>
+            <th>Open</th>
+            <th>Last s/r</th>
+            </thead>
+            <tbody>
+            {{range $index, $v := .Mesh.GW.ActiveTcp}}
+                <tr>
+                    <td>{{$index}} {{$v.Type}}
+                        <br>{{$v.Dest}}
+                        <br>{{$v.Origin}}</td>
+                    <td>{{$v.SentBytes}}<br/>{{$v.RcvdBytes}}</td>
+                    <td>{{Since $v.Open}}</td>
+                    <td>{{Since $v.LastClientActivity}}<br/>{{Since $v.LastRemoteActivity}}</td>
+                </tr>
+            {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="row">
+        Active UDP
+        <table class="table table-striped table-bordered table-hover table-sm">
+            <thead>
+            <th>Local</th>
+            <th>Remote</th>
+            <th>Sent</th>
+            <th>Rcv</th>
+            <th>Last activity</th>
+            </thead>
+            <tbody>
+            {{range $index, $v := .Mesh.GW.ActiveUdp}}
+                <tr>
+                    <td>{{$index}}</td>
+                    <td>{{$v.Origin}} {{$v.LastRemoteIP}}:{{$v.LastsRemotePort}}</td>
+                    <td>{{$v.SentBytes}}</td>
+                    <td>{{$v.RcvdBytes}}</td>
+                    <td>{{Since $v.LastActivity}}</td>
+                </tr>
+            {{end}}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+</body>
+
+
+</html>

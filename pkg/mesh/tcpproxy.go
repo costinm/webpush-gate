@@ -14,6 +14,19 @@ import (
 	"time"
 )
 
+// TODO: Use DialContext pattern:
+// - gateway implements DialContext, takes care of stream creation
+// - return net.Conn is a TcpProxy
+//
+// Instead of:
+// tp = new TcpProxy(clientin, clientout)
+// tp.Dial(addr)
+// tp.Proxy()
+//
+// Use:
+// tpcon = dialContext.Dial(addr) - serverout/in set
+// gwproxy.Proxy(tpcon, clientIn, clientOut...)
+
 // DMesh uses H2 for registration and relay.
 //
 //

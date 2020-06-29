@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/costinm/wpgate/pkg/msgs"
-	"github.com/costinm/wpgate/pkg/transport/stream"
 )
 
 var (
@@ -48,7 +47,7 @@ func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 		// Need to send an empty message first ( for strange reasons ?)
 		fmt.Fprintf(w, "event: message\ndata: %s\n\n", "{}")
 
-		stream.EventStream(req.Context(), req.RemoteAddr, func(ev *msgs.Message) error {
+		EventStream(req.Context(), req.RemoteAddr, func(ev *msgs.Message) error {
 			ba := ev.MarshalJSON()
 
 			// TODO: id, set type in event: header ( or test if message is not required )
@@ -60,6 +59,51 @@ func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 			w.(http.Flusher).Flush()
 			return nil
 		})
+	}
+}
+
+// Used to receive (subscribe) to messages, as well as send messages.
+//
+// TODO: pass the list of subscriptions, filter, 'start' message
+func EventStream(reqContext context.Context, req string, sender func(ev *msgs.Message) error) {
+
+	ch := make(chan *msgs.Message, 10)
+
+	id := "http-" + req
+	mc := &msgs.MsgConnection{
+		SubscriptionsToSend: []string{"*"},
+		SendMessageToRemote: func(ev *msgs.Message) error {
+			ch <- ev
+			return nil
+		},
+	}
+
+	// All messages sent to the channel
+	msgs.DefaultMux.AddHandler("*", msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
+		ch <- msgs.NewMessage(cmdS, meta).SetDataJSON(data)
+	}))
+
+	msgs.DefaultMux.AddConnection(id, mc)
+
+	log.Println("DM HTTP EVENT STREAM ", req)
+
+	defer func() {
+		msgs.DefaultMux.RemoveConnection(id, mc)
+		log.Println("DM HTTP EVENT STREAM CLOSE ", req)
+	}()
+
+	// source.addEventListener('add', addHandler, false);
+	// event: add
+	// data: LINE
+	//
+	ctx := reqContext
+	for {
+		select {
+		case ev := <-ch:
+			sender(ev)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 

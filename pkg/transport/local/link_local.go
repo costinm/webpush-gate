@@ -81,7 +81,8 @@ type LLDiscovery struct {
 	UpstreamAP *mesh.DMNode
 
 	// Port used to listen for multicast messages. Default 5227.
-	mcPort int
+	mcPort  int
+	udpPort int
 
 	// QUIC link-local listeners will be started on this port or following ports.
 	// Defaults to 6970
@@ -97,18 +98,20 @@ type LLDiscovery struct {
 func NewLocal(gw *mesh.Gateway, auth *auth.Auth) *LLDiscovery {
 	return &LLDiscovery{
 		mcPort:   5227,
+		udpPort:  5228,
 		gw:       gw,
 		auth:     auth,
 		WifiInfo: &mesh.WifiRegistrationInfo{},
 	}
 }
 
+// Create a UDP listener for local UDP messages.
 func ListenUDP(gw *LLDiscovery) {
-	m2, err := net.ListenUDP("udp", &net.UDPAddr{Port: UDPMsgPort})
+	m2, err := net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
 	if err != nil {
-		log.Println("Error listening on UDP ", mesh.UDPMsgPort, err)
-		mesh.UDPMsgPort++
-		m2, err = net.ListenUDP("udp", &net.UDPAddr{Port: UDPMsgPort})
+		log.Println("Error listening on UDP ", gw.udpPort, err)
+		gw.udpPort = 0
+		m2, err = net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
 		if err != nil {
 			log.Println("Error listening on UDP ", mesh.UDPMsgPort, err)
 			return
@@ -116,7 +119,6 @@ func ListenUDP(gw *LLDiscovery) {
 	}
 	gw.gw.UDPMsgConn = m2
 	go unicastReaderThread(gw, m2, nil)
-
 }
 
 // DirectActiveInterface tracks interfaces with mesh or internet connections.

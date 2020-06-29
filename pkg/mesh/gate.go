@@ -12,6 +12,7 @@ package mesh
 
 import (
 	"log"
+	"net/http"
 	"strings"
 
 	"github.com/costinm/wpgate/pkg/auth"
@@ -127,6 +128,9 @@ type Gateway struct {
 
 	// Handles UDP packets (if in TPROXY or TUN capture)
 	UDPGate UDPGate
+
+	// Mesh devices visible from this device.
+	VisibleDevices map[string]*MeshDevice
 }
 
 var UDPMsgPort = 5228
@@ -192,35 +196,36 @@ type ListenerConf struct {
 	Remote string `json:"Remote,omitempty"`
 }
 
+type Host struct {
+	// Address and port of a HTTP server to forward the domain.
+	Addr string
+
+	// Directory to serve static files. Used if Addr not set.
+	Dir string
+	Mux http.Handler `json:"-"`
+}
+
 // Configuration for the Gateway.
 //
 type GateCfg struct {
 
-	// Port proxies: will register a listener for each port, forwarding to the given address.
+	// Port proxies: will register a listener for each port, forwarding to the
+	// given address.
 	Listeners []*ListenerConf `json:"TcpProxy,omitempty"`
 
-	// If set, the gateway will start a SOCKS bound to this port, forwarding all requests
-	// to the destinations using direct TCP or to mesh nodes using local gateway identity.
-	//
-	// Should be bound to 127.0.0.1.
-	SocksAddr string
-
-	// Start a HTTP proxy, forwarding to HTTP or HTTPS hosts (connect).
-	// Also connects to mesh nodes, using the gateway identity.
-	//
-	// Should be bound to 127.0.0.1
-	HttpProxyAddr string
-
-	// Address to listen for SSHClientConn connection. Defaults :5222 (or base+22)
-	SSHAddr string
-
-	// DNS port for resolving external addresses. Will start a DNS server.
-	// May be bound to *.
-	DNSPort int
+	// Set of hosts with certs to configure in the h2 server.
+	// The cert is expected in CertDir/HOSTNAME.[key,crt]
+	// The server will terminate TLS and HTTP, forward to the host as plain text.
+	Hosts map[string]*Host `json:"Hosts,omitempty"`
 
 	// If set, all outbound requests will use the server as a proxy.
 	// Similar with Istio egress gateway.
 	Vpn string
+
+	// If not set, will be 5220 (old) or 15020 (new)
+	// Local listeners for HTTP(7), SOCKS, DNS, IPTABLES in/out
+	// Remote listeners for H2/H3(8) and SSH(2)
+	BasePort int
 }
 
 func (gw *Gateway) ActiveTCP() map[int]*TcpProxy {
@@ -241,8 +246,9 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		AllTcpCon: make(map[string]*HostStats),
 		Listeners: make(map[int]Listener),
 		//upstreamMessageChannel: make(chan packet, 100),
-		Auth:   certs,
-		Config: gcfg,
+		Auth:           certs,
+		Config:         gcfg,
+		VisibleDevices: map[string]*MeshDevice{},
 	}
 
 	gw.client = &net.UDPAddr{

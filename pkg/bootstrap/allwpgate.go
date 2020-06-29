@@ -11,18 +11,21 @@ import (
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
 	"github.com/costinm/wpgate/pkg/dns"
+	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/accept"
 	"github.com/costinm/wpgate/pkg/transport/cloudevents"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
-	"github.com/costinm/wpgate/pkg/transport/noise"
+	"github.com/costinm/wpgate/pkg/transport/iptables"
+	"github.com/costinm/wpgate/pkg/transport/local"
 	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
+	"github.com/costinm/wpgate/pkg/ui"
 	"google.golang.org/grpc"
 )
 
@@ -32,25 +35,55 @@ import (
 // binaries for smaller footprint and reduce functionality.
 
 var (
+	// Port range: (22...28)
+
+	// External exposed ports
+
+	// Primary port for H2/H3/HTTPS
+	// - gRPC
+	// - message receive - CloudEvents style
+	// - Jump host
+	// - accept host
+	H2 = 28
+
+	// Jump Gate - temp (goal is to use H2)
+	SSH = 22
+
+	// Localhost bound ports
+
+	// local debug :5227
+	// - local capture for HTTP proxy
+	// - "/m/VIP/" is a forward proxy to other mesh hosts
+	// - message send (no auth required, will add creds)
+	HTTP_DEBUG = 27
+
+	// DNS server - local capture
+	DNS = 23
+
+	//  -x socks5://127.0.0.1:5224
+	SOCKS = 24
+
+	// ---- Other pors ----
 	// XDS, etc - istiod port
 	GRPC = 12
 
 	// curl -x http://127.0.0.10.0.0.0:15003
 	HTTP_PROXY = 3
 
-	//  -x socks5://127.0.0.1:15004
-	SOCKS = 4
-
-	// Old app uses 5222
-	SSH = 22
-
 	NOISE        = 19
 	CLOUD_EVENTS = 21
 
-	// Old app, android: 5227
-	HTTP_DEBUG = 27
+	// ISTIO ports - base 15000
 
-	DNS = 13
+	ISTIO_ADMIN = 0
+
+	ISTIO_OUTBOUND = 1
+
+	ISTIO_D = 12
+
+	ISTIO_STATS_ENVOY = 20
+	ISTIO_HEALTHZ     = 21
+	ISTIO_STATS       = 90
 )
 
 // A set of transport and servers, and associated ports/settings.
@@ -61,6 +94,11 @@ type AllWPGate struct {
 	GW *mesh.Gateway
 
 	Socks5 net.Listener
+	hgw    *httpproxy.HTTPGate
+	H2     *h2.H2
+
+	// UI interface Handler for localhost:5227
+	UI *ui.DMUI
 }
 
 func StartAll(a *AllWPGate) {
@@ -72,10 +110,21 @@ func StartAll(a *AllWPGate) {
 	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
 
 	// Init or load certificates/keys
-	authz := auth.NewAuth(config, os.Getenv("HOSTNAME"), "v.webinf.info")
+	hn, _ := os.Hostname()
+	authz := auth.NewAuth(config, hn, "m.webinf.info")
+	msgs.DefaultMux.Auth = authz
+
+	gcfg := &mesh.GateCfg{}
+	conf.Get(config, "gate.json", gcfg)
 
 	// HTTPGate - common structures
-	a.GW = mesh.New(authz, nil)
+	a.GW = mesh.New(authz, gcfg)
+
+	h2s, err := h2.NewTransport(authz)
+	if err != nil {
+		log.Fatal(err)
+	}
+	a.H2 = h2s
 
 	// GRPC XDS transport
 	s := grpc.NewServer()
@@ -90,7 +139,8 @@ func StartAll(a *AllWPGate) {
 	go s.Serve(lis)
 
 	// Experimental: noise transport
-	go noise.New(uint16(addrN + NOISE))
+	// bring dep no compiling on arm
+	//go noise.New(uint16(addrN + NOISE))
 
 	// SSH transport + reverse streams.
 	sshg := sshgate.NewSSHGate(a.GW, authz)
@@ -112,7 +162,16 @@ func StartAll(a *AllWPGate) {
 	a.StartExtra()
 	a.StartDebug()
 
+	// Local discovery interface - multicast, local network IPs
+	ld := local.NewLocal(a.GW, authz)
+	go ld.PeriodicThread()
+
+	// Start a basic UI on the debug port
+	a.UI, _ = ui.NewUI(a.GW, h2s, a.hgw, ld)
+
 	a.StartMsg()
+
+	h2s.InitMTLSServer(a.BasePort+H2, h2s.MTLSMux)
 }
 
 func (a *AllWPGate) laddr(off int) string {
@@ -156,9 +215,13 @@ func (a *AllWPGate) StartExtra() {
 	log.Println("Start SOCKS, use -x socks5://" + s5.Listener.Addr().String())
 	a.Socks5 = s5.Listener
 
+	// Outbound capture using Istio config
+	iptables.StartIstioCapture(a.GW, "127.0.0.1:15002")
+
 	go sni.SniProxy(a.GW, a.addr(7))
 
-	httpproxy.HttpProxyCapture(a.laddr(HTTP_PROXY))
+	a.hgw = httpproxy.NewHTTPGate(a.GW, a.H2)
+	a.hgw.HttpProxyCapture(a.laddr(HTTP_PROXY))
 
 	// Local DNS resolver. Can forward up.
 	dns, err := dns.NewDmDns(a.BasePort + DNS)

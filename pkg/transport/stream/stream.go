@@ -1,68 +1,12 @@
 package stream
 
 import (
-	"bufio"
 	"bytes"
-	"context"
 	"encoding/binary"
 	"io"
 	"log"
 	"strings"
-
-	"github.com/costinm/wpgate/pkg/msgs"
 )
-
-// Client or server event-stream connection.
-// Useful for debugging and sending messages to old browsers.
-// This is one of the simplest protocols.
-type EventStreamConnection struct {
-	msgs.MsgConnection
-}
-
-// Used to receive (subscribe) to messages, as well as send messages.
-//
-// TODO: pass the list of subscriptions, filter, 'start' message
-func EventStream(reqContext context.Context, req string, sender func(ev *msgs.Message) error) {
-
-	ch := make(chan *msgs.Message, 10)
-
-	id := "http-" + req
-	mc := &msgs.MsgConnection{
-		SubscriptionsToSend: []string{"*"},
-		SendMessageToRemote: func(ev *msgs.Message) error {
-			ch <- ev
-			return nil
-		},
-	}
-
-	// All messages sent to the channel
-	msgs.DefaultMux.AddHandler("*", msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
-		ch <- msgs.NewMessage(cmdS, meta).SetDataJSON(data)
-	}))
-
-	msgs.DefaultMux.AddConnection(id, mc)
-
-	log.Println("DM HTTP EVENT STREAM ", req)
-
-	defer func() {
-		msgs.DefaultMux.RemoveConnection(id, mc)
-		log.Println("DM HTTP EVENT STREAM CLOSE ", req)
-	}()
-
-	// source.addEventListener('add', addHandler, false);
-	// event: add
-	// data: LINE
-	//
-	ctx := reqContext
-	for {
-		select {
-		case ev := <-ch:
-			sender(ev)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
 
 // Process a stream of messages - framing, parsing.
 // Current implementation: 2-byte prefix,
@@ -91,17 +35,17 @@ func EventStream(reqContext context.Context, req string, sender func(ev *msgs.Me
 // first line: METHOD param:val ...
 // 'subject', '
 
-type Stream struct {
-	Reader *bufio.Reader
-
-	delim byte
-
-	// For UDS: based on associated creds.
-	// For TLS: cert public key
-	RemoteID string
-
-	Writer *io.Writer
-}
+//type Stream struct {
+//	Reader *bufio.Reader
+//
+//	delim byte
+//
+//	// For UDS: based on associated creds.
+//	// For TLS: cert public key
+//	RemoteID string
+//
+//	Writer *io.Writer
+//}
 
 //type PacketReader struct {
 //	r   io.Reader

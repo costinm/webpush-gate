@@ -170,7 +170,6 @@ func (s *GrpcService) process(connection *Connection, request *Request) error {
 	for _, r := range request.Resources {
 		s.Mux.SendMessage(&msgs.Message{
 			Time:       "",
-			Id:         "",
 			To:         request.TypeUrl,
 			Subject:    "",
 			Path:       nil,
