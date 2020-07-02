@@ -167,7 +167,8 @@ func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn 
 }
 
 // Glue for interface type. The interface is a StreamProxy
-func (gw *Gateway) NewStream(addr net.IP, port uint16, ctype string, initialData []byte, clientIn io.ReadCloser, clientOut io.Writer) interface{} {
+func (gw *Gateway) NewStream(addr net.IP, port uint16, ctype string, initialData []byte,
+		clientIn io.ReadCloser, clientOut io.Writer) interface{} {
 	return gw.NewTcpProxy(&net.TCPAddr{IP: addr, Port: int(port)}, ctype, initialData, clientIn, clientOut)
 }
 

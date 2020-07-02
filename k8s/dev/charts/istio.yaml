@@ -35,7 +35,7 @@ spec:
     - hosts:
         #        - kube-registry/kube-registry.kube-registry
 #        - "~/*"
-        - "*"
+        - "*/*"
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule

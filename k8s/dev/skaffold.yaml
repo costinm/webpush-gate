@@ -24,15 +24,61 @@ portForward:
     port: 2375
     localPort: 2375
 
-# For debugging
-#  - resourceType: service
-#    namespace: prometheus
-#    resourceName: prometheus-prometheus
-#    port: 9090
-#    localPort: 9090
-#
-#  - resourceType: service
-#    namespace: prometheus
-#    resourceName: prometheus-grafana
-#    port: 80
-#    localPort: 9001
+  - resourceType: replicationcontroller
+    namespace: dev
+    resourceName: docker
+    address: 0.0.0.0
+    port: 8443
+    localPort: 8443
+
+  - resourceType: replicationcontroller
+    namespace: dev
+    resourceName: docker
+    address: 0.0.0.0
+    port: 22000
+    localPort: 22001
+
+  - resourceType: replicationcontroller
+    namespace: dev
+    resourceName: docker
+    port: 5227
+    localPort: 14227
+
+  - resourceType: replicationcontroller
+    namespace: kube-registry
+    resourceName: kube-registry-v0
+    port: 5000
+    localPort: 5000
+
+  # Istio
+  - resourceType: service
+    namespace: istio-system
+    resourceName: istiod
+    port: 15010
+    localPort: 16010
+
+  - resourceType: deployment
+    namespace: istio-system
+    resourceName: istiod
+    port: 8080
+    localPort: 16080
+
+  # DIND
+  - resourceType: replicationcontroller
+    namespace: dind
+    resourceName: dind
+    port: 2375
+    localPort: 2375
+
+  #For debugging
+  - resourceType: service
+    namespace: mon
+    resourceName: prometheus-1-grafana
+    port: 80
+    localPort: 3000
+
+  - resourceType: service
+    namespace: mon
+    resourceName: prometheus-1-prometheus
+    port: 9090
+    localPort: 9090

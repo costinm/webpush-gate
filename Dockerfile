@@ -8,46 +8,19 @@ ENV GOOS=linux
 ENV GOPROXY=https://proxy.golang.org
 
 #RUN apk add --no-cache git
-#
-#RUN go get github.com/go-delve/delve/cmd/dlv && \
-# go get github.com/google/ko/cmd/ko@v0.4.0
-## With caching should avoid repeated downloads as long as the sum/mod don't change
-#COPY go.mod go.sum  ./
-#RUN go mod download
-########
-#FROM golang:latest AS build_base
-#
 RUN apt-get update && apt install less net-tools
+
+
 RUN go get github.com/go-delve/delve/cmd/dlv && \
    go get github.com/google/ko/cmd/ko@v0.4.0
 ENTRYPOINT /bin/sh
 
 ################################################################################
-##### Run the build on alpine - istiod doesn't need more.
-## Main docker images for istiod will be distroless and alpine.
-##FROM golang:1.13-alpine AS build-base1
-##
-##WORKDIR /ws
-##ENV GO111MODULE=on
-##ENV CGO_ENABLED=0
-##ENV GOOS=linux
-##ENV GOPROXY=https://proxy.golang.org
-##
-##RUN apk add --no-cache git
-##
-##RUN go get github.com/go-delve/delve/cmd/dlv && \
-## go get github.com/google/ko/cmd/ko@v0.4.0
-### With caching should avoid repeated downloads as long as the sum/mod don't change
-##COPY go.mod go.sum  ./
-##RUN go mod download
-#########
-##FROM gcr.io/istio-testing/build-tools:master-2020-05-20T22-13-03 AS istio_build
-##
-##RUN apt-get update && apt install less net-tools
-#
-################################################################################
 FROM build-base AS build
 
+COPY go.mod ./go.mod
+COPY go.sum ./go.sum
+RUN go mod download
 COPY cmd ./cmd
 COPY pkg ./pkg
 
@@ -69,6 +42,7 @@ FROM ubuntu:bionic AS wps
 #FROM docker.io/istio/base:default AS wps
 
 COPY --from=build /ws/wps /usr/local/bin/wps
+COPY --from=build /ws/dlv /usr/local/bin/dlv
 
 WORKDIR /
 #RUN mkdir -p /etc/certs && \

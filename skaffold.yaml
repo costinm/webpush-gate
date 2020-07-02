@@ -54,15 +54,4 @@ portForward:
     port: 15022
     localPort: 14022
 
-  - resourceType: service
-    namespace: istio-system
-    resourceName: istiod
-    port: 15010
-    localPort: 16010
-
-  - resourceType: deployment
-    namespace: istio-system
-    resourceName: istiod
-    port: 8080
-    localPort: 16080
 

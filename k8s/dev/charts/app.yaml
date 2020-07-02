@@ -1,0 +1,112 @@
+
+---
+# Runs a docker-mounted dev image.
+# Can build images in the node's docker.
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: docker
+  namespace: dev
+  labels:
+    app: docker
+spec:
+  replicas: 1
+  selector:
+    app: docker
+  template:
+    metadata:
+      labels:
+        app: docker
+      annotations:
+        sidecar.istio.io/proxyImage: costinm/proxyv2:latest
+    spec:
+      containers:
+        - name: ubuntu
+          #image: ubuntu
+          image: gcr.io/istio-testing/build-tools:master-2020-05-20T22-13-03
+          command: [ "sleep" ]
+          args: [ "infinity" ]
+
+          volumeMounts:
+          - mountPath: /var/run/docker.sock
+            name: docker-socket-volume
+          - mountPath: /work
+            name: src
+
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 5000
+              name: docker
+              protocol: TCP
+
+        - name: sync
+          image: syncthing/syncthing
+          ports:
+            - containerPort: 22000
+              name: http
+              protocol: TCP
+            - containerPort: 8384
+              name: tcp-sync
+              protocol: TCP
+          env:
+            - name: PUID
+              value: "1000"
+          volumeMounts:
+            - mountPath: /var/syncthing
+              name: src
+
+        - name: dmesh
+          image: costinm/wps:latest
+          ports:
+            - containerPort: 5222
+              name: ssh
+              protocol: TCP
+            - containerPort: 5228
+              name: http2
+              protocol: TCP
+          workingDir: /home/dmesh
+          env:
+            - name: PUID
+              value: "1000"
+          volumeMounts:
+            - mountPath: /home/dmesh
+              name: src
+
+        - name: code
+          image: linuxserver/code-server
+          envFrom:
+            - configMapRef:
+                name: envcfg
+                optional: true
+          env:
+            - name: PUID
+              value: "1000"
+          ports:
+            - containerPort: 8443
+              name: https
+              protocol: TCP
+
+          volumeMounts:
+            - mountPath: /config
+              name: codeconfig
+            - mountPath: /work
+              name: src
+      volumes:
+        - name: envcfg
+          configMap:
+            name: codeenv
+            optional: true
+        - name: docker-socket-volume
+          hostPath:
+              path: /var/run/docker.sock
+              type: File
+
+        - name: src
+          persistentVolumeClaim:
+              claimName: src
+
+
+        - name: codeconfig
+          persistentVolumeClaim:
+            claimName: code

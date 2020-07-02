@@ -26,7 +26,7 @@ metadata:
   labels:
     release: wps
 spec:
-  minAvailable: 1
+  minAvailable: 0
   selector:
     matchLabels:
       app: wps

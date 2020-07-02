@@ -3,7 +3,7 @@ kind: Namespace
 metadata:
   name: dev
   labels:
-    istio.io/rev: canary
-#    istio-injection: enabled
+#    istio.io/rev: canary
+    istio-injection: enabled
 
 ---

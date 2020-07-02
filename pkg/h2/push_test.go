@@ -92,7 +92,9 @@ func Test_Service(t *testing.T) {
 	mux := http.NewServeMux()
 
 	// Real TLS server listener, httptest.Server
-	srv := httptest.NewTLSServer(mux)
+	srv := httptest.NewUnstartedServer(mux)
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
 	defer srv.Close()
 
 	http2.ConfigureServer(srv.Config, &http2.Server{})
