@@ -1,0 +1,208 @@
+---
+# Because of how host matches in vhost and gate, create one
+# gateway per port.
+# Ports must match deployment's hostPorts
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gate5000
+  namespace: istio-gw-hostport
+spec:
+  selector:
+    app: gate
+  servers:
+    - hosts:
+        - "./*"
+      port:
+        name: tcp-docker-registry1
+        number: 5000
+        protocol: HTTP
+---
+# TCP will avoid localhost:5000 http problems, but not info
+#        protocol: TCP
+#apiVersion: networking.istio.io/v1alpha3
+#kind: VirtualService
+#metadata:
+#  name: gate
+#  namespace: istio-gw-hostport
+#spec:
+#  hosts:
+#    - "*"
+#  gateways:
+#    - istio-gw-hostport/gate
+#  tcp:
+#    - match:
+#        - port: 5000
+#      route:
+#        - destination:
+#            host: kube-registry.kube-registry.svc.cluster.local
+#            port:
+#              number: 5000
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: registry2
+  namespace: istio-gw-hostport
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - istio-gw-hostport/gate5000
+  http:
+    - match:
+        # Not sufficient: someone can connect to host IP and use Host header
+        - authority:
+            exact: "localhost:5000"
+      route:
+        # ISTIO_MUTUAL, no auto. Registry can check the identity.
+        - destination:
+            host: kube-registry2.kube-registry.svc.cluster.local
+            port:
+              number: 5001
+---
+# This is really :443 on the host
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gate15443
+  namespace: istio-gw-hostport
+spec:
+  selector:
+    app: gate
+  servers:
+    - hosts:
+        - "./*"
+      port:
+        name: https
+        number: 15443
+        # Must have TLS config
+        protocol: HTTPS
+      tls:
+        mode: SIMPLE
+        privateKey: /etc/istio/proxy/key.pem
+        serverCertificate: /etc/istio/proxy/cert-chain.pem
+        caCertificates: /etc/istio/proxy/root-cert.pem
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: registry3
+  namespace: istio-gw-hostport
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - istio-gw-hostport/gate15443
+  http:
+    - route:
+        # ISTIO_MUTUAL, no auto
+        - destination:
+            host: kube-registry2.kube-registry.svc.cluster.local
+            port:
+              number: 5001
+---
+# :80 on the host
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gate
+  namespace: istio-gw-hostport
+spec:
+  selector:
+    app: gate
+  servers:
+    - hosts:
+        - "./*"
+      port:
+        name: http
+        number: 15080
+        protocol: HTTP
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: registry4
+  namespace: istio-gw-hostport
+spec:
+  hosts:
+    - "test.example.com"
+  gateways:
+    - istio-gw-hostport/gate
+  http:
+    - match:
+        - authority:
+            exact: "test.example.com:15080"
+      route:
+        # ISTIO_MUTUAL, no auto
+        - destination:
+            host: kube-registry2.kube-registry.svc.cluster.local
+            port:
+              number: 5001
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gate5222
+  namespace: istio-gw-hostport
+spec:
+  selector:
+    app: gate
+  servers:
+    - hosts:
+        - "./*"
+      port:
+        name: ssh-wps
+        number: 5222
+        protocol: TCP
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gate5228
+  namespace: istio-gw-hostport
+spec:
+  selector:
+    app: gate
+  servers:
+    - hosts:
+        - "./*"
+      port:
+        name: tcp-wps
+        number: 5228
+        protocol: TCP
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Sidecar
+metadata:
+  name: default
+  namespace: istio-gw-hostport
+spec:
+  egress:
+    - hosts:
+        - "kube-registry/*"
+        - "~/*"
+        #- "./*"
+---
+#apiVersion: networking.istio.io/v1alpha3
+#kind: DestinationRule
+#metadata:
+#  name: kube-registry
+#  namespace: istio-gw-hostport
+#spec:
+#  host: kube-registry.kube-registry.svc.cluster.local
+#  trafficPolicy:
+#    tls:
+#      mode: DISABLE
+
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: kube-registry2
+  namespace: istio-gw-hostport
+spec:
+  host: kube-registry2.kube-registry.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

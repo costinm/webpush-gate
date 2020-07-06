@@ -14,7 +14,7 @@ spec:
   template:
     metadata:
       annotations:
-        sidecar.istio.io/interceptionMode: NONE
+        #sidecar.istio.io/interceptionMode: NONE
         sidecar.istio.io/proxyImage: istio/proxyv2:1.6.0
       labels:
         app: kube-registry

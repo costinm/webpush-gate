@@ -1,47 +1,79 @@
-
 ---
 # Runs a docker-mounted dev image.
 # Can build images in the node's docker.
-apiVersion: v1
-kind: ReplicationController
+#apiVersion: v1
+#kind: ReplicationController
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: docker
+  name: dev
   namespace: dev
   labels:
-    app: docker
+    app: dev
 spec:
   replicas: 1
+  #  strategy:
+  #    rollingUpdate:
+  #      maxSurge: 1
+  #      maxUnavailable: 0
   selector:
-    app: docker
+    matchLabels:
+      app: dev
+  #    app: dev
+  strategy:
+    type: Recreate
   template:
+
     metadata:
       labels:
-        app: docker
+        app: dev
       annotations:
-        sidecar.istio.io/proxyImage: costinm/proxyv2:latest
+        sidecar.istio.io/proxyImage: gcr.io/istio-testing/proxyv2:latest
+        #sidecar.istio.io/proxyImage: costinm/proxyv2:latest
     spec:
+      terminationGracePeriodSeconds: 1
+      securityContext:
+        runAsUser: 1000
       containers:
         - name: ubuntu
           #image: ubuntu
-          image: gcr.io/istio-testing/build-tools:master-2020-05-20T22-13-03
-          command: [ "sleep" ]
-          args: [ "infinity" ]
+          image: costinm/istio-build-code:latest
+          #image: gcr.io/istio-testing/build-tools:master-2020-05-20T22-13-03
+          #command: ["/init"]
+          command: ["/usr/bin/code-server"]
+          args: ["--auth", "none"]
+          #          command: [ "sleep" ]
+          #          args: [ "infinity" ]
+          envFrom:
+            - configMapRef:
+                name: envcfg
+                optional: true
+          env:
+            - name: HOME
+              value: /config
+            - name: PUID
+              value: "1000"
+
 
           volumeMounts:
-          - mountPath: /var/run/docker.sock
-            name: docker-socket-volume
-          - mountPath: /work
-            name: src
+            - mountPath: /var/run/docker.sock
+              name: docker-socket-volume
+            - mountPath: /work
+              name: src
+            - mountPath: /config
+              name: codeconfig
 
           securityContext:
             privileged: true
           ports:
-            - containerPort: 5000
-              name: docker
+            - containerPort: 8443
+              name: https
               protocol: TCP
 
         - name: sync
           image: syncthing/syncthing
+          # Entrypoint expects to run as root
+          command: [ "/bin/syncthing", "-home", "/var/syncthing/config"]
           ports:
             - containerPort: 22000
               name: http
@@ -49,48 +81,8 @@ spec:
             - containerPort: 8384
               name: tcp-sync
               protocol: TCP
-          env:
-            - name: PUID
-              value: "1000"
           volumeMounts:
             - mountPath: /var/syncthing
-              name: src
-
-        - name: dmesh
-          image: costinm/wps:latest
-          ports:
-            - containerPort: 5222
-              name: ssh
-              protocol: TCP
-            - containerPort: 5228
-              name: http2
-              protocol: TCP
-          workingDir: /home/dmesh
-          env:
-            - name: PUID
-              value: "1000"
-          volumeMounts:
-            - mountPath: /home/dmesh
-              name: src
-
-        - name: code
-          image: linuxserver/code-server
-          envFrom:
-            - configMapRef:
-                name: envcfg
-                optional: true
-          env:
-            - name: PUID
-              value: "1000"
-          ports:
-            - containerPort: 8443
-              name: https
-              protocol: TCP
-
-          volumeMounts:
-            - mountPath: /config
-              name: codeconfig
-            - mountPath: /work
               name: src
       volumes:
         - name: envcfg

@@ -1,0 +1,62 @@
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Sidecar
+metadata:
+  name: default
+  namespace: kube-registry
+spec:
+  #  workloadSelector:
+  #    labels:
+  #      app: docker
+  ingress:
+    - port:
+        number: 6001
+        protocol: HTTP
+        name: httplocal
+      defaultEndpoint: 127.0.0.1:5000
+  egress:
+    # Only in NONE
+    # TODO: allow them in normal mode, as additions.
+    - port:
+        number: 5000
+        protocol: HTTP
+        name:  tcp-registry
+      bind: 0.0.0.0
+      #bind: 127.0.0.1
+      hosts:
+        - kube-registry/kube-registry.kube-registry
+    - port:
+        number: 5001
+        protocol: HTTP
+        name:  registry1
+      bind: 127.0.0.1
+      captureMode: NONE
+      hosts:
+        - kube-registry/kube-registry2.kube-registry
+
+    - hosts:
+        #        - kube-registry/kube-registry.kube-registry
+        #        - "~/*"
+        - "./*"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: kube-registry
+  namespace: kube-registry
+spec:
+  host: kube-registry.kube-registry.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: DISABLE
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: kube-registry2
+  namespace: kube-registry
+spec:
+  host: kube-registry2.kube-registry.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

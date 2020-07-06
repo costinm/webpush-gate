@@ -20,27 +20,34 @@ portForward:
 
   - resourceType: replicationcontroller
     namespace: dev
-    resourceName: docker
+    resourceName: dev
     port: 2375
     localPort: 2375
 
-  - resourceType: replicationcontroller
+  - resourceType: deployment
     namespace: dev
-    resourceName: docker
+    resourceName: dev
     address: 0.0.0.0
-    port: 8443
+    port: 8080
     localPort: 8443
+
+  - resourceType: deployment
+    namespace: dev
+    resourceName: dev
+    address: 0.0.0.0
+    port: 8384
+    localPort: 8384
 
   - resourceType: replicationcontroller
     namespace: dev
-    resourceName: docker
+    resourceName: dev
     address: 0.0.0.0
     port: 22000
     localPort: 22001
 
   - resourceType: replicationcontroller
     namespace: dev
-    resourceName: docker
+    resourceName: dev
     port: 5227
     localPort: 14227
 

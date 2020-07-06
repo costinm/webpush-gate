@@ -1,0 +1,73 @@
+# Start a remote docker machine for debug/dev
+
+# Forward registry port to 5001
+# In-cluster registry runs on localhost:5001
+
+# Also forwards Istio ports for debug
+
+apiVersion: skaffold/v2beta4
+kind: Config
+metadata:
+  name:    istiod
+
+build:
+  insecureRegistries:
+    - localhost:5001
+
+  tagPolicy:
+    dateTime:
+      format: "t-2006-01-02_15-04"
+
+  artifacts:
+    # Due to KO
+    - image: pilot-discovery
+      context: ../../../../work
+      custom:
+        buildCommand: /home/costin/src/wpgate/bin/build-istiod.sh
+        dependencies:
+          paths:
+            - "pilot/**"
+#      context: .
+#      custom:
+#        buildCommand: ../../bin/build-istiod.sh
+#        dependencies:
+#          paths:
+#            - "../../../istio/pilot/**"
+
+deploy:
+  kubectl:
+    manifests:
+      - ns.yaml
+      - charts/*.yaml
+
+portForward:
+  # Istio
+  - resourceType: service
+    namespace: wps
+    resourceName: istiod
+    port: 15010
+    localPort: 14010
+
+  - resourceType: deployment
+    namespace: wps
+    resourceName: istiod
+    port: 8080
+    localPort: 14080
+
+  - resourceType: deployment
+    namespace: wps
+    resourceName: istiod
+    port: 14014
+    localPort: 14014
+
+  - resourceType: deployment
+    namespace: wps
+    resourceName: istiod
+    port: 15012
+    localPort: 14012
+
+  - resourceType: deployment
+    namespace: wps
+    resourceName: istiod
+    port: 15000
+    localPort: 14000

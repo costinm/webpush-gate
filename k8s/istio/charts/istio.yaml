@@ -1,0 +1,49 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: istiod15016
+  namespace: wps
+#  labels:
+#    istio.io/rev: wps
+spec:
+  selector:
+    app: istiod
+  servers:
+    - hosts:
+        - "./*"
+      port:
+        name: h2
+        number: 15016
+        protocol: HTTP
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: istiod15016
+  namespace: wps
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - wps/istiod15016
+  http:
+    - route:
+        - destination:
+            host: kube-registry2.kube-registry.svc.cluster.local
+            port:
+              number: 5001
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: istiod15010
+spec:
+  hosts:
+    - istiod.local
+  ports:
+    - number: 15010
+      name: http
+      protocol: HTTP
+  resolution: STATIC
+  endpoints:
+    - address: 127.0.0.1

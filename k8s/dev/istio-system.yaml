@@ -4,12 +4,30 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
-  name: wps
-  namespace: wps
+  name: dev
+  namespace: istio-system
 spec:
   selector:
-    app: wps
+    istio: ingressgateway
   servers:
+    - hosts:
+        - "*"
+      port:
+        name: http
+        number: 80
+        protocol: TCP
+    - hosts:
+        - "*"
+      port:
+        name: https
+        number: 443
+        protocol: TCP
+    - hosts:
+        - "*"
+      port:
+        name: tls-dns
+        number: 953
+        protocol: TCP
     - hosts:
         - "*"
       port:

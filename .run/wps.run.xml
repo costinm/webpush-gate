@@ -1,15 +1,17 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="wps" type="google-container-tools-skaffold-run-config" factoryName="google-container-tools-skaffold-run-config-dev" show_console_on_std_err="false" show_console_on_std_out="false">
-    <option name="allowRunningInParallel" value="false" />
-    <option name="cleanupDeployments" value="false" />
-    <option name="envVariables" />
-    <option name="imageRepositoryOverride" value="localhost:5000" />
-    <option name="kubernetesContext" />
-    <option name="redeployOnChanges" value="true" />
-    <option name="skaffoldConfigurationFilePath" value="$PROJECT_DIR$/../wpgate/skaffold.yaml" />
-    <option name="skaffoldNamespace" />
-    <option name="skaffoldProfile" />
-    <option name="verbosity" value="DEBUG" />
+  <configuration default="false" name="k8s-wps" type="google-container-tools-skaffold-run-config"
+                 factoryName="google-container-tools-skaffold-run-config-dev" show_console_on_std_err="false"
+                 show_console_on_std_out="false">
+    <option name="allowRunningInParallel" value="false"/>
+    <option name="cleanupDeployments" value="false"/>
+    <option name="envVariables"/>
+    <option name="imageRepositoryOverride" value="localhost:5000"/>
+    <option name="kubernetesContext"/>
+    <option name="redeployOnChanges" value="true"/>
+    <option name="skaffoldConfigurationFilePath" value="$PROJECT_DIR$/../wpgate/skaffold.yaml"/>
+    <option name="skaffoldNamespace"/>
+    <option name="skaffoldProfile"/>
+    <option name="verbosity" value="DEBUG"/>
     <method v="2" />
   </configuration>
   <configuration default="false" name="wps" type="GoApplicationRunConfiguration" factoryName="Go Application">

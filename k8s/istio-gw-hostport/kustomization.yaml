@@ -5,7 +5,5 @@ namespace: kube-registry
 
 resources:
   - ns.yaml
-  - charts/pd.yaml
   - charts/app.yaml
-  - charts/service.yaml
   - charts/istio.yaml
