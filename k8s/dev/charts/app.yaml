@@ -19,11 +19,9 @@ spec:
   selector:
     matchLabels:
       app: dev
-  #    app: dev
   strategy:
     type: Recreate
   template:
-
     metadata:
       labels:
         app: dev
@@ -36,37 +34,18 @@ spec:
         runAsUser: 1000
       containers:
         - name: ubuntu
-          #image: ubuntu
           image: costinm/istio-build-code:latest
-          #image: gcr.io/istio-testing/build-tools:master-2020-05-20T22-13-03
-          #command: ["/init"]
           command: ["/usr/bin/code-server"]
           args: ["--auth", "none"]
-          #          command: [ "sleep" ]
-          #          args: [ "infinity" ]
-          envFrom:
-            - configMapRef:
-                name: envcfg
-                optional: true
-          env:
-            - name: HOME
-              value: /config
-            - name: PUID
-              value: "1000"
-
-
           volumeMounts:
             - mountPath: /var/run/docker.sock
               name: docker-socket-volume
             - mountPath: /work
               name: src
-            - mountPath: /config
-              name: codeconfig
-
           securityContext:
             privileged: true
           ports:
-            - containerPort: 8443
+            - containerPort: 8080
               name: https
               protocol: TCP
 
@@ -93,12 +72,6 @@ spec:
           hostPath:
               path: /var/run/docker.sock
               type: File
-
         - name: src
           persistentVolumeClaim:
               claimName: src
-
-
-        - name: codeconfig
-          persistentVolumeClaim:
-            claimName: code
