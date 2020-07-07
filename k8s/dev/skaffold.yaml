@@ -18,12 +18,7 @@ deploy:
 portForward:
   # deployment, pod, service
 
-  - resourceType: replicationcontroller
-    namespace: dev
-    resourceName: dev
-    port: 2375
-    localPort: 2375
-
+  # Code
   - resourceType: deployment
     namespace: dev
     resourceName: dev
@@ -31,6 +26,7 @@ portForward:
     port: 8080
     localPort: 8443
 
+  # Syncthing
   - resourceType: deployment
     namespace: dev
     resourceName: dev
@@ -38,19 +34,7 @@ portForward:
     port: 8384
     localPort: 8384
 
-  - resourceType: replicationcontroller
-    namespace: dev
-    resourceName: dev
-    address: 0.0.0.0
-    port: 22000
-    localPort: 22001
-
-  - resourceType: replicationcontroller
-    namespace: dev
-    resourceName: dev
-    port: 5227
-    localPort: 14227
-
+  # Registry, for skaffold
   - resourceType: replicationcontroller
     namespace: kube-registry
     resourceName: kube-registry-v0

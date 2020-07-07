@@ -5,4 +5,4 @@ resources:
   - charts/app.yaml
   - charts/hpa.yaml
   - charts/istio.yaml
-  - charts/lb.yaml
+  - ../istio/lb.yaml

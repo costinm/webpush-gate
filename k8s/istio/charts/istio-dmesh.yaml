@@ -1,0 +1,69 @@
+# Istio LB service must also have the ports opened.
+# Using a separate LB to test indpendent gw updates.
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: wps-syncthing
+  namespace: wps
+spec:
+  selector:
+    app: istiod
+  servers:
+    - hosts:
+        - "*"
+      port:
+        number: 8384
+        name: syncthing
+        protocol: TCP
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: syncthing
+  namespace: wps
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - wps/wps-syncthing
+  http:
+    - route:
+        - destination:
+            host: dev.dev.svc.cluster.local
+            port:
+              number: 8384
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: wps-ssh
+  namespace: wps
+spec:
+  selector:
+    app: istiod
+  servers:
+    - hosts:
+        - "*"
+      port:
+        name: ssh
+        number: 5222
+        protocol: TCP
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: wps-dmesh
+  namespace: wps
+spec:
+  selector:
+    app: istiod
+  servers:
+    - hosts:
+        - "*"
+      port:
+        name: http2-wps
+        number: 5228
+        protocol: TCP
+---
