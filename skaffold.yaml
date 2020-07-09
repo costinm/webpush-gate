@@ -60,3 +60,8 @@ portForward:
     port: 5227
     localPort: 14027
 
+  - resourceType: deployment
+    namespace: wps
+    resourceName: wps
+    port: 15000
+    localPort: 14000

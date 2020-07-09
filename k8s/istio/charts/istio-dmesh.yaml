@@ -8,7 +8,7 @@ metadata:
   namespace: wps
 spec:
   selector:
-    app: istiod
+    app: wps
   servers:
     - hosts:
         - "*"
@@ -42,7 +42,7 @@ metadata:
   namespace: wps
 spec:
   selector:
-    app: istiod
+    app: wps
   servers:
     - hosts:
         - "*"
@@ -52,13 +52,30 @@ spec:
         protocol: TCP
 ---
 apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: ssh
+  namespace: wps
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - wps/wps-ssh
+  http:
+    - route:
+        - destination:
+            host: wps.wps.svc.cluster.local
+            port:
+              number: 5222
+---
+apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
   name: wps-dmesh
   namespace: wps
 spec:
   selector:
-    app: istiod
+    app: wps
   servers:
     - hosts:
         - "*"
@@ -67,3 +84,19 @@ spec:
         number: 5228
         protocol: TCP
 ---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: dmesh
+  namespace: wps
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - wps/wps-dmesh
+  http:
+    - route:
+        - destination:
+            host: wps.wps.svc.cluster.local
+            port:
+              number: 5228

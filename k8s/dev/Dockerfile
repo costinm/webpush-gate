@@ -1,4 +1,4 @@
-FROM gcr.io/istio-testing/build-tools:master-2020-05-20T22-13-03
+FROM gcr.io/istio-testing/build-tools:master-2020-07-06T21-44-18
 
 RUN curl -fsSL https://code-server.dev/install.sh > /tmp/install.sh && \
     sh /tmp/install.sh
