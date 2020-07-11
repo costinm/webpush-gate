@@ -1,3 +1,4 @@
+# Simplified Istio gateway, running on Node with some hostPort configs.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -35,7 +36,7 @@ spec:
               value: |-
                 proxy_metadata:
                   a: b
-                discoveryAddress: istiod-canary.istio-system.svc:15012
+                discoveryAddress: istiod.istio-system.svc:15012
                 zipkin:
                   address: ""
 
@@ -73,8 +74,10 @@ spec:
           volumeMounts:
             - mountPath: /var/run/secrets/istio
               name: istiod-ca-cert
+
             - name: istio-envoy
               mountPath: /etc/istio/proxy
+
             - name: istio-token
               mountPath: /var/run/secrets/tokens
               readOnly: true
@@ -87,6 +90,7 @@ spec:
         - name: istiod-ca-cert
           configMap:
             name: istio-ca-root-cert
+
         - name: podinfo
           downwardAPI:
             items:
@@ -96,8 +100,10 @@ spec:
               - path: "annotations"
                 fieldRef:
                   fieldPath: metadata.annotations
+
         - name: istio-envoy
           emptyDir: {}
+
         - name: istio-token
           projected:
             sources:

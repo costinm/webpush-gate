@@ -9,22 +9,6 @@ spec:
   selector:
     app: kube-registry
   ports:
-    - name: registry
+    - name: http-registry
       port: 5000
-      protocol: TCP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: kube-registry2
-  namespace: kube-registry
-  labels:
-    app: kube-registry
-spec:
-  selector:
-    app: kube-registry
-  ports:
-    - name: registry
-      port: 5001
-      targetPort: 5000
       protocol: TCP

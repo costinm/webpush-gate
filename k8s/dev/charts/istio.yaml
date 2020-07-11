@@ -6,7 +6,7 @@ metadata:
 spec:
   egress:
     - hosts:
-        - "*/*"
+        - "./*"
 
 ---
 apiVersion: v1
