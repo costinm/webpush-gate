@@ -33,10 +33,11 @@ spec:
           mountPath: /var/lib/registry
         ports:
         - containerPort: 5000
-          name: registry
-          protocol: TCP
+          name: http-registry
+          protocol: TCP          
       volumes:
       - name: image-store
+      # For ephemeral registry (debugging, no persistent volume support)
 #        emptyDir: {}
         persistentVolumeClaim:
           claimName: istio-registry

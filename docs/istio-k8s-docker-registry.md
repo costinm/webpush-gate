@@ -1,54 +1,78 @@
+# Istio-secured K8S Local Docker Registry
 
-## Istio-secured K8S Local Docker Registry
+TL;DR: Run a 'local' docker registry secured with Istio, using a Gateway daemonset with strict mTLS.
 
-TL;DR: Run a 'local' registry secured with Istio.
+## Background: Current solutions
 
 There are 3 ways to use a Docker Registry in a K8S cluster:
 - public registry - GCR, dockerhub
 - private registry - with a proper TLS certificate
 - insecure registry - using "localhost:PORT" address.
 
-The first case is pretty clear. It does require some credentials
+Docker by default requires DNS (ACME) certificate for any registry except localhost, and clients require special permission to write to the registry,
+and for non-public registries for read. Docker allows localhost to be used as 'insecure' - it relies on the host having the 5000 port open on localhost.
+
+The first case is pretty clear and common. It does require some credentials
 that allow write access to the registry to be deployed in the cluster
 where the build takes place - which can be tricky to setup and 
-not very secure. 
+not very secure: the registry credentials will be stored in a namespace
+accessible to the build. Even on GCP, the builder needs IAM permissions to GCR. 
 
 A Private registry is a well documented solution - but it requires a 
 proper DNS and certificate - or complicated setup. It still uses some
-private credentials, Secrets, etc.
+private credentials - stored as Secrets. 
 
 The last solution is normally considered the least secure: registry
 is wide open for write to any workload in the cluster. It is also
-the easiest to setup. It doesn't work with Skaffold and probably 
-other apps - Skaffold is dynamically changing the image in the manifest
-to use the same registry. For local registry Skaffold can't use 'localhost'
-since there is no local port. 
+the easiest to setup: run the registry in cluster, a proxy on each node, and 
+use "localhost:5000" in the manifests. 
 
-# Kubelet access
+## Istio-based solution
 
-There are 2 viable solutions:
+The charts run the registry in cluster, with an Istio sidecar. That means
+access to registry requires Istio MTLS and can be controlled using Istio policy.
+User may optionally expose it in the gateway and use certificates auto-generated
+by Istio.
 
-1. (recommended) get a DNS cert for ingress.
+On each node, using a daemonset we run an Istio Gateway. The gateway runs with
+'hostPort' set to 5000 - so pods using "localhost:5000" will connect to Istio 
+gateway on localhost (generally secure). Istio Gateway will then use mTLS to
+connect to the real registry, with mutual authentication. 
+
+The Istio Policy for the registry can use the identity of the gateway to allow
+'read only' access, and may use the workload identity of the builder to grant
+write access to specific repositories.
+
+For example, a "example-builder" namespace running an in-cluster build can be 
+granted write access to the registry for 'example' repo. 
 
 # Implementation
 
 As with other apps using Istio, we'll run the Docker registry without any 
-security - but in a namespace injected with Istio.
+security, but on localhost:5000: the pod should not bind to 0.0.0.0.
 
 Instead of deploying 'secrets' to apps that need to run the registry
-we'll inject a sidecar to any such application. 
+we'll use Istio Gateway or Sidecar, ensuring access to the registry is 
+secured and policy-protected. 
 
 For kubelet, we'll use the same mechanism as "kube-registry-proxy", 
-i.e. a DaemonSet running with a hostPort. However we'll use a 
- Istio Gateway - which can also server as an Ingress or Egress
- gateway in small clusters. The details are described in a separate
- document. 
+i.e. a DaemonSet running with a hostPort. 
 
+# Using the DaemonSet gateway for other purposes
+
+We are deploying a standard Istio Gateway for access to the registry. The 
+gateway is using hostPort on 5000 for registry access. 
+
+Users may open additional hostPorts - for example 443, 80, etc - and use this
+daemon set as a normal ingress or egress gateway. On GKE user will need to 
+configure the firewall rules manually to allow external access: for regular
+gateway this is handled when creating the LB Service. Users also need to 
+manage the DNS entries and node IPs. 
+
+While this is more complicated - it avoids the use of an external load balancer,
+and for development/local/test clusters with few stable nodes it can be lighter.
 
 # Security
-
-I'm going to use the 'whitebox' mode for the registry, mainly 
-because I want to have a good example and test it. 
 
 All communication to Registry will use mTLS, with Istio certificates.
 
@@ -56,80 +80,38 @@ Authentication policies can be used to specify which workloads can
 make write requests. This would also provide an excelent 'dogfood'
 and test for the auth.
  
-We can also expose the registry via the normal Istio ingress, and
-maybe test external access with JWT authentication.  
+# Skaffold and 'local' development
 
-# Registry details
+A Istio docker registry doesn't work well with Skaffold and probably other apps - Skaffold is dynamically changing the image in the manifest to use the same registry. 
 
-The registry is running as a ReplicationController with the ```registry:2`` image. It has an
-associated persistentVolumeClaim.
+One solution is to do a port-forward from the registry to the dev machine: if the developer has RBAC permissions on the registry namespace or cluster it can already control it.
 
-# Running in-cluster local registry
-
-Old style: Will start an insecure docker registry plus a port forwarder.
-
-Docker allows localhost to be used as 'insecure' - it relies on the host having 
-the port open on localhost.
-
-A daemon set with nodePort is used to forward 'localhost' requests to the actual registry for kubelet.
-
-To access the registry from a remote machine, create a proxy - or use the skaffold file to deploy and
-forward:
 
 ```shell
-
- kubectl apply -k github.com/costinm/wpgate/k8s/kube-registry
 
  POD=$(kubectl get pods --namespace kube-registry -l app=kube-registry \
             -o template --template '{{range .items}}{{.metadata.name}} {{.status.phase}}{{"\n"}}{{end}}' \
             | grep Running | head -1 | cut -f1 -d' ')
 
- kubectl port-forward --namespace kube-system $POD 5000:5000 &
+ kubectl port-forward --namespace kube-registry $POD 5000:5000 &
 
 ```
 
-In Istio, HUB will be set to localhost
+A second option is for developer to run a local Istio gateway on the development
+machine, and forward localhost:5000 using the ingress gateway. In this mode a 
+developer with RBAC permission restricted to a namespace will also be subject
+to Istio policies. 
 
-# TODO
-
-- run a Gateway (envoy) as port forwarder, with full Istio config and mTLS to the registry
-- configure the forwarder to allow MTLS/TLS/auth, using istio API.
-- configure the proxy to forward to per-namespace registries ? 
-
-The idea would be to have a volume in each namespace with the binary images and .tar.gz 
 
 # Issues
 
-- not secure - could use an Istio sidecar and ingress
-- Kaniko won't find localhost
-- the kubelet won't find localhost without the proxy - which is also not secure
+- security not fully implemented according to the design - WIP on policy, etc
+- Kaniko won't find localhost, injection needs to be customized
 
-# Istio integration
+- gateway binds on 0.0.0.0 - need additional filter to protect against remote clients
+using the port with a Host header. The gateway on 5000 should be read only.
 
-1. Run the registry with Istio injection - interception-none to have full control
-2. Use a 'replica set' envoy gateway, for node port
+# TODO
 
-# Debugging
+- configure the proxy to forward to per-namespace registries ? Not sure if kubelet provides enough information.
 
-## Skaffold
-
-- requires ubuntu or containerless
-- 
-
-```shell script
-  - command:
-    - /dbg/go/bin/dlv
-    - exec
-    - --headless
-    - --continue
-    - --accept-multiclient
-    - --listen=:56268
-    - --api-version=2
-    - /bin/sh
-    - --
-    - -c
-    - /usr/local/bin/wps
-
-```
-
-/dbg from debugging-support-files - 
