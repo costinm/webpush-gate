@@ -27,6 +27,8 @@ func (sshGate *SSHGate) authPub(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.
 		}
 		// 1. Verify cert.SignatureKey is a CA
 
+		cert.SignatureKey.(ssh.CryptoPublicKey)
+
 		// conn.User() is usually set to 'dmesh' - and ignored.
 		//
 

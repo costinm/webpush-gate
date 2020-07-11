@@ -19,20 +19,20 @@ import (
 //
 type Conf struct {
 	// Base directory. If not set, no config will be saved and read will fail.
-	base string
+	base []string
 	// Conf is configured from Android side with the config (settings)
 	// ssid, pass, vpn_ext
 	Conf map[string]string `json:"Conf,omitempty"`
 }
 
-// Returns a config stsore.
-// Implements auth.ConfStore interface
-func NewConf(base string) *Conf {
+// Returns a config store.
+// Implements a basic ConfStore interface
+func NewConf(base... string) *Conf {
 	// TODO: https for remote - possibly using local creds and K8S style or XDS
 	return &Conf{base: base, Conf: map[string]string{}}
 }
 
-func (h2 *Conf) List(name string, tp string) ([]string, error) {
+func (c *Conf) List(name string, tp string) ([]string, error) {
 	return nil, nil
 }
 
@@ -54,25 +54,28 @@ func Get(h2 *Conf, name string, to interface{}) error {
 // From config dir, fallback to .sshterraform, .lego and /etc/certs
 //
 // "name" may be a hostname
-func (h2 *Conf) Get(name string) ([]byte, error) {
+func (c *Conf) Get(name string) ([]byte, error) {
 	envName := strings.ReplaceAll(name, ".", "_")
 	envName = strings.ReplaceAll(envName, "/", "_")
 	envd := os.Getenv(envName)
 	if envd != "" {
 		return []byte(envd), nil
 	}
-	l := h2.base + name
 
-	if _, err := os.Stat(l); err == nil { // || !os.IsNotExist(err)
-		res, err := ioutil.ReadFile(l)
-		if err == nil {
-			return res, nil
+	for _, b := range c.base {
+		l := b + name
+
+		if _, err := os.Stat(l); err == nil { // || !os.IsNotExist(err)
+			res, err := ioutil.ReadFile(l)
+			if err == nil {
+				return res, nil
+			}
 		}
-	}
-	if _, err := os.Stat(l + ".json"); err == nil { // || !os.IsNotExist(err)
-		res, err := ioutil.ReadFile(l + ".json")
-		if err == nil {
-			return res, nil
+		if _, err := os.Stat(l + ".json"); err == nil { // || !os.IsNotExist(err)
+			res, err := ioutil.ReadFile(l + ".json")
+			if err == nil {
+				return res, nil
+			}
 		}
 	}
 
@@ -81,13 +84,13 @@ func (h2 *Conf) Get(name string) ([]byte, error) {
 	return nil, nil
 }
 
-func (h2 *Conf) Set(conf string, data []byte) error {
-	if h2 == nil || h2.base == "" {
+func (c *Conf) Set(conf string, data []byte) error {
+	if c == nil || c.base == nil || len(c.base) == 0 {
 		return nil
 	}
-	err := ioutil.WriteFile(h2.base+conf, data, 0700)
+	err := ioutil.WriteFile(c.base[0]+conf, data, 0700)
 	if err != nil {
-		log.Println("Error saving ", err, h2.base, conf)
+		log.Println("Error saving ", err, c.base, conf)
 	}
 	return err
 }

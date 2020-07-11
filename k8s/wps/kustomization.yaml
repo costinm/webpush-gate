@@ -6,3 +6,4 @@ resources:
   - charts/hpa.yaml
   - charts/istio.yaml
   - ../istio/lb.yaml
+

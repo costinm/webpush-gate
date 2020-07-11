@@ -17,9 +17,9 @@ spec:
         name: tcp-docker-registry1
         number: 5000
         protocol: HTTP
----
-# TCP will avoid localhost:5000 http problems, but not info
+# TCP will avoid localhost:5000 http problems, but no info
 #        protocol: TCP
+---
 #apiVersion: networking.istio.io/v1alpha3
 #kind: VirtualService
 #metadata:
@@ -29,7 +29,7 @@ spec:
 #  hosts:
 #    - "*"
 #  gateways:
-#    - istio-gw-hostport/gate
+#    - istio-gw-hostport/gate5000
 #  tcp:
 #    - match:
 #        - port: 5000

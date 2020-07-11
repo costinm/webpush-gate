@@ -9,7 +9,7 @@
     <option name="skaffoldConfigurationFilePath" value="$PROJECT_DIR$/../wpgate/k8s/dev/skaffold.yaml" />
     <option name="skaffoldNamespace" />
     <option name="skaffoldProfile" />
-    <option name="verbosity" value="WARN"/>
+    <option name="verbosity" value="WARN" />
     <method v="2" />
   </configuration>
 </component>

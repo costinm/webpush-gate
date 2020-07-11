@@ -107,7 +107,7 @@ func (sa *ServerAll) Close() {
 
 func StartAll(a *ServerAll) {
 	// File-based config
-	config := conf.NewConf(a.ConfDir)
+	config := conf.NewConf(a.ConfDir, "./var/lib/dmesh/")
 
 	// Default matching Istio range.
 	addrN := a.BasePort

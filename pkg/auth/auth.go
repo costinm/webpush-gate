@@ -87,7 +87,8 @@ type Auth struct {
 	// RSA: DER
 	Priv []byte
 
-	// Primary private keys.
+	// Primary private keys. This is a long-lived key, used as SSH server
+	// key.
 	EC256PrivateKey *ecdsa.PrivateKey
 
 	// Secondary private keys.

@@ -6,7 +6,7 @@ metadata:
 spec:
   egress:
     - hosts:
-        - "*/*"
+        - "./*"
 
 ---
 apiVersion: v1
@@ -18,12 +18,12 @@ spec:
   selector:
     app: dev
   ports:
-    - name: syncthing
+    - name: tcp-syncthing
       port: 8384
       protocol: TCP
-    - name: wps-ssh
+    - name: tcp-ssh
       port: 5222
       protocol: TCP
-    - name: http2-wps
+    - name: https-wps
       port: 5228
       protocol: TCP
