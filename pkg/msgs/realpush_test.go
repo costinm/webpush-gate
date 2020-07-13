@@ -1,4 +1,4 @@
-package send
+package msgs
 
 import (
 	"net/http"
@@ -38,7 +38,7 @@ func send(t *testing.T, epjson string) {
 
 	vapid := auth.NewVapid(vapidPub, vapidPriv)
 	vapid.Domain = "test@example.com"
-	req, err := NewRequest(sub, message, 0, vapid)
+	req, err := NewRequest(sub.Endpoint, sub.Key, sub.Auth, message, 0, vapid)
 	res, err := http.DefaultClient.Do(req)
 
 	if err != nil || res.StatusCode != 201 {

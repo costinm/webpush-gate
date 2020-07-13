@@ -12,7 +12,8 @@
             "mode": "auto",
             "program": "${workspaceFolder}/cmd/wps",
             "env": {},
-            "trace": "verbose",
+            "cwd": "../..",
+            //"trace": "verbose",
             "args": []
         },
         {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package send
+package msgs
 
 import (
 	"bytes"
@@ -25,6 +25,7 @@ import (
 	"github.com/costinm/wpgate/pkg/auth"
 )
 
+// RFC8291 - Message Encryption for Web push
 
 //// NewPushRequest creates a valid Web Push HTTP request for sending a message
 //// to a subscriber.
@@ -70,13 +71,13 @@ import (
 // to a subscriber, using Vapid authentication.
 //
 // You can add more headers to configure collapsing, TTL.
-func NewRequest(to *auth.Subscription,
-		message string, ttlSec int, vapid *auth.Auth) (*http.Request, error) {
+func NewRequest(dest string, key, authK []byte,
+	message string, ttlSec int, vapid *auth.Auth) (*http.Request, error) {
 
 	// If the endpoint is GCM then we temporarily need to rewrite it, as not all
 	// GCM servers support the Web Push protocol. This should go away in the
 	// future.
-	req, err := http.NewRequest("POST", to.Endpoint, nil)
+	req, err := http.NewRequest("POST", dest, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -84,29 +85,24 @@ func NewRequest(to *auth.Subscription,
 	req.Header.Add("ttl", strconv.Itoa(ttlSec))
 
 	if vapid != nil {
-		tok := vapid.VAPIDToken(to.Endpoint)
-		req.Header.Add("Authorization", fmt.Sprintf(`Bearer %s`, tok))
+		tok := vapid.VAPIDToken(dest)
+		req.Header.Add("authorization", tok)
 	}
 
 	// If there is no payload then we don't actually need encryption
 	if message != "" {
-		payload, err := auth.Encrypt(to, message)
+		payload, err := auth.Encrypt(key, authK, message)
 		if err != nil {
 			return nil, err
 		}
 		req.Body = ioutil.NopCloser(bytes.NewReader(payload.Ciphertext))
 		req.ContentLength = int64(len(payload.Ciphertext))
-		req.Header.Add("Encryption",
+		req.Header.Add("encryption",
 			headerField("salt", payload.Salt))
-		keys := headerField("dh", payload.ServerPublicKey);
-		if vapid != nil {
-			keys = keys + "; p256ecdsa=" + vapid.PubKey
-		}
-
-		req.Header.Add("Crypto-Key", keys)
-		req.Header.Add("Content-Encoding", "aesgcm")
+		keys := headerField("dh", payload.ServerPublicKey)
+		req.Header.Add("crypto-key", keys)
+		req.Header.Add("content-encoding", "aesgcm")
 	}
-
 
 	return req, nil
 }

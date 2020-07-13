@@ -99,9 +99,30 @@ type Auth struct {
 	// Key is the string(marshalled_form). For example EC256 it's a byte[65]
 	// Value is list of roles for the key.
 	Authorized map[string]string
+	Known      map[string]*AuthzInfo
+
+	Authz map[string]*AuthzInfo
 
 	// TODO: Root certificates to trust, keyed by domain.
 	Roots map[string]*Root
+
+	// cached
+	pub64 string
+}
+
+// WIP: more info about authorized
+type AuthzInfo struct {
+	// Role - stored as comment of the SSH authz keys
+	Role string
+
+	Public []byte
+
+	Opts map[string]string
+
+	// key.(*ecdsa.PublicKey)
+	// key.(*rsa.PublicKey)
+	// key.(ed25519.PublicKey)
+	Key crypto.PublicKey
 }
 
 // Subscription holds the useful values from a PushSubscription object acquired
@@ -205,44 +226,6 @@ func ConfInt(cs ConfStore, name string, def int) int {
 	return v
 }
 
-// Initialize the certificates, loading or generating them.
-// If cfg is nil, will generate certs but not save.
-//
-func NewAuth(cfg ConfStore, name, domain string) *Auth {
-
-	auth := &Auth{
-		Config:     cfg,
-		Domain:     domain,
-		Name:       name,
-		Authorized: map[string]string{},
-	}
-
-	var err error
-	if cfg != nil {
-		err = auth.loadCert()
-	}
-	if cfg == nil || err != nil || auth.EC256PrivateKey == nil {
-		// Can't load the certs - generate new ones.
-		auth.generateCert()
-	}
-
-	pub64 := base64.StdEncoding.EncodeToString(auth.Pub)
-	auth.VIP64 = auth.NodeIDUInt()
-	// Based on the primary EC256 key
-	log.Println("VIP: ", auth.VIP6)
-	log.Println("ID: ", base64.URLEncoding.EncodeToString(auth.NodeID()), hex.EncodeToString(auth.NodeID()), auth.NodeIDUInt())
-	log.Println("PUB(std): ", pub64)
-	sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " + auth.Name + "@" + auth.Domain
-	log.Println("PUB(SSH): ", sshPub)
-
-	if cfg != nil {
-		auth.loadKnownHosts()
-		auth.loadAuth()
-	}
-
-	return auth
-}
-
 // NewVapid constructs a new Vapid generator from EC256 public and private keys,
 // in base64 uncompressed format.
 func NewVapid(publicKey, privateKey string) (v *Auth) {
@@ -254,20 +237,76 @@ func NewVapid(publicKey, privateKey string) (v *Auth) {
 	pubkey := ecdsa.PublicKey{Curve: curve, X: x, Y: y}
 	pkey := ecdsa.PrivateKey{PublicKey: pubkey, D: d}
 
-	v = &Auth{
-		Pub:             publicUncomp,
-		Priv:            privateUncomp,
-		Authorized:      map[string]string{},
-		PubKey:          publicKey,
-		EC256PrivateKey: &pkey}
+	v = _new()
+	v.pub64 = publicKey
+	v.Pub = publicUncomp
+	v.Priv = privateUncomp
+	v.PubKey = publicKey
+	v.EC256PrivateKey = &pkey
 
 	return
+}
+
+func _new() *Auth {
+	return &Auth{
+		Authorized: map[string]string{},
+		Known:      map[string]*AuthzInfo{},
+		Authz:      map[string]*AuthzInfo{},
+	}
+}
+
+// Initialize the certificates, loading or generating them.
+// If cfg is nil, will generate certs but not save.
+//
+func NewAuth(cfg ConfStore, name, domain string) *Auth {
+	auth := _new()
+	auth.Config = cfg
+	auth.Domain = domain
+	auth.Name = name
+
+	// Use .ssh/ and the secondary config to load the keys.
+	if cfg != nil {
+		err := auth.loadCert()
+		if err != nil {
+			log.Println("Error loading cert: ", err)
+		}
+	}
+	if auth.EC256PrivateKey == nil {
+		// Can't load the EC256 certs - generate new ones.
+		auth.generateCert()
+	}
+
+	auth.VIP64 = auth.NodeIDUInt()
+	// Based on the primary EC256 key
+	auth.pub64 = base64.RawURLEncoding.EncodeToString(auth.Pub)
+
+	// Use SSH known hosts and auth to bootstrap
+	if cfg != nil {
+		auth.loadKnownHosts()
+		auth.loadAuth()
+	}
+	// TODO: additional sources for root certs and identity.
+
+	return auth
+}
+
+func (auth *Auth) Dump() {
+	pub64 := base64.StdEncoding.EncodeToString(auth.Pub)
+	log.Println("VIP: ", auth.VIP6)
+	log.Println("ID: ", base64.URLEncoding.EncodeToString(auth.NodeID()), hex.EncodeToString(auth.NodeID()), auth.NodeIDUInt())
+	log.Println("PUB(std): ", pub64)
+	sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " + auth.Name + "@" + auth.Domain
+	log.Println("PUB(SSH): ", sshPub)
+
+	for _, ai := range auth.Authz {
+		log.Println("SSH PUBLIC AUTH256: ", ai.Opts, ai.Role, base64.StdEncoding.EncodeToString(ai.Public))
+	}
 }
 
 // Add or update an identity (key) with a set of permissions (roles).
 // This is extending the SSH, by using the comment field as a list of roles, starting with the
 // user identity.
-func (certs *Auth) AddAuthorized(key interface{}, role string) {
+func (auth *Auth) AddAuthorized(key interface{}, role string) {
 	var keyb []byte
 	if oub, ok := key.([]byte); ok {
 		keyb = oub
@@ -278,48 +317,58 @@ func (certs *Auth) AddAuthorized(key interface{}, role string) {
 		key = oub
 	}
 
-	certs.Authorized[string(keyb)] = role
+	auth.Authorized[string(keyb)] = role
 
 	// TODO: write back authorized file !!!
 	bw := bytes.Buffer{}
-	for k, v := range certs.Authorized {
+	for k, v := range auth.Authorized {
 		kb := []byte(k)
 		if len(kb) == 65 {
 			bw.WriteString("ecdsa-sha2-nistp256 " + base64.StdEncoding.EncodeToString(kb) + " " + v)
 		}
 	}
 
-	certs.Config.Set("authorized_keys.save", bw.Bytes())
+	auth.Config.Set("authorized_keys.save", bw.Bytes())
 }
 
 // Check if an identity is authorized for the role.
 // The key is in the marshalled format - use KeyBytes to convert a crypto.PublicKey.
 //
-func (c *Auth) Auth(key []byte, role string) string {
-	roles := c.Authorized[string(key)]
+func (auth *Auth) Auth(key []byte, role string) string {
+	roles := auth.Authorized[string(key)]
 
 	return roles
 }
 
-func (c *Auth) loadKnownHosts() error {
+// Process SSH known hosts file, to keep track of hostnames
+// Known hosts are not trusted - but checked for continuity
+//
+// - @cert-authority - declares a CA that signs hosts, wildcards.
+// - @revoked
+// - regular: hostnames(.), key + comment + rest
+//
+func (auth *Auth) loadKnownHosts() error {
 	//
 	// [h.webinf.info]:2022,[67.174.240.198]:2022 ecdsa-sha2-nistp256 AAAA...
 	//  markers (optional), hostnames, keytype, base64-encoded key, comment
+	//
+	// port missing: 22
+	//
 
 	authB := bytes.Buffer{}
-	auth, err := c.Config.Get(".ssh/known_hosts")
+	khauth, err := auth.Config.Get(".ssh/known_hosts")
 	if err == nil {
-		authB.Write(auth)
+		authB.Write(khauth)
 		authB.WriteByte('\n')
 	}
 
-	auth = authB.Bytes()
-	for len(auth) > 0 {
-		marker, _, pubKey, comment, rest, err := ssh.ParseKnownHosts(auth)
+	authb := authB.Bytes()
+	for len(authb) > 0 {
+		marker, hosts, pubKey, _, _, err := ssh.ParseKnownHosts(authb)
 		if err != nil {
 			return err
 		}
-		auth = rest
+		//auth = rest
 
 		if marker == "@cert-authority" {
 			// hosts should start with *.DOMAIN
@@ -330,8 +379,18 @@ func (c *Auth) loadKnownHosts() error {
 			pubk := cpk.CryptoPublicKey()
 			kbytes := KeyBytes(pubk)
 			if kbytes != nil {
-				//if len(opts) > 0 && opts[0] == ""
-				c.Authorized[string(kbytes)] = comment
+				for _, h := range hosts {
+					// TODO: filter :5222 and extract domain
+					// IP can be ignored.
+
+					//if len(opts) > 0 && opts[0] == ""
+					auth.Known[h] = &AuthzInfo{
+						Role:   h,
+						Key:    pubk,
+						Public: kbytes,
+						Opts:   map[string]string{},
+					}
+				}
 				//log.Println("SSH HAUTH: ", pubKey.Type(), marker, hosts, comment, base64.StdEncoding.EncodeToString(kbytes))
 				continue
 			}
@@ -356,25 +415,25 @@ func (c *Auth) loadKnownHosts() error {
 //
 //
 // Called at startup (and possibly refresh).
-func (c *Auth) loadAuth() error {
+func (auth *Auth) loadAuth() error {
 	// TODO: load known_hosts as well
 
 	authB := bytes.Buffer{}
-	auth, err := c.Config.Get("authorized_keys")
+	authKeys, err := auth.Config.Get("authorized_keys")
 	if err == nil {
-		authB.Write(auth)
+		authB.Write(authKeys)
 		authB.WriteByte('\n')
 	}
 
-	auth, err = c.Config.Get(".ssh/authorized_keys")
+	authKeys, err = auth.Config.Get(".ssh/authorized_keys")
 	if err == nil {
-		authB.Write(auth)
+		authB.Write(authKeys)
 		authB.WriteByte('\n')
 	}
 
-	auth, err = c.Config.Get("authorized_keys.save")
+	authKeys, err = auth.Config.Get("authorized_keys.save")
 	if err == nil {
-		authB.Write(auth)
+		authB.Write(authKeys)
 		authB.WriteByte('\n')
 	}
 
@@ -382,21 +441,35 @@ func (c *Auth) loadAuth() error {
 	// SSH_ORIGINAL_COMMAND as env variable
 	// no-pty,command="/usr/local/bin/dmesh"
 	//
-	auth = authB.Bytes()
-	for len(auth) > 0 {
-		pubKey, comment, opts, rest, err := ssh.ParseAuthorizedKey(auth)
+	authKeys = authB.Bytes()
+	for len(authKeys) > 0 {
+		pubKey, comment, opts, rest, err := ssh.ParseAuthorizedKey(authKeys)
 		if err != nil {
 			break
 		}
-		auth = rest
+		authKeys = rest
 
 		if cpk, ok := pubKey.(ssh.CryptoPublicKey); ok {
 			pubk := cpk.CryptoPublicKey()
 			kbytes := KeyBytes(pubk)
 			if kbytes != nil {
 				//if len(opts) > 0 && opts[0] == ""
-				c.Authorized[string(kbytes)] = comment
-				log.Println("SSH PUBLIC AUTH256: ", pubKey.Type(), opts, comment, base64.StdEncoding.EncodeToString(kbytes))
+				auth.Authorized[string(kbytes)] = comment
+				ai := &AuthzInfo{
+					Role:   comment,
+					Key:    pubk,
+					Public: kbytes,
+					Opts:   map[string]string{},
+				}
+				auth.Authz[comment] = ai
+				for _, o := range opts {
+					if strings.Contains(o, "=") {
+						op := strings.SplitN(o, "=", 2)
+						ai.Opts[op[0]] = op[1]
+					} else {
+						ai.Opts[o] = ""
+					}
+				}
 				continue
 			}
 
@@ -430,12 +503,12 @@ func KeyBytes(key crypto.PublicKey) []byte {
 }
 
 // Load the primary cert - expects a PEM key file
-func (c *Auth) loadCert() error {
-	keyPEM, err := c.Config.Get("ec-key.pem")
+func (auth *Auth) loadCert() error {
+	keyPEM, err := auth.Config.Get("ec-key.pem")
 	if err != nil {
 		return err
 	}
-	certPEM, err := c.Config.Get("ec-cert.pem")
+	certPEM, err := auth.Config.Get("ec-cert.pem")
 	if err != nil {
 		return err
 	}
@@ -446,31 +519,32 @@ func (c *Auth) loadCert() error {
 
 	pk := tlsCert.PrivateKey.(*ecdsa.PrivateKey)
 
-	c.tlsCerts = []tls.Certificate{tlsCert}
-	c.EC256PrivateKey = pk
-	c.Priv = pk.D.Bytes()
-	c.Pub = elliptic.Marshal(Curve256, pk.X, pk.Y) // starts with 0x04 == uncompressed curve
-	c.VIP6 = Pub2VIP(c.Pub)
+	auth.tlsCerts = []tls.Certificate{tlsCert}
+	auth.EC256PrivateKey = pk
+	auth.Priv = pk.D.Bytes()
+	auth.Pub = elliptic.Marshal(Curve256, pk.X, pk.Y) // starts with 0x04 == uncompressed curve
 
-	keyRSA, err := c.Config.Get(".ssh/id_rsa")
+	auth.VIP6 = Pub2VIP(auth.Pub)
+
+	keyRSA, err := auth.Config.Get(".ssh/id_rsa")
 	if err == nil {
-		c.setKey(keyRSA)
+		auth.setKey(keyRSA)
 	}
-	keyRSA, err = c.Config.Get(".ssh/id_ed25519")
+	keyRSA, err = auth.Config.Get(".ssh/id_ed25519")
 	if err == nil {
-		c.setKey(keyRSA)
+		auth.setKey(keyRSA)
 	}
 	return nil
 }
 
 // handle rsa and ed keys setting
-func (c *Auth) setKey(keyRSA []byte) error {
+func (auth *Auth) setKey(keyRSA []byte) error {
 	keyssh, err := ssh.ParseRawPrivateKey(keyRSA)
 	switch key := keyssh.(type) {
 	case *rsa.PrivateKey:
 		// PRIVATE_KEY - may return RSA or ecdsa
 		// RSA PRIVATE KEY
-		c.RSAPrivate = key
+		auth.RSAPrivate = key
 		return nil
 	case *ecdsa.PrivateKey:
 		// EC PRIVATE KEY
@@ -480,7 +554,7 @@ func (c *Auth) setKey(keyRSA []byte) error {
 		return nil
 	case *ed25519.PrivateKey:
 		// OPENSSH PRIVATE KEY - may return rsa or ED25519
-		c.EDPrivate = key
+		auth.EDPrivate = key
 		return nil
 	}
 
@@ -509,7 +583,7 @@ func RawToPrivate(priv, pub []byte) (*ecdsa.PrivateKey, error) {
 // generateCert will generate the keys and populate the Pub/Priv fields.
 // Will set privateKey, Priv, Pub
 // Pub, Priv should be saved
-func (c *Auth) generateCert() {
+func (auth *Auth) generateCert() {
 	// d, x,y
 	priv, x, y, err := elliptic.GenerateKey(Curve256, rand.Reader)
 	if err != nil {
@@ -519,23 +593,28 @@ func (c *Auth) generateCert() {
 	pk := ecdsa.PublicKey{X: x, Y: y, Curve: Curve256}
 	d := new(big.Int).SetBytes(priv[0:32])
 
-	c.Priv = priv
-	c.EC256PrivateKey = &ecdsa.PrivateKey{D: d, PublicKey: pk}
-	c.Pub = elliptic.Marshal(Curve256, x, y) // starts with 0x04 == uncompressed curve
-	c.PubKey = base64.RawURLEncoding.EncodeToString(c.Pub)
-	c.VIP6 = Pub2VIP(c.Pub)
+	auth.Priv = priv
 
-	if c.Name == "" {
-		c.Name = base64.URLEncoding.EncodeToString(c.NodeID())
+	auth.EC256PrivateKey = &ecdsa.PrivateKey{D: d, PublicKey: pk}
+	auth.Pub = elliptic.Marshal(Curve256, x, y) // starts with 0x04 == uncompressed curve
+	auth.PubKey = base64.RawURLEncoding.EncodeToString(auth.Pub)
+	auth.VIP6 = Pub2VIP(auth.Pub)
+	//b64 := base64.URLEncoding.WithPadding(base64.NoPadding)
+	//
+	//pub64 := b64.EncodeToString(pub)
+	//priv64 := b64.EncodeToString(priv)
+
+	if auth.Name == "" {
+		auth.Name = base64.RawURLEncoding.EncodeToString(auth.NodeID())
 	}
-	keyPEM, certPEM := c.generateAndSaveSelfSigned(c.EC256PrivateKey, c.Name+"."+c.Domain)
+	keyPEM, certPEM := auth.generateAndSaveSelfSigned(auth.EC256PrivateKey, auth.Name+"."+auth.Domain)
 	tlsCert, _ := tls.X509KeyPair(certPEM, keyPEM)
-	c.tlsCerts = []tls.Certificate{tlsCert}
+	auth.tlsCerts = []tls.Certificate{tlsCert}
 
 }
 
 // Generate and save the primary self-signed Certificate
-func (c *Auth) generateAndSaveSelfSigned(priv *ecdsa.PrivateKey, sans ...string) ([]byte, []byte) {
+func (auth *Auth) generateAndSaveSelfSigned(priv *ecdsa.PrivateKey, sans ...string) ([]byte, []byte) {
 	var notBefore time.Time
 	notBefore = time.Now().Add(-1 * time.Hour)
 
@@ -548,7 +627,7 @@ func (c *Auth) generateAndSaveSelfSigned(priv *ecdsa.PrivateKey, sans ...string)
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			CommonName:   sans[0],
-			Organization: []string{c.Domain},
+			Organization: []string{auth.Domain},
 		},
 		NotBefore: notBefore,
 		NotAfter:  notAfter,
@@ -557,7 +636,7 @@ func (c *Auth) generateAndSaveSelfSigned(priv *ecdsa.PrivateKey, sans ...string)
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		DNSNames:              sans,
-		IPAddresses:           []net.IP{c.VIP6},
+		IPAddresses:           []net.IP{auth.VIP6},
 	}
 
 	// Sign with the private key.
@@ -571,19 +650,19 @@ func (c *Auth) generateAndSaveSelfSigned(priv *ecdsa.PrivateKey, sans ...string)
 	ecb, _ := x509.MarshalECPrivateKey(priv)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: ecb})
 
-	if c.Config != nil {
-		c.Config.Set("ec-key.pem", keyPEM)
-		c.Config.Set("ec-cert.pem", certPEM)
-		pub64 := base64.StdEncoding.EncodeToString(c.Pub)
-		sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " + c.Name + "@" + c.Domain
-		c.Config.Set("id_ecdsa.pub", []byte(sshPub))
+	if auth.Config != nil {
+		auth.Config.Set("ec-key.pem", keyPEM)
+		auth.Config.Set("ec-cert.pem", certPEM)
+		pub64 := base64.StdEncoding.EncodeToString(auth.Pub)
+		sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " + auth.Name + "@" + auth.Domain
+		auth.Config.Set("id_ecdsa.pub", []byte(sshPub))
 	}
 	return keyPEM, certPEM
 }
 
 // Sign certificates for children.
 //
-func (c *Auth) GenerateDirectCert(pub crypto.PublicKey, hours time.Duration, name []string, urls []*url.URL, ips []net.IP) []byte {
+func (auth *Auth) GenerateDirectCert(pub crypto.PublicKey, hours time.Duration, name []string, urls []*url.URL, ips []net.IP) []byte {
 	var err error
 
 	var notBefore time.Time
@@ -597,7 +676,7 @@ func (c *Auth) GenerateDirectCert(pub crypto.PublicKey, hours time.Duration, nam
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			CommonName:   name[0],
-			Organization: []string{c.Domain},
+			Organization: []string{auth.Domain},
 		},
 		NotBefore: notBefore,
 		NotAfter:  notAfter,
@@ -612,7 +691,7 @@ func (c *Auth) GenerateDirectCert(pub crypto.PublicKey, hours time.Duration, nam
 
 	// Sign with the private key of the Cert.
 
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, pub, c.EC256PrivateKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, pub, auth.EC256PrivateKey)
 	if err != nil {
 		log.Println("Error creating cert", err)
 		return nil
@@ -620,12 +699,12 @@ func (c *Auth) GenerateDirectCert(pub crypto.PublicKey, hours time.Duration, nam
 	return certDER
 }
 
-func (c *Auth) NodeID() []byte {
-	return c.VIP6[8:]
+func (auth *Auth) NodeID() []byte {
+	return auth.VIP6[8:]
 }
 
-func (c *Auth) NodeIDUInt() uint64 {
-	return Pub2ID(c.Pub)
+func (auth *Auth) NodeIDUInt() uint64 {
+	return Pub2ID(auth.Pub)
 }
 
 // Generate a 8-byte identifier from a public key
@@ -665,20 +744,20 @@ func Pub2VIP(pub []byte) net.IP {
 	return net.IP(ip6)
 }
 
-func (c *Auth) PublicKey() crypto.PublicKey {
-	return c.EC256PrivateKey.Public()
+func (auth *Auth) PublicKey() crypto.PublicKey {
+	return auth.EC256PrivateKey.Public()
 }
 
 // From a key pair, generate a tls config with cert.
 // Used for Auth and Client servers.
-func (c *Auth) GenerateTLSConfigServer() *tls.Config {
+func (auth *Auth) GenerateTLSConfigServer() *tls.Config {
 	var crt *tls.Certificate
 
-	crt = &c.tlsCerts[0]
+	crt = &auth.tlsCerts[0]
 
 	certs := []tls.Certificate{*crt}
 
-	certMap := c.GetCerts()
+	certMap := auth.GetCerts()
 	certMap["*"] = crt
 
 	return &tls.Config{
@@ -701,7 +780,7 @@ func (c *Auth) GenerateTLSConfigServer() *tls.Config {
 // Get all known certificates from the config store.
 // "istio" is a special name, set if istio certs are found
 //
-func (h2 *Auth) GetCerts() map[string]*tls.Certificate {
+func (auth *Auth) GetCerts() map[string]*tls.Certificate {
 	certMap := map[string]*tls.Certificate{}
 
 	// Attempt istio certs.
@@ -738,25 +817,25 @@ func (h2 *Auth) GetCerts() map[string]*tls.Certificate {
 }
 
 // Generate a config to be used in a HTTP client, using the primary identity and cert.
-func (c *Auth) GenerateTLSConfigClient() *tls.Config {
+func (auth *Auth) GenerateTLSConfigClient() *tls.Config {
 	// see transport.go in http onceSetNextProtoDefaults
 	return &tls.Config{
 		// VerifyPeerCertificate used instead
 		InsecureSkipVerify: true,
 
-		Certificates: c.tlsCerts,
+		Certificates: auth.tlsCerts,
 		// not set on client !! Setting it also disables Auth !
 		//NextProtos: nextProtosH2,
 	}
 }
 
-func (c *Auth) Sign(data []byte, sig []byte) {
+func (auth *Auth) Sign(data []byte, sig []byte) {
 	for i := 0; i < 3; i++ {
 		hasher := crypto.SHA256.New()
 		hasher.Write(data) //[0:64]) // only public key, for debug
 		hash := hasher.Sum(nil)
 
-		r, s, _ := ecdsa.Sign(rand.Reader, c.EC256PrivateKey, hash)
+		r, s, _ := ecdsa.Sign(rand.Reader, auth.EC256PrivateKey, hash)
 
 		copy(sig, r.Bytes())
 		copy(sig[32:], s.Bytes())
@@ -765,12 +844,12 @@ func (c *Auth) Sign(data []byte, sig []byte) {
 		//log.Println("SND PUB: ", hex.EncodeToString(data[len(data)-64:]))
 		//log.Println("SND HASH: ", hex.EncodeToString(hash))
 		//log.Printf("SND PAYLOAD: %d %s", len(data), hex.EncodeToString(data))
-		err := Verify(data, c.Pub[1:], sig)
+		err := Verify(data, auth.Pub[1:], sig)
 		if err != nil {
 			log.Println("Bad msg", err)
 			log.Println("SIG: ", hex.EncodeToString(sig))
-			log.Println("PUB: ", hex.EncodeToString(c.Pub))
-			log.Println("PRIV: ", hex.EncodeToString(c.Priv))
+			log.Println("PUB: ", hex.EncodeToString(auth.Pub))
+			log.Println("PRIV: ", hex.EncodeToString(auth.Priv))
 			log.Println("HASH: ", hex.EncodeToString(hash))
 		} else {
 			return
@@ -843,10 +922,10 @@ func Verify(data []byte, pub []byte, sig []byte) error {
 // ssh-keygen -f server_ca -t ecdsa
 // ssh-keygen -s server_ca -I keyid -n username -V +52w key.pub
 // Also host keys (-h -n foo.com)
-func (h2 *Auth) GetRoots() *x509.CertPool {
+func (auth *Auth) GetRoots() *x509.CertPool {
 	caCertPool := x509.NewCertPool()
 
-	caCert, err := h2.Config.Get("/certs/root-cert.pem")
+	caCert, err := auth.Config.Get("/certs/root-cert.pem")
 	if err == nil {
 		caCertPool.AppendCertsFromPEM(caCert)
 	}

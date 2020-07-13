@@ -124,6 +124,8 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 	}
 
 	h2.LocalMux.Handle("/", http.FileServer(fs))
+	// Temp - should be a message from admin !
+	h2.MTLSMux.HandleFunc("/quitquitquit", QuitHandler)
 	return dmui, nil
 }
 

@@ -27,7 +27,7 @@ func (sshGate *SSHGate) authPub(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.
 		}
 		// 1. Verify cert.SignatureKey is a CA
 
-		cert.SignatureKey.(ssh.CryptoPublicKey)
+		//cert.SignatureKey.(ssh.CryptoPublicKey)
 
 		// conn.User() is usually set to 'dmesh' - and ignored.
 		//
@@ -392,7 +392,7 @@ func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Re
 		"req", fmt.Sprintf("%d", req.BindPort),
 		"vip", scon.VIP6.String(),
 		"key", base64.StdEncoding.EncodeToString([]byte(scon.sshConn.Permissions.Extensions["key"])),
-		"addr",fmt.Sprintf("%s:%d", "", forPort)) // TODO: configure the public addresses !
+		"addr", fmt.Sprintf("%s:%d", "", forPort)) // TODO: configure the public addresses !
 
 	var res tcpipForwardResponse
 	forPort32, _ := strconv.Atoi(port)
@@ -523,7 +523,6 @@ func extractAddress(c net.Conn) string {
 	c.Read(head[0:sz])
 	return string(head[0:sz])
 }
-
 
 // Handles SOCKS (-D) and local fwd (-L), mapping remote ports to connections to a host:port
 // It is equivalent with /dmesh/tcp/IP/port request.

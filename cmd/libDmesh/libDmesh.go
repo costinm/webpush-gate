@@ -58,6 +58,7 @@ func main() {
 
 	// Init or load certificates/keys
 	authz := auth.NewAuth(config, os.Getenv("HOSTNAME"), "v.webinf.info")
+	authz.Dump()
 	msgs.DefaultMux.Auth = authz
 
 	// HTTPGate - common structures

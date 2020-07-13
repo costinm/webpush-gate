@@ -116,6 +116,7 @@ func StartAll(a *ServerAll) {
 	// Init or load certificates/keys
 	hn, _ := os.Hostname()
 	authz := auth.NewAuth(config, hn, "m.webinf.info")
+	authz.Dump()
 	msgs.DefaultMux.Auth = authz
 
 	gcfg := &mesh.GateCfg{}
@@ -123,6 +124,12 @@ func StartAll(a *ServerAll) {
 
 	// HTTPGate - common structures
 	a.GW = mesh.New(authz, gcfg)
+
+	// Set the 'UA' field - untrusted local declaration.
+	a.GW.UA = hn
+	if os.Getenv("POD_NAME") != "" {
+		a.GW.UA = os.Getenv("POD_NAME") + "." + os.Getenv("POD_NAMESPACE")
+	}
 
 	h2s, err := h2.NewTransport(authz)
 	if err != nil {
