@@ -16,7 +16,6 @@ import (
 	"syscall"
 
 	"github.com/costinm/wpgate/pkg/msgs"
-	"github.com/costinm/wpgate/pkg/transport/stream"
 )
 
 // uds provides helpers for passing credentials and files over UDS streams, and basic
@@ -222,7 +221,7 @@ func (conn *UdsConn) handshakeClient() error {
 		conn.con.Close()
 		return err
 	}
-	cmd, meta, payload, _ := stream.ParseMessage(data, mtype)
+	cmd, meta, payload, _ := ParseMessage(data, mtype)
 
 	log.Println("UDS: client connection handshake", cmd, meta, payload)
 	return nil
@@ -260,7 +259,7 @@ func (conn *UdsConn) streamCommon() {
 			return
 		}
 
-		cmd, meta, payload, _ := stream.ParseMessage(data, mtype)
+		cmd, meta, payload, _ := ParseMessage(data, mtype)
 
 		if Debug {
 			log.Println("UDS IN: ", cmd, meta, string(payload))
@@ -460,7 +459,7 @@ func (uds *UdsConn) nextMessage() (int, []byte, error) {
 // Implements the Mux interface.
 func (uds *UdsConn) SendMessage(m *msgs.Message) error {
 	// TODO: may need go routines to avoid blocking
-	_, err := stream.SendFrameLenBinary(uds.con, []byte(m.To), []byte{'\n'}, packMeta(m.Meta), m.Binary())
+	_, err := SendFrameLenBinary(uds.con, []byte(m.To), []byte{'\n'}, packMeta(m.Meta), m.Binary())
 	return err
 }
 
@@ -469,7 +468,7 @@ func (uds *UdsConn) SendMessageDirect(cmd string, meta map[string]string, data [
 	if uds == nil {
 		return nil
 	}
-	_, err := stream.SendFrameLenBinary(uds.con, []byte(cmd), []byte{'\n'}, packMeta(meta), data)
+	_, err := SendFrameLenBinary(uds.con, []byte(cmd), []byte{'\n'}, packMeta(meta), data)
 	return err
 }
 

@@ -101,12 +101,6 @@ func ParseJSON(data []byte) *Message {
 }
 
 func (ev *Message) MarshalJSON() []byte {
-	if ev.Time == "" {
-		if ev.TS.IsZero() {
-			ev.TS = time.Now()
-		}
-		ev.Time = ev.TS.Format("01-02T15:04:05")
-	}
 	dataB, _ := json.Marshal(ev)
 	return dataB
 }

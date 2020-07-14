@@ -1,7 +1,70 @@
 syntax = "proto3";
 package webpush;
 
-option go_package="github.com/costinm/wpgate/pkg/msgs";
+option go_package = "github.com/costinm/wpgate/pkg/msgs";
+
+// A DiscoveryRequest requests a set of versioned resources of the same type for
+// a given Envoy node on some API.
+message DiscoveryRequest {
+    // The version_info provided in the request messages will be the version_info
+    // received with the most recent successfully processed response or empty on
+    // the first request. It is expected that no new request is sent after a
+    // response is received until the Envoy instance is ready to ACK/NACK the new
+    // configuration. ACK/NACK takes place by returning the new API config version
+    // as applied or the previous API config version respectively. Each type_url
+    // (see below) has an independent version associated with it.
+    string version_info = 1;
+
+    // node not used
+
+    // List of resources to subscribe to, e.g. list of cluster names or a route
+    // configuration name. If this is empty, all resources for the API are
+    // returned. LDS/CDS expect empty resource_names, since this is global
+    // discovery for the Envoy instance. The LDS and CDS responses will then imply
+    // a number of resources that need to be fetched via EDS/RDS, which will be
+    // explicitly enumerated in resource_names.
+    repeated string resource_names = 3;
+
+    // Type of the resource that is being requested, e.g.
+    // "type.googleapis.com/envoy.api.v2.ClusterLoadAssignment". This is implicit
+    // in requests made via singleton xDS APIs such as CDS, LDS, etc. but is
+    // required for ADS.
+    string type_url = 4;
+
+    // nonce corresponding to DiscoveryResponse being ACK/NACKed. See above
+    // discussion on version_info and the DiscoveryResponse nonce comment. This
+    // may be empty if no nonce is available, e.g. at startup or for non-stream
+    // xDS implementations.
+    string response_nonce = 5;
+
+    // The response resources. These resources are typed and depend on the API being called.
+    // google.protobuf.Any
+    repeated Any resources = 7;
+}
+
+message DiscoveryResponse {
+    // The version of the response data.
+    string version_info = 1;
+
+    // The response resources. These resources are typed and depend on the API being called.
+    // google.protobuf.Any
+    repeated Any resources = 2;
+
+    // Type URL for resources. This must be consistent with the type_url in the
+    // Any messages for resources if resources is non-empty. This effectively
+    // identifies the xDS API when muxing over ADS.
+    string type_url = 4;
+
+    // For gRPC based subscriptions, the nonce provides a way to explicitly ack a
+    // specific DiscoveryResponse in a following DiscoveryRequest. Additional
+    // messages may have been sent by Envoy to the management server for the
+    // previous version on the stream prior to this DiscoveryResponse, that were
+    // unprocessed at response send time. The nonce allows the management server
+    // to ignore any further DiscoveryRequests for the previous version until a
+    // DiscoveryRequest bearing the nonce. The nonce is optional and is not
+    // required for non-stream based xDS implementations.
+    string nonce = 5;
+}
 
 // Webpush is a GRPC mapping of the webpush protocol. While webpush is defined using
 // Push promise, it is a bit tricky to support with many stacks today. As an alternative,
@@ -54,23 +117,17 @@ message MessageEnvelope {
 // For HTTP, included in Authorization header:
 // Authorization: vapid t=B64url k=B64url
 //
-// Decoded t is of form: { "typ": "JWT", "alg": "ES256" }
+// Decoded t is of form: { "typ": "JWT", "alg": "ES256" }.JWT.SIG
 //
 // { "crv":"P-256",
 //   "kty":"EC",
 //   "x":"DUfHPKLVFQzVvnCPGyfucbECzPDa7rWbXriLcysAjEc",
 //   "y":"F6YK5h4SDYic-dRuU_RCPCfA5aq9ojSwk5Y2EmClBPs" }
 message Vapid {
-
-//    string aud = 1;
-//
-//    // Default: 24h
-//    uint64 exp = 2;
-//
-//    string sub = 3;
-
     // json payload of VAPID ( without base64 encoding)
     // Can also be a proto message when used over other transports.
+    // Verification requires converting back to base64 !
+    // We decode to reduce the binary size
     bytes data = 7;
 
     // Public key of the signer, 64 bytes, EC256.
@@ -80,14 +137,7 @@ message Vapid {
     // If empty, it is assumed to be the constant value {typ=JWT,alg=ES256}
     bytes t_type = 32;
 
-    // If empty, signatureX and signatureY will be used, with the constant prefix
-    // This reduces the size of the packet when in binary - verification is still over
-    // JSON format
     bytes t_signature = 33;
-
-    bytes signatureX = 5;
-
-    bytes signatureY = 6;
 }
 
 //
@@ -153,7 +203,6 @@ message PushResponse {
   // If request includes the respond_async parameter.
   //
   string push_receipt = 2;
-
 }
 
 message MonitorRequest {

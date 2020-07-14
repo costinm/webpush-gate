@@ -91,41 +91,36 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 	//dm.Registry.InitHttp(dm.H2.MTLSMux)
 	//dm.Registry.InitHttpAdm(dm.H2.LocalMux)
 
-	for _, mux := range []*http.ServeMux{h2.LocalMux} {
-		mux.HandleFunc("/xtcp/", dmui.Merge("tcpall.html"))
-		mux.HandleFunc("/peers", dmui.Merge("peers.html"))
-		mux.HandleFunc("/events", dmui.Merge("events.html"))
-		mux.HandleFunc("/status", dmui.Merge("status.html"))
-		mux.HandleFunc("/wifi", dmui.Merge("wifi.html"))
-		mux.HandleFunc("/active", dmui.Merge("active.html"))
-		mux.HandleFunc("/info", dmui.Merge("info.html"))
+	h2.LocalMux.HandleFunc("/xtcp/", dmui.Merge("tcpall.html"))
+	h2.LocalMux.HandleFunc("/peers", dmui.Merge("peers.html"))
+	h2.LocalMux.HandleFunc("/events", dmui.Merge("events.html"))
+	h2.LocalMux.HandleFunc("/status", dmui.Merge("status.html"))
+	h2.LocalMux.HandleFunc("/wifi", dmui.Merge("wifi.html"))
+	h2.LocalMux.HandleFunc("/active", dmui.Merge("active.html"))
+	h2.LocalMux.HandleFunc("/info", dmui.Merge("info.html"))
 
-		mux.HandleFunc("/quitquitquit", QuitHandler)
+	h2.LocalMux.HandleFunc("/quitquitquit", QuitHandler)
 
-		//		mux.HandleFunc("/debug/scan", dm.Wifi.JsonScan)
-		//		mux.HandleFunc("/wifi/con", dm.Wifi.HTTPCon)
+	//		h2.LocalMux.HandleFunc("/debug/scan", dm.Wifi.JsonScan)
+	//		h2.LocalMux.HandleFunc("/wifi/con", dm.Wifi.HTTPCon)
 
-		mux.HandleFunc("/dmesh/uds/", msgs.DefaultMux.HTTPUDS)
+	h2.LocalMux.HandleFunc("/dmesh/uds/", msgs.DefaultMux.HTTPUDS)
 
-		mux.HandleFunc("/debug/eventslog", msgs.DebugEventsHandler)
-		mux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
+	h2.LocalMux.HandleFunc("/debug/eventslog", msgs.DebugEventsHandler)
+	h2.LocalMux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
 
-		mux.Handle("/static/", http.FileServer(http.Dir("pkg/ui/www/")))
+	h2.LocalMux.Handle("/static/", http.FileServer(http.Dir("pkg/ui/www/")))
 
-		mux.Handle("/debug/", http.DefaultServeMux)
-		mux.HandleFunc("/dm/", hgate.HttpForwardPath)
-		mux.HandleFunc("/dm2/", hgate.HttpForwardPath2)
+	h2.LocalMux.Handle("/debug/", http.DefaultServeMux)
+	h2.LocalMux.HandleFunc("/dm/", hgate.HttpForwardPath)
+	h2.LocalMux.HandleFunc("/dm2/", hgate.HttpForwardPath2)
 
-		mux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
-		mux.HandleFunc("/dmesh/ip6", dmui.HttpGetNodes)
-		//mux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
-		mux.HandleFunc("/dmesh/ll/if", dmui.HttpGetLLIf)
-
-	}
-
+	h2.LocalMux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
+	h2.LocalMux.HandleFunc("/dmesh/ip6", dmui.HttpGetNodes)
+	//h2.LocalMux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
+	h2.LocalMux.HandleFunc("/dmesh/ll/if", dmui.HttpGetLLIf)
 	h2.LocalMux.Handle("/", http.FileServer(fs))
-	// Temp - should be a message from admin !
-	h2.MTLSMux.HandleFunc("/quitquitquit", QuitHandler)
+
 	return dmui, nil
 }
 

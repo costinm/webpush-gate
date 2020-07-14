@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/wpgate/pkg/mesh"
 )
 
 type Backoff interface {
@@ -35,7 +36,7 @@ func DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
 // Used to push a message from a remote sender.
 //
 // Mapped to /s/[DESTID]?...
-//
+// Local
 //
 // q or path can be used to pass command. Body and query string are sent.
 // TODO: compatibility with cloud events and webpush
@@ -76,6 +77,59 @@ func HTTPHandlerSend(w http.ResponseWriter, r *http.Request) {
 
 	DefaultMux.HandleMessageForNode(NewMessage(cmd, params).SetDataJSON(body))
 	w.WriteHeader(200)
+}
+
+var SharedWPAuth = []byte{1}
+
+// Webpush handler.
+// Auth: VAPID or client cert - results in VIP of sender
+//
+func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
+	h2ctx := r.Context().Value(mesh.H2Info).(*mesh.ReqContext)
+
+	parts := strings.Split(r.RequestURI, "/")
+	if len(parts) < 3 {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Invalid URL"))
+		return
+
+	}
+	dest := parts[2]
+	if dest == "" || dest == mux.Auth.Name || dest == mux.Auth.VIP6.String() {
+		ec := auth.NewContextUA(mux.Auth.Priv, mux.Auth.Pub,
+			SharedWPAuth)
+		b, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("Body error"))
+			return
+		}
+
+		msgb, err := ec.Decrypt(b)
+		if err != nil {
+			log.Println("Decrypt error ", err)
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("Decrypt error"))
+			return
+		}
+		log.Println("GOT: "+string(msgb), err)
+
+		ev := mux.ProcessMessage(msgb, h2ctx)
+		if ev == nil {
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte("Invalid format"))
+				return
+			}
+		}
+
+		mux.HandleMessageForNode(ev)
+	} else {
+		// Dest is remote, we're just forwarding
+
+	}
+
+	w.WriteHeader(201)
 }
 
 // Currently mapped to /dmesh/uds - sends a message to a specific connection, defaults to the UDS connection

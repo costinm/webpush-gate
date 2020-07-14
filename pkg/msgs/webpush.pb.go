@@ -6,9 +6,7 @@ package msgs
 import (
 	fmt "fmt"
 	proto "github.com/gogo/protobuf/proto"
-	io "io"
 	math "math"
-	math_bits "math/bits"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -22,48 +20,261 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
+// A DiscoveryRequest requests a set of versioned resources of the same type for
+// a given Envoy node on some API.
+type DiscoveryRequest struct {
+	// The version_info provided in the request messages will be the version_info
+	// received with the most recent successfully processed response or empty on
+	// the first request. It is expected that no new request is sent after a
+	// response is received until the Envoy instance is ready to ACK/NACK the new
+	// configuration. ACK/NACK takes place by returning the new API config version
+	// as applied or the previous API config version respectively. Each type_url
+	// (see below) has an independent version associated with it.
+	VersionInfo string `protobuf:"bytes,1,opt,name=version_info,json=versionInfo,proto3" json:"version_info,omitempty"`
+	// List of resources to subscribe to, e.g. list of cluster names or a route
+	// configuration name. If this is empty, all resources for the API are
+	// returned. LDS/CDS expect empty resource_names, since this is global
+	// discovery for the Envoy instance. The LDS and CDS responses will then imply
+	// a number of resources that need to be fetched via EDS/RDS, which will be
+	// explicitly enumerated in resource_names.
+	ResourceNames []string `protobuf:"bytes,3,rep,name=resource_names,json=resourceNames,proto3" json:"resource_names,omitempty"`
+	// Type of the resource that is being requested, e.g.
+	// "type.googleapis.com/envoy.api.v2.ClusterLoadAssignment". This is implicit
+	// in requests made via singleton xDS APIs such as CDS, LDS, etc. but is
+	// required for ADS.
+	TypeUrl string `protobuf:"bytes,4,opt,name=type_url,json=typeUrl,proto3" json:"type_url,omitempty"`
+	// nonce corresponding to DiscoveryResponse being ACK/NACKed. See above
+	// discussion on version_info and the DiscoveryResponse nonce comment. This
+	// may be empty if no nonce is available, e.g. at startup or for non-stream
+	// xDS implementations.
+	ResponseNonce string `protobuf:"bytes,5,opt,name=response_nonce,json=responseNonce,proto3" json:"response_nonce,omitempty"`
+	// The response resources. These resources are typed and depend on the API being called.
+	// google.protobuf.Any
+	Resources            []*Any   `protobuf:"bytes,7,rep,name=resources,proto3" json:"resources,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DiscoveryRequest) Reset()         { *m = DiscoveryRequest{} }
+func (m *DiscoveryRequest) String() string { return proto.CompactTextString(m) }
+func (*DiscoveryRequest) ProtoMessage()    {}
+func (*DiscoveryRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_74c9ab69d6636d6b, []int{0}
+}
+func (m *DiscoveryRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_DiscoveryRequest.Unmarshal(m, b)
+}
+func (m *DiscoveryRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_DiscoveryRequest.Marshal(b, m, deterministic)
+}
+func (m *DiscoveryRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DiscoveryRequest.Merge(m, src)
+}
+func (m *DiscoveryRequest) XXX_Size() int {
+	return xxx_messageInfo_DiscoveryRequest.Size(m)
+}
+func (m *DiscoveryRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_DiscoveryRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DiscoveryRequest proto.InternalMessageInfo
+
+func (m *DiscoveryRequest) GetVersionInfo() string {
+	if m != nil {
+		return m.VersionInfo
+	}
+	return ""
+}
+
+func (m *DiscoveryRequest) GetResourceNames() []string {
+	if m != nil {
+		return m.ResourceNames
+	}
+	return nil
+}
+
+func (m *DiscoveryRequest) GetTypeUrl() string {
+	if m != nil {
+		return m.TypeUrl
+	}
+	return ""
+}
+
+func (m *DiscoveryRequest) GetResponseNonce() string {
+	if m != nil {
+		return m.ResponseNonce
+	}
+	return ""
+}
+
+func (m *DiscoveryRequest) GetResources() []*Any {
+	if m != nil {
+		return m.Resources
+	}
+	return nil
+}
+
+type DiscoveryResponse struct {
+	// The version of the response data.
+	VersionInfo string `protobuf:"bytes,1,opt,name=version_info,json=versionInfo,proto3" json:"version_info,omitempty"`
+	// The response resources. These resources are typed and depend on the API being called.
+	// google.protobuf.Any
+	Resources []*Any `protobuf:"bytes,2,rep,name=resources,proto3" json:"resources,omitempty"`
+	// Type URL for resources. This must be consistent with the type_url in the
+	// Any messages for resources if resources is non-empty. This effectively
+	// identifies the xDS API when muxing over ADS.
+	TypeUrl string `protobuf:"bytes,4,opt,name=type_url,json=typeUrl,proto3" json:"type_url,omitempty"`
+	// For gRPC based subscriptions, the nonce provides a way to explicitly ack a
+	// specific DiscoveryResponse in a following DiscoveryRequest. Additional
+	// messages may have been sent by Envoy to the management server for the
+	// previous version on the stream prior to this DiscoveryResponse, that were
+	// unprocessed at response send time. The nonce allows the management server
+	// to ignore any further DiscoveryRequests for the previous version until a
+	// DiscoveryRequest bearing the nonce. The nonce is optional and is not
+	// required for non-stream based xDS implementations.
+	Nonce                string   `protobuf:"bytes,5,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *DiscoveryResponse) Reset()         { *m = DiscoveryResponse{} }
+func (m *DiscoveryResponse) String() string { return proto.CompactTextString(m) }
+func (*DiscoveryResponse) ProtoMessage()    {}
+func (*DiscoveryResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_74c9ab69d6636d6b, []int{1}
+}
+func (m *DiscoveryResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_DiscoveryResponse.Unmarshal(m, b)
+}
+func (m *DiscoveryResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_DiscoveryResponse.Marshal(b, m, deterministic)
+}
+func (m *DiscoveryResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_DiscoveryResponse.Merge(m, src)
+}
+func (m *DiscoveryResponse) XXX_Size() int {
+	return xxx_messageInfo_DiscoveryResponse.Size(m)
+}
+func (m *DiscoveryResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_DiscoveryResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_DiscoveryResponse proto.InternalMessageInfo
+
+func (m *DiscoveryResponse) GetVersionInfo() string {
+	if m != nil {
+		return m.VersionInfo
+	}
+	return ""
+}
+
+func (m *DiscoveryResponse) GetResources() []*Any {
+	if m != nil {
+		return m.Resources
+	}
+	return nil
+}
+
+func (m *DiscoveryResponse) GetTypeUrl() string {
+	if m != nil {
+		return m.TypeUrl
+	}
+	return ""
+}
+
+func (m *DiscoveryResponse) GetNonce() string {
+	if m != nil {
+		return m.Nonce
+	}
+	return ""
+}
+
+// Copied to avoid dependency. type_url format: prefix/message.type
+type Any struct {
+	TypeUrl              string   `protobuf:"bytes,1,opt,name=type_url,json=typeUrl,proto3" json:"type_url,omitempty"`
+	Value                []byte   `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Any) Reset()         { *m = Any{} }
+func (m *Any) String() string { return proto.CompactTextString(m) }
+func (*Any) ProtoMessage()    {}
+func (*Any) Descriptor() ([]byte, []int) {
+	return fileDescriptor_74c9ab69d6636d6b, []int{2}
+}
+func (m *Any) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_Any.Unmarshal(m, b)
+}
+func (m *Any) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_Any.Marshal(b, m, deterministic)
+}
+func (m *Any) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Any.Merge(m, src)
+}
+func (m *Any) XXX_Size() int {
+	return xxx_messageInfo_Any.Size(m)
+}
+func (m *Any) XXX_DiscardUnknown() {
+	xxx_messageInfo_Any.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Any proto.InternalMessageInfo
+
+func (m *Any) GetTypeUrl() string {
+	if m != nil {
+		return m.TypeUrl
+	}
+	return ""
+}
+
+func (m *Any) GetValue() []byte {
+	if m != nil {
+		return m.Value
+	}
+	return nil
+}
+
 // Message is returned as PUSH PROMISE frames in the spec. The alternative protocol wraps it in
 // Any field or other framing.
 type MessageEnvelope struct {
-	MessageId string `protobuf:"bytes,1,opt,name=message_id,proto3" json:"message_id,omitempty"`
+	MessageId string `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	// Maps to the SubscribeResponse push parameter, returned as Link rel="urn:ietf:params:push"
 	// in the push promise.
 	Push string `protobuf:"bytes,2,opt,name=push,proto3" json:"push,omitempty"`
 	// If 'dh' and 'salt' are set, will contain encrypted data.
+	// Otherwise it is a plaintext message.
 	Data []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
 	// Identifies the sender.
-	Sender          *Vapid `protobuf:"bytes,4,opt,name=sender,proto3" json:"sender,omitempty"`
-	ContentEncoding string `protobuf:"bytes,7,opt,name=content_encoding,proto3" json:"content_encoding,omitempty"`
-	Salt            []byte `protobuf:"bytes,8,opt,name=salt,proto3" json:"salt,omitempty"`
-	Dh              []byte `protobuf:"bytes,9,opt,name=dh,proto3" json:"dh,omitempty"`
+	Sender               *Vapid   `protobuf:"bytes,4,opt,name=sender,proto3" json:"sender,omitempty"`
+	ContentEncoding      string   `protobuf:"bytes,7,opt,name=content_encoding,json=contentEncoding,proto3" json:"content_encoding,omitempty"`
+	Salt                 []byte   `protobuf:"bytes,8,opt,name=salt,proto3" json:"salt,omitempty"`
+	Dh                   []byte   `protobuf:"bytes,9,opt,name=dh,proto3" json:"dh,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *MessageEnvelope) Reset()         { *m = MessageEnvelope{} }
 func (m *MessageEnvelope) String() string { return proto.CompactTextString(m) }
 func (*MessageEnvelope) ProtoMessage()    {}
 func (*MessageEnvelope) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{0}
+	return fileDescriptor_74c9ab69d6636d6b, []int{3}
 }
 func (m *MessageEnvelope) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_MessageEnvelope.Unmarshal(m, b)
 }
 func (m *MessageEnvelope) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_MessageEnvelope.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_MessageEnvelope.Marshal(b, m, deterministic)
 }
 func (m *MessageEnvelope) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_MessageEnvelope.Merge(m, src)
 }
 func (m *MessageEnvelope) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_MessageEnvelope.Size(m)
 }
 func (m *MessageEnvelope) XXX_DiscardUnknown() {
 	xxx_messageInfo_MessageEnvelope.DiscardUnknown(m)
@@ -125,7 +336,7 @@ func (m *MessageEnvelope) GetDh() []byte {
 // For HTTP, included in Authorization header:
 // Authorization: vapid t=B64url k=B64url
 //
-// Decoded t is of form: { "typ": "JWT", "alg": "ES256" }
+// Decoded t is of form: { "typ": "JWT", "alg": "ES256" }.JWT.SIG
 //
 // { "crv":"P-256",
 //   "kty":"EC",
@@ -134,46 +345,37 @@ func (m *MessageEnvelope) GetDh() []byte {
 type Vapid struct {
 	// json payload of VAPID ( without base64 encoding)
 	// Can also be a proto message when used over other transports.
+	// Verification requires converting back to base64 !
+	// We decode to reduce the binary size
 	Data []byte `protobuf:"bytes,7,opt,name=data,proto3" json:"data,omitempty"`
 	// Public key of the signer, 64 bytes, EC256.
 	// Included in 'k' parameter for HTTP.
 	K []byte `protobuf:"bytes,4,opt,name=k,proto3" json:"k,omitempty"`
 	// If empty, it is assumed to be the constant value {typ=JWT,alg=ES256}
-	TType []byte `protobuf:"bytes,32,opt,name=t_type,proto3" json:"t_type,omitempty"`
-	// If empty, signatureX and signatureY will be used, with the constant prefix
-	// This reduces the size of the packet when in binary - verification is still over
-	// JSON format
-	TSignature []byte `protobuf:"bytes,33,opt,name=t_signature,proto3" json:"t_signature,omitempty"`
-	SignatureX []byte `protobuf:"bytes,5,opt,name=signatureX,proto3" json:"signatureX,omitempty"`
-	SignatureY []byte `protobuf:"bytes,6,opt,name=signatureY,proto3" json:"signatureY,omitempty"`
+	TType                []byte   `protobuf:"bytes,32,opt,name=t_type,json=tType,proto3" json:"t_type,omitempty"`
+	TSignature           []byte   `protobuf:"bytes,33,opt,name=t_signature,json=tSignature,proto3" json:"t_signature,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *Vapid) Reset()         { *m = Vapid{} }
 func (m *Vapid) String() string { return proto.CompactTextString(m) }
 func (*Vapid) ProtoMessage()    {}
 func (*Vapid) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{1}
+	return fileDescriptor_74c9ab69d6636d6b, []int{4}
 }
 func (m *Vapid) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_Vapid.Unmarshal(m, b)
 }
 func (m *Vapid) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_Vapid.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_Vapid.Marshal(b, m, deterministic)
 }
 func (m *Vapid) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Vapid.Merge(m, src)
 }
 func (m *Vapid) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_Vapid.Size(m)
 }
 func (m *Vapid) XXX_DiscardUnknown() {
 	xxx_messageInfo_Vapid.DiscardUnknown(m)
@@ -209,58 +411,38 @@ func (m *Vapid) GetTSignature() []byte {
 	return nil
 }
 
-func (m *Vapid) GetSignatureX() []byte {
-	if m != nil {
-		return m.SignatureX
-	}
-	return nil
-}
-
-func (m *Vapid) GetSignatureY() []byte {
-	if m != nil {
-		return m.SignatureY
-	}
-	return nil
-}
-
 //
 type SubscribeRequest struct {
 	// A UA should group subscriptions in a set. First request from a
 	// UA will not include a set - it is typically a subscription associated with
 	// the UA itself.
-	PushSet string `protobuf:"bytes,1,opt,name=push_set,proto3" json:"push_set,omitempty"`
+	PushSet string `protobuf:"bytes,1,opt,name=push_set,json=pushSet,proto3" json:"push_set,omitempty"`
 	// Included as Crypto-Key: p256ecdsa parameter.
 	// Corresponds to the applicationServerKey parameter in the PushSubscriptionOptions in
 	// the W3C API
-	SenderVapid string `protobuf:"bytes,2,opt,name=sender_vapid,proto3" json:"sender_vapid,omitempty"`
+	SenderVapid          string   `protobuf:"bytes,2,opt,name=sender_vapid,json=senderVapid,proto3" json:"sender_vapid,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *SubscribeRequest) Reset()         { *m = SubscribeRequest{} }
 func (m *SubscribeRequest) String() string { return proto.CompactTextString(m) }
 func (*SubscribeRequest) ProtoMessage()    {}
 func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{2}
+	return fileDescriptor_74c9ab69d6636d6b, []int{5}
 }
 func (m *SubscribeRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_SubscribeRequest.Unmarshal(m, b)
 }
 func (m *SubscribeRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_SubscribeRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_SubscribeRequest.Marshal(b, m, deterministic)
 }
 func (m *SubscribeRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_SubscribeRequest.Merge(m, src)
 }
 func (m *SubscribeRequest) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_SubscribeRequest.Size(m)
 }
 func (m *SubscribeRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_SubscribeRequest.DiscardUnknown(m)
@@ -292,41 +474,35 @@ type SubscribeResponse struct {
 	// returned as Link: rel=urn:ietf:params:push:set
 	// Spec examples use a full path ( /subscription-set/xxxx2 ).
 	// TODO: clarify it can be a full URL, like subscription
-	PushSet string `protobuf:"bytes,2,opt,name=push_set,proto3" json:"push_set,omitempty"`
+	PushSet string `protobuf:"bytes,2,opt,name=push_set,json=pushSet,proto3" json:"push_set,omitempty"`
 	// Push subscription resource. This is the full URL where the UA will use to
 	// receive the messages, using the PUSH promise http2 frame.
 	//
 	//
 	// Returned as Location header in the spec
-	Location string `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
+	Location             string   `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *SubscribeResponse) Reset()         { *m = SubscribeResponse{} }
 func (m *SubscribeResponse) String() string { return proto.CompactTextString(m) }
 func (*SubscribeResponse) ProtoMessage()    {}
 func (*SubscribeResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{3}
+	return fileDescriptor_74c9ab69d6636d6b, []int{6}
 }
 func (m *SubscribeResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_SubscribeResponse.Unmarshal(m, b)
 }
 func (m *SubscribeResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_SubscribeResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_SubscribeResponse.Marshal(b, m, deterministic)
 }
 func (m *SubscribeResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_SubscribeResponse.Merge(m, src)
 }
 func (m *SubscribeResponse) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_SubscribeResponse.Size(m)
 }
 func (m *SubscribeResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_SubscribeResponse.DiscardUnknown(m)
@@ -362,39 +538,33 @@ type PushRequest struct {
 	Data    []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
 	Urgency string `protobuf:"bytes,4,opt,name=urgency,proto3" json:"urgency,omitempty"`
 	// Prefer header indicating delivery receipt request.
-	RespondAsync    bool   `protobuf:"varint,5,opt,name=respond_async,proto3" json:"respond_async,omitempty"`
-	Topic           string `protobuf:"bytes,6,opt,name=topic,proto3" json:"topic,omitempty"`
-	ContentEncoding string `protobuf:"bytes,7,opt,name=content_encoding,proto3" json:"content_encoding,omitempty"`
-	Salt            string `protobuf:"bytes,8,opt,name=salt,proto3" json:"salt,omitempty"`
-	Dh              string `protobuf:"bytes,9,opt,name=dh,proto3" json:"dh,omitempty"`
+	RespondAsync         bool     `protobuf:"varint,5,opt,name=respond_async,json=respondAsync,proto3" json:"respond_async,omitempty"`
+	Topic                string   `protobuf:"bytes,6,opt,name=topic,proto3" json:"topic,omitempty"`
+	ContentEncoding      string   `protobuf:"bytes,7,opt,name=content_encoding,json=contentEncoding,proto3" json:"content_encoding,omitempty"`
+	Salt                 string   `protobuf:"bytes,8,opt,name=salt,proto3" json:"salt,omitempty"`
+	Dh                   string   `protobuf:"bytes,9,opt,name=dh,proto3" json:"dh,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *PushRequest) Reset()         { *m = PushRequest{} }
 func (m *PushRequest) String() string { return proto.CompactTextString(m) }
 func (*PushRequest) ProtoMessage()    {}
 func (*PushRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{4}
+	return fileDescriptor_74c9ab69d6636d6b, []int{7}
 }
 func (m *PushRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_PushRequest.Unmarshal(m, b)
 }
 func (m *PushRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_PushRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_PushRequest.Marshal(b, m, deterministic)
 }
 func (m *PushRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_PushRequest.Merge(m, src)
 }
 func (m *PushRequest) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_PushRequest.Size(m)
 }
 func (m *PushRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_PushRequest.DiscardUnknown(m)
@@ -466,38 +636,32 @@ func (m *PushRequest) GetDh() string {
 }
 
 type PushResponse struct {
-	MessageId string `protobuf:"bytes,1,opt,name=message_id,proto3" json:"message_id,omitempty"`
+	MessageId string `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	// If request includes the respond_async parameter.
 	//
-	PushReceipt string `protobuf:"bytes,2,opt,name=push_receipt,proto3" json:"push_receipt,omitempty"`
+	PushReceipt          string   `protobuf:"bytes,2,opt,name=push_receipt,json=pushReceipt,proto3" json:"push_receipt,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *PushResponse) Reset()         { *m = PushResponse{} }
 func (m *PushResponse) String() string { return proto.CompactTextString(m) }
 func (*PushResponse) ProtoMessage()    {}
 func (*PushResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{5}
+	return fileDescriptor_74c9ab69d6636d6b, []int{8}
 }
 func (m *PushResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_PushResponse.Unmarshal(m, b)
 }
 func (m *PushResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_PushResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_PushResponse.Marshal(b, m, deterministic)
 }
 func (m *PushResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_PushResponse.Merge(m, src)
 }
 func (m *PushResponse) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_PushResponse.Size(m)
 }
 func (m *PushResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_PushResponse.DiscardUnknown(m)
@@ -521,39 +685,33 @@ func (m *PushResponse) GetPushReceipt() string {
 
 type MonitorRequest struct {
 	// This is the push or push_set in the subscribe response.
-	PushSet string `protobuf:"bytes,1,opt,name=push_set,proto3" json:"push_set,omitempty"`
+	PushSet string `protobuf:"bytes,1,opt,name=push_set,json=pushSet,proto3" json:"push_set,omitempty"`
 	// JWT token, signed with key
 	Authorization string `protobuf:"bytes,2,opt,name=authorization,proto3" json:"authorization,omitempty"`
 	// Public key used for signing, identifies sender/receiver
-	Key string `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	Key                  string   `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *MonitorRequest) Reset()         { *m = MonitorRequest{} }
 func (m *MonitorRequest) String() string { return proto.CompactTextString(m) }
 func (*MonitorRequest) ProtoMessage()    {}
 func (*MonitorRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{6}
+	return fileDescriptor_74c9ab69d6636d6b, []int{9}
 }
 func (m *MonitorRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_MonitorRequest.Unmarshal(m, b)
 }
 func (m *MonitorRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_MonitorRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_MonitorRequest.Marshal(b, m, deterministic)
 }
 func (m *MonitorRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_MonitorRequest.Merge(m, src)
 }
 func (m *MonitorRequest) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_MonitorRequest.Size(m)
 }
 func (m *MonitorRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_MonitorRequest.DiscardUnknown(m)
@@ -583,35 +741,29 @@ func (m *MonitorRequest) GetKey() string {
 }
 
 type AckRequest struct {
-	MessageId string `protobuf:"bytes,1,opt,name=message_id,proto3" json:"message_id,omitempty"`
+	MessageId            string   `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *AckRequest) Reset()         { *m = AckRequest{} }
 func (m *AckRequest) String() string { return proto.CompactTextString(m) }
 func (*AckRequest) ProtoMessage()    {}
 func (*AckRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{7}
+	return fileDescriptor_74c9ab69d6636d6b, []int{10}
 }
 func (m *AckRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_AckRequest.Unmarshal(m, b)
 }
 func (m *AckRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_AckRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_AckRequest.Marshal(b, m, deterministic)
 }
 func (m *AckRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_AckRequest.Merge(m, src)
 }
 func (m *AckRequest) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_AckRequest.Size(m)
 }
 func (m *AckRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_AckRequest.DiscardUnknown(m)
@@ -627,34 +779,28 @@ func (m *AckRequest) GetMessageId() string {
 }
 
 type AckResponse struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *AckResponse) Reset()         { *m = AckResponse{} }
 func (m *AckResponse) String() string { return proto.CompactTextString(m) }
 func (*AckResponse) ProtoMessage()    {}
 func (*AckResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{8}
+	return fileDescriptor_74c9ab69d6636d6b, []int{11}
 }
 func (m *AckResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_AckResponse.Unmarshal(m, b)
 }
 func (m *AckResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_AckResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_AckResponse.Marshal(b, m, deterministic)
 }
 func (m *AckResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_AckResponse.Merge(m, src)
 }
 func (m *AckResponse) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_AckResponse.Size(m)
 }
 func (m *AckResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_AckResponse.DiscardUnknown(m)
@@ -663,35 +809,29 @@ func (m *AckResponse) XXX_DiscardUnknown() {
 var xxx_messageInfo_AckResponse proto.InternalMessageInfo
 
 type ReceiptRequest struct {
-	ReceiptSubscription string `protobuf:"bytes,1,opt,name=receipt_subscription,proto3" json:"receipt_subscription,omitempty"`
+	ReceiptSubscription  string   `protobuf:"bytes,1,opt,name=receipt_subscription,json=receiptSubscription,proto3" json:"receipt_subscription,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *ReceiptRequest) Reset()         { *m = ReceiptRequest{} }
 func (m *ReceiptRequest) String() string { return proto.CompactTextString(m) }
 func (*ReceiptRequest) ProtoMessage()    {}
 func (*ReceiptRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{9}
+	return fileDescriptor_74c9ab69d6636d6b, []int{12}
 }
 func (m *ReceiptRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_ReceiptRequest.Unmarshal(m, b)
 }
 func (m *ReceiptRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ReceiptRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_ReceiptRequest.Marshal(b, m, deterministic)
 }
 func (m *ReceiptRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ReceiptRequest.Merge(m, src)
 }
 func (m *ReceiptRequest) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_ReceiptRequest.Size(m)
 }
 func (m *ReceiptRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_ReceiptRequest.DiscardUnknown(m)
@@ -707,35 +847,29 @@ func (m *ReceiptRequest) GetReceiptSubscription() string {
 }
 
 type Receipt struct {
-	MessageId string `protobuf:"bytes,1,opt,name=message_id,proto3" json:"message_id,omitempty"`
+	MessageId            string   `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
 }
 
 func (m *Receipt) Reset()         { *m = Receipt{} }
 func (m *Receipt) String() string { return proto.CompactTextString(m) }
 func (*Receipt) ProtoMessage()    {}
 func (*Receipt) Descriptor() ([]byte, []int) {
-	return fileDescriptor_74c9ab69d6636d6b, []int{10}
+	return fileDescriptor_74c9ab69d6636d6b, []int{13}
 }
 func (m *Receipt) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
+	return xxx_messageInfo_Receipt.Unmarshal(m, b)
 }
 func (m *Receipt) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_Receipt.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
+	return xxx_messageInfo_Receipt.Marshal(b, m, deterministic)
 }
 func (m *Receipt) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Receipt.Merge(m, src)
 }
 func (m *Receipt) XXX_Size() int {
-	return m.Size()
+	return xxx_messageInfo_Receipt.Size(m)
 }
 func (m *Receipt) XXX_DiscardUnknown() {
 	xxx_messageInfo_Receipt.DiscardUnknown(m)
@@ -751,6 +885,9 @@ func (m *Receipt) GetMessageId() string {
 }
 
 func init() {
+	proto.RegisterType((*DiscoveryRequest)(nil), "webpush.DiscoveryRequest")
+	proto.RegisterType((*DiscoveryResponse)(nil), "webpush.DiscoveryResponse")
+	proto.RegisterType((*Any)(nil), "webpush.Any")
 	proto.RegisterType((*MessageEnvelope)(nil), "webpush.MessageEnvelope")
 	proto.RegisterType((*Vapid)(nil), "webpush.Vapid")
 	proto.RegisterType((*SubscribeRequest)(nil), "webpush.SubscribeRequest")
@@ -767,2586 +904,50 @@ func init() {
 func init() { proto.RegisterFile("webpush.proto", fileDescriptor_74c9ab69d6636d6b) }
 
 var fileDescriptor_74c9ab69d6636d6b = []byte{
-	// 507 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x53, 0xcf, 0x8a, 0x13, 0x31,
-	0x18, 0x6f, 0xba, 0xdb, 0x3f, 0xf3, 0x75, 0xda, 0xad, 0xb1, 0x0b, 0x39, 0xe8, 0x50, 0xc7, 0x4b,
-	0x4f, 0x2d, 0xe8, 0x45, 0x04, 0x0f, 0x0a, 0xeb, 0x6d, 0x41, 0x56, 0x10, 0xf5, 0x32, 0x4c, 0x33,
-	0x1f, 0xd3, 0xd0, 0x36, 0x89, 0x93, 0xcc, 0x4a, 0x7d, 0x0a, 0x2f, 0x3e, 0x80, 0x6f, 0xe3, 0x71,
-	0x8f, 0x1e, 0xa5, 0x7d, 0x11, 0x69, 0x32, 0xb3, 0x54, 0xad, 0xb0, 0xb7, 0xc9, 0xc7, 0xf7, 0xfb,
-	0x9b, 0x09, 0xf4, 0x3f, 0xe3, 0x5c, 0x97, 0x66, 0x31, 0xd5, 0x85, 0xb2, 0x8a, 0x76, 0xaa, 0x63,
-	0xfc, 0x8d, 0xc0, 0xd9, 0x25, 0x1a, 0x93, 0xe6, 0x78, 0x21, 0xaf, 0x71, 0xa5, 0x34, 0x52, 0x0a,
-	0xb0, 0xf6, 0xa3, 0x44, 0x64, 0x8c, 0x8c, 0xc9, 0x24, 0xa0, 0x21, 0x9c, 0xee, 0xf7, 0x59, 0xb3,
-	0x3e, 0x65, 0xa9, 0x4d, 0xd9, 0xc9, 0x98, 0x4c, 0x42, 0x1a, 0x41, 0xdb, 0xa0, 0xcc, 0xb0, 0x60,
-	0xa7, 0x63, 0x32, 0xe9, 0x3d, 0x19, 0x4c, 0x6b, 0xb1, 0x77, 0xa9, 0x16, 0x19, 0x65, 0x30, 0xe4,
-	0x4a, 0x5a, 0x94, 0x36, 0x41, 0xc9, 0x55, 0x26, 0x64, 0xce, 0x3a, 0x35, 0x8f, 0x49, 0x57, 0x96,
-	0x75, 0x1d, 0x0f, 0x40, 0x33, 0x5b, 0xb0, 0x60, 0xff, 0x1d, 0xaf, 0xa1, 0xe5, 0xc1, 0xb5, 0x54,
-	0xc7, 0xad, 0x04, 0x40, 0x96, 0x4e, 0x25, 0xa4, 0x03, 0x68, 0xdb, 0xc4, 0x6e, 0x34, 0xb2, 0xb1,
-	0x3b, 0xdf, 0x87, 0x9e, 0x4d, 0x8c, 0xc8, 0x65, 0x6a, 0xcb, 0x02, 0xd9, 0x23, 0x37, 0xa4, 0x00,
-	0xb7, 0xa3, 0xf7, 0xac, 0xf5, 0xcf, 0xec, 0x03, 0x6b, 0x3b, 0xb9, 0xe7, 0x30, 0x7c, 0x5b, 0xce,
-	0x0d, 0x2f, 0xc4, 0x1c, 0xaf, 0xf0, 0x53, 0x89, 0xc6, 0xd2, 0x21, 0x74, 0xf7, 0x21, 0x12, 0x83,
-	0xb6, 0x2a, 0x61, 0x04, 0xa1, 0x0f, 0x9a, 0x5c, 0xef, 0xbd, 0xf9, 0x32, 0xe2, 0x0b, 0xb8, 0x77,
-	0x80, 0x35, 0x5a, 0x49, 0x83, 0xb7, 0x7d, 0x79, 0xe0, 0x21, 0x55, 0xb3, 0x9e, 0xac, 0x14, 0x4f,
-	0xad, 0x50, 0xd2, 0xb5, 0x18, 0xc4, 0xdf, 0x09, 0xf4, 0xde, 0x94, 0x66, 0x51, 0xcb, 0xff, 0xc9,
-	0xd0, 0x83, 0x13, 0x6b, 0x57, 0x0e, 0xdc, 0xfa, 0xab, 0xfe, 0x33, 0xe8, 0x94, 0x45, 0x8e, 0x92,
-	0x6f, 0x5c, 0x33, 0x01, 0x3d, 0x87, 0x7e, 0xe1, 0x7c, 0x64, 0x49, 0x6a, 0x36, 0x92, 0xbb, 0xdc,
-	0x5d, 0xda, 0x87, 0x96, 0x55, 0x5a, 0x70, 0x17, 0x39, 0xb8, 0xe3, 0xad, 0x04, 0x07, 0xb7, 0x12,
-	0xc4, 0xcf, 0x20, 0xf4, 0x16, 0xab, 0x94, 0xc7, 0xfe, 0x94, 0x11, 0x84, 0x2e, 0x6b, 0x81, 0x1c,
-	0x85, 0xae, 0xf2, 0xc6, 0xaf, 0x61, 0x70, 0xa9, 0xa4, 0xb0, 0xaa, 0xf8, 0x7f, 0xbd, 0xe7, 0xd0,
-	0x4f, 0x4b, 0xbb, 0x50, 0x85, 0xf8, 0xe2, 0x8b, 0x69, 0xd6, 0xd1, 0x97, 0xb8, 0xa9, 0x5a, 0x1a,
-	0x03, 0xbc, 0xe4, 0xcb, 0x9a, 0xe3, 0x88, 0x7e, 0xdc, 0x87, 0x9e, 0xdb, 0xf0, 0x16, 0xe3, 0x29,
-	0x0c, 0xae, 0xbc, 0x93, 0x1a, 0xf4, 0x00, 0x46, 0x95, 0xb7, 0xc4, 0xf8, 0x7b, 0xd3, 0x4e, 0xcd,
-	0xc3, 0x1f, 0x42, 0xa7, 0xda, 0x3f, 0xc6, 0xfe, 0xea, 0xc5, 0x8f, 0x6d, 0x44, 0x6e, 0xb6, 0x11,
-	0xf9, 0xb5, 0x8d, 0xc8, 0xd7, 0x5d, 0xd4, 0xb8, 0xd9, 0x45, 0x8d, 0x9f, 0xbb, 0xa8, 0xf1, 0xf1,
-	0x71, 0x2e, 0xec, 0xa2, 0x9c, 0x4f, 0xb9, 0x5a, 0xcf, 0xb8, 0x32, 0x56, 0xc8, 0xf5, 0xac, 0x7a,
-	0x07, 0x33, 0xbd, 0xcc, 0x67, 0x6b, 0x93, 0x9b, 0x79, 0xdb, 0x3d, 0xbf, 0xa7, 0xbf, 0x03, 0x00,
-	0x00, 0xff, 0xff, 0x3e, 0x99, 0x2d, 0x23, 0x8f, 0x03, 0x00, 0x00,
+	// 706 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x55, 0x4d, 0x6f, 0xd3, 0x4a,
+	0x14, 0x95, 0x93, 0xe6, 0xc3, 0xd7, 0x4e, 0x9a, 0xfa, 0xf5, 0x49, 0xee, 0x93, 0x9e, 0x5e, 0xea,
+	0x57, 0x50, 0x00, 0xa9, 0x11, 0x45, 0x62, 0x1f, 0xa0, 0x8b, 0x2e, 0x5a, 0x55, 0x0e, 0xb0, 0x60,
+	0x81, 0xe5, 0xd8, 0xb7, 0xce, 0x28, 0xc9, 0x8c, 0xf1, 0x8c, 0x53, 0x99, 0xbf, 0xc1, 0xbf, 0x62,
+	0xc3, 0x0f, 0xe1, 0x4f, 0xa0, 0xf9, 0x70, 0x49, 0xd4, 0xaa, 0xad, 0xd8, 0xcd, 0x3d, 0xe3, 0x39,
+	0xf7, 0x9e, 0x73, 0x4f, 0x14, 0xe8, 0x5d, 0xe3, 0x2c, 0x2f, 0xf9, 0xfc, 0x38, 0x2f, 0x98, 0x60,
+	0x5e, 0xc7, 0x94, 0xc1, 0x77, 0x0b, 0x06, 0xef, 0x08, 0x4f, 0xd8, 0x1a, 0x8b, 0x2a, 0xc4, 0x2f,
+	0x25, 0x72, 0xe1, 0x1d, 0x82, 0xbb, 0xc6, 0x82, 0x13, 0x46, 0x23, 0x42, 0xaf, 0x98, 0x6f, 0x0d,
+	0xad, 0x91, 0x1d, 0x3a, 0x06, 0x3b, 0xa3, 0x57, 0xcc, 0x7b, 0x02, 0xfd, 0x02, 0x39, 0x2b, 0x8b,
+	0x04, 0x23, 0x1a, 0xaf, 0x90, 0xfb, 0xcd, 0x61, 0x73, 0x64, 0x87, 0xbd, 0x1a, 0xbd, 0x90, 0xa0,
+	0x77, 0x00, 0x5d, 0x51, 0xe5, 0x18, 0x95, 0xc5, 0xd2, 0xdf, 0x51, 0x2c, 0x1d, 0x59, 0x7f, 0x28,
+	0x96, 0x86, 0x21, 0x67, 0x94, 0x63, 0x44, 0x19, 0x4d, 0xd0, 0x6f, 0xa9, 0x0f, 0x7a, 0x35, 0x7a,
+	0x21, 0x41, 0xef, 0x39, 0xd8, 0x35, 0x25, 0xf7, 0x3b, 0xc3, 0xe6, 0xc8, 0x39, 0x71, 0x8f, 0x6b,
+	0x31, 0x13, 0x5a, 0x85, 0xbf, 0xaf, 0x83, 0x6f, 0x16, 0xec, 0x6d, 0x88, 0xd1, 0x34, 0x8f, 0x51,
+	0xb3, 0xd5, 0xa4, 0x71, 0x6f, 0x93, 0xfb, 0x24, 0xed, 0x43, 0x6b, 0x53, 0x89, 0x2e, 0x82, 0xd7,
+	0xd0, 0x9c, 0xd0, 0x6a, 0xeb, 0x9d, 0x75, 0xeb, 0xdd, 0x3a, 0x5e, 0x96, 0xe8, 0x37, 0x86, 0xd6,
+	0xc8, 0x0d, 0x75, 0x11, 0xfc, 0xb0, 0x60, 0xf7, 0x1c, 0x39, 0x8f, 0x33, 0x3c, 0xa5, 0x6b, 0x5c,
+	0xb2, 0x1c, 0xbd, 0x7f, 0x01, 0x56, 0x1a, 0x8a, 0x48, 0x6a, 0x68, 0x6c, 0x83, 0x9c, 0xa5, 0x9e,
+	0x07, 0x3b, 0x72, 0x64, 0xc5, 0x63, 0x87, 0xea, 0x2c, 0xb1, 0x34, 0x16, 0xb1, 0xdf, 0x54, 0xdc,
+	0xea, 0xec, 0x3d, 0x85, 0x36, 0x47, 0x9a, 0x62, 0xa1, 0x14, 0x38, 0x27, 0xfd, 0x1b, 0xb1, 0x1f,
+	0xe3, 0x9c, 0xa4, 0xa1, 0xb9, 0xf5, 0x9e, 0xc1, 0x20, 0x61, 0x54, 0x20, 0x15, 0x11, 0xd2, 0x84,
+	0xa5, 0x84, 0x66, 0x7e, 0x47, 0x71, 0xef, 0x1a, 0xfc, 0xd4, 0xc0, 0xb2, 0x0d, 0x8f, 0x97, 0xc2,
+	0xef, 0xea, 0x36, 0xf2, 0xec, 0xf5, 0xa1, 0x91, 0xce, 0x7d, 0x5b, 0x21, 0x8d, 0x74, 0x1e, 0xc4,
+	0xd0, 0x52, 0xfc, 0x37, 0x33, 0x75, 0x36, 0x66, 0x72, 0xc1, 0x5a, 0xa8, 0x71, 0xdc, 0xd0, 0x5a,
+	0x78, 0x7f, 0x43, 0x5b, 0x44, 0xd2, 0x1f, 0x7f, 0xa8, 0x3d, 0x11, 0xef, 0xab, 0x1c, 0xbd, 0xff,
+	0xc0, 0x11, 0x11, 0x27, 0x19, 0x8d, 0x45, 0x59, 0xa0, 0x7f, 0xa8, 0xee, 0x40, 0x4c, 0x6b, 0x24,
+	0xb8, 0x84, 0xc1, 0xb4, 0x9c, 0xf1, 0xa4, 0x20, 0x33, 0xac, 0xe3, 0x7c, 0x00, 0x5d, 0xa9, 0x2d,
+	0xe2, 0x28, 0x6a, 0xe7, 0x65, 0x3d, 0x45, 0x95, 0x74, 0x2d, 0x35, 0x5a, 0xcb, 0xc1, 0x8c, 0x71,
+	0x8e, 0xc6, 0xd4, 0xac, 0xc1, 0x67, 0xd8, 0xdb, 0x60, 0x34, 0x99, 0xaa, 0x8d, 0xb6, 0x36, 0x8c,
+	0xde, 0x6c, 0xd3, 0xd8, 0x6e, 0xf3, 0x0f, 0x74, 0x97, 0x2c, 0x89, 0x05, 0x61, 0x54, 0xed, 0xc1,
+	0x0e, 0x6f, 0xea, 0xe0, 0xa7, 0x05, 0xce, 0x65, 0xc9, 0xe7, 0xf5, 0xb4, 0x77, 0x51, 0x0f, 0xa0,
+	0x29, 0xc4, 0x52, 0xb1, 0xb6, 0x42, 0x79, 0xbc, 0x73, 0xab, 0x3e, 0x74, 0xca, 0x22, 0x43, 0x9a,
+	0x54, 0x75, 0x30, 0x4d, 0xe9, 0xfd, 0x0f, 0xe6, 0x57, 0x95, 0x46, 0x31, 0xaf, 0x68, 0xa2, 0x02,
+	0xda, 0x0d, 0x5d, 0x03, 0x4e, 0x24, 0x26, 0x53, 0x28, 0x58, 0x4e, 0x12, 0xbf, 0xad, 0xd3, 0xab,
+	0x8a, 0x3f, 0x8d, 0x80, 0x7d, 0x2b, 0x02, 0xb6, 0x8a, 0xc0, 0x25, 0xb8, 0x5a, 0xac, 0x31, 0xf2,
+	0x81, 0x40, 0x1f, 0x82, 0xab, 0x3c, 0x2d, 0x30, 0x41, 0x92, 0xd7, 0xbe, 0x3a, 0xb9, 0xa2, 0x50,
+	0x50, 0x90, 0x40, 0xff, 0x9c, 0x51, 0x22, 0x58, 0xf1, 0x88, 0x7d, 0x1f, 0x41, 0x2f, 0x2e, 0xc5,
+	0x9c, 0x15, 0xe4, 0xab, 0xde, 0x86, 0x26, 0xdc, 0x06, 0xa5, 0xdd, 0x0b, 0xac, 0xcc, 0xa6, 0xe4,
+	0x31, 0x78, 0x01, 0x30, 0x49, 0x16, 0x75, 0x83, 0xfb, 0x87, 0x0e, 0x7a, 0xe0, 0xa8, 0x8f, 0xb5,
+	0xc4, 0xe0, 0x2d, 0xf4, 0xcd, 0xac, 0xf5, 0xfb, 0x97, 0xb0, 0x6f, 0x04, 0x45, 0x5c, 0x47, 0x2b,
+	0x57, 0xc3, 0x68, 0xa6, 0xbf, 0xcc, 0xdd, 0x74, 0xe3, 0x2a, 0x18, 0x41, 0xc7, 0x90, 0x3c, 0xd0,
+	0xfd, 0xcd, 0xd1, 0xa7, 0x20, 0x23, 0x62, 0x5e, 0xce, 0x8e, 0x13, 0xb6, 0x1a, 0x27, 0x8c, 0x0b,
+	0x42, 0x57, 0xe3, 0xeb, 0x3c, 0x8b, 0x05, 0x8e, 0xf3, 0x45, 0x36, 0x5e, 0xf1, 0x8c, 0xcf, 0xda,
+	0xea, 0x7f, 0xe0, 0xd5, 0xaf, 0x00, 0x00, 0x00, 0xff, 0xff, 0x87, 0x03, 0x4a, 0x42, 0x18, 0x06,
+	0x00, 0x00,
 }
-
-func (m *MessageEnvelope) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *MessageEnvelope) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *MessageEnvelope) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.Dh) > 0 {
-		i -= len(m.Dh)
-		copy(dAtA[i:], m.Dh)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Dh)))
-		i--
-		dAtA[i] = 0x4a
-	}
-	if len(m.Salt) > 0 {
-		i -= len(m.Salt)
-		copy(dAtA[i:], m.Salt)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Salt)))
-		i--
-		dAtA[i] = 0x42
-	}
-	if len(m.ContentEncoding) > 0 {
-		i -= len(m.ContentEncoding)
-		copy(dAtA[i:], m.ContentEncoding)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.ContentEncoding)))
-		i--
-		dAtA[i] = 0x3a
-	}
-	if m.Sender != nil {
-		{
-			size, err := m.Sender.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintWebpush(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x22
-	}
-	if len(m.Data) > 0 {
-		i -= len(m.Data)
-		copy(dAtA[i:], m.Data)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Data)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if len(m.Push) > 0 {
-		i -= len(m.Push)
-		copy(dAtA[i:], m.Push)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Push)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if len(m.MessageId) > 0 {
-		i -= len(m.MessageId)
-		copy(dAtA[i:], m.MessageId)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.MessageId)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *Vapid) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *Vapid) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *Vapid) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.TSignature) > 0 {
-		i -= len(m.TSignature)
-		copy(dAtA[i:], m.TSignature)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.TSignature)))
-		i--
-		dAtA[i] = 0x2
-		i--
-		dAtA[i] = 0x8a
-	}
-	if len(m.TType) > 0 {
-		i -= len(m.TType)
-		copy(dAtA[i:], m.TType)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.TType)))
-		i--
-		dAtA[i] = 0x2
-		i--
-		dAtA[i] = 0x82
-	}
-	if len(m.Data) > 0 {
-		i -= len(m.Data)
-		copy(dAtA[i:], m.Data)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Data)))
-		i--
-		dAtA[i] = 0x3a
-	}
-	if len(m.SignatureY) > 0 {
-		i -= len(m.SignatureY)
-		copy(dAtA[i:], m.SignatureY)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.SignatureY)))
-		i--
-		dAtA[i] = 0x32
-	}
-	if len(m.SignatureX) > 0 {
-		i -= len(m.SignatureX)
-		copy(dAtA[i:], m.SignatureX)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.SignatureX)))
-		i--
-		dAtA[i] = 0x2a
-	}
-	if len(m.K) > 0 {
-		i -= len(m.K)
-		copy(dAtA[i:], m.K)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.K)))
-		i--
-		dAtA[i] = 0x22
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *SubscribeRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *SubscribeRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *SubscribeRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.SenderVapid) > 0 {
-		i -= len(m.SenderVapid)
-		copy(dAtA[i:], m.SenderVapid)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.SenderVapid)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if len(m.PushSet) > 0 {
-		i -= len(m.PushSet)
-		copy(dAtA[i:], m.PushSet)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.PushSet)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *SubscribeResponse) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *SubscribeResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *SubscribeResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.Location) > 0 {
-		i -= len(m.Location)
-		copy(dAtA[i:], m.Location)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Location)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if len(m.PushSet) > 0 {
-		i -= len(m.PushSet)
-		copy(dAtA[i:], m.PushSet)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.PushSet)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if len(m.Push) > 0 {
-		i -= len(m.Push)
-		copy(dAtA[i:], m.Push)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Push)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *PushRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *PushRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *PushRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.Dh) > 0 {
-		i -= len(m.Dh)
-		copy(dAtA[i:], m.Dh)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Dh)))
-		i--
-		dAtA[i] = 0x4a
-	}
-	if len(m.Salt) > 0 {
-		i -= len(m.Salt)
-		copy(dAtA[i:], m.Salt)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Salt)))
-		i--
-		dAtA[i] = 0x42
-	}
-	if len(m.ContentEncoding) > 0 {
-		i -= len(m.ContentEncoding)
-		copy(dAtA[i:], m.ContentEncoding)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.ContentEncoding)))
-		i--
-		dAtA[i] = 0x3a
-	}
-	if len(m.Topic) > 0 {
-		i -= len(m.Topic)
-		copy(dAtA[i:], m.Topic)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Topic)))
-		i--
-		dAtA[i] = 0x32
-	}
-	if m.RespondAsync {
-		i--
-		if m.RespondAsync {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x28
-	}
-	if len(m.Urgency) > 0 {
-		i -= len(m.Urgency)
-		copy(dAtA[i:], m.Urgency)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Urgency)))
-		i--
-		dAtA[i] = 0x22
-	}
-	if len(m.Data) > 0 {
-		i -= len(m.Data)
-		copy(dAtA[i:], m.Data)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Data)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if m.Ttl != 0 {
-		i = encodeVarintWebpush(dAtA, i, uint64(m.Ttl))
-		i--
-		dAtA[i] = 0x10
-	}
-	if len(m.Push) > 0 {
-		i -= len(m.Push)
-		copy(dAtA[i:], m.Push)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Push)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *PushResponse) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *PushResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *PushResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.PushReceipt) > 0 {
-		i -= len(m.PushReceipt)
-		copy(dAtA[i:], m.PushReceipt)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.PushReceipt)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if len(m.MessageId) > 0 {
-		i -= len(m.MessageId)
-		copy(dAtA[i:], m.MessageId)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.MessageId)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *MonitorRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *MonitorRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *MonitorRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.Key) > 0 {
-		i -= len(m.Key)
-		copy(dAtA[i:], m.Key)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Key)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if len(m.Authorization) > 0 {
-		i -= len(m.Authorization)
-		copy(dAtA[i:], m.Authorization)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.Authorization)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if len(m.PushSet) > 0 {
-		i -= len(m.PushSet)
-		copy(dAtA[i:], m.PushSet)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.PushSet)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *AckRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *AckRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *AckRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.MessageId) > 0 {
-		i -= len(m.MessageId)
-		copy(dAtA[i:], m.MessageId)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.MessageId)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *AckResponse) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *AckResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *AckResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	return len(dAtA) - i, nil
-}
-
-func (m *ReceiptRequest) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ReceiptRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *ReceiptRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.ReceiptSubscription) > 0 {
-		i -= len(m.ReceiptSubscription)
-		copy(dAtA[i:], m.ReceiptSubscription)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.ReceiptSubscription)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *Receipt) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *Receipt) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *Receipt) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if len(m.MessageId) > 0 {
-		i -= len(m.MessageId)
-		copy(dAtA[i:], m.MessageId)
-		i = encodeVarintWebpush(dAtA, i, uint64(len(m.MessageId)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func encodeVarintWebpush(dAtA []byte, offset int, v uint64) int {
-	offset -= sovWebpush(v)
-	base := offset
-	for v >= 1<<7 {
-		dAtA[offset] = uint8(v&0x7f | 0x80)
-		v >>= 7
-		offset++
-	}
-	dAtA[offset] = uint8(v)
-	return base
-}
-func (m *MessageEnvelope) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.MessageId)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Push)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Data)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	if m.Sender != nil {
-		l = m.Sender.Size()
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.ContentEncoding)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Salt)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Dh)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *Vapid) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.K)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.SignatureX)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.SignatureY)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Data)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.TType)
-	if l > 0 {
-		n += 2 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.TSignature)
-	if l > 0 {
-		n += 2 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *SubscribeRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.PushSet)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.SenderVapid)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *SubscribeResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.Push)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.PushSet)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Location)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *PushRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.Push)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	if m.Ttl != 0 {
-		n += 1 + sovWebpush(uint64(m.Ttl))
-	}
-	l = len(m.Data)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Urgency)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	if m.RespondAsync {
-		n += 2
-	}
-	l = len(m.Topic)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.ContentEncoding)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Salt)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Dh)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *PushResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.MessageId)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.PushReceipt)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *MonitorRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.PushSet)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Authorization)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	l = len(m.Key)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *AckRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.MessageId)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *AckResponse) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	return n
-}
-
-func (m *ReceiptRequest) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.ReceiptSubscription)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func (m *Receipt) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.MessageId)
-	if l > 0 {
-		n += 1 + l + sovWebpush(uint64(l))
-	}
-	return n
-}
-
-func sovWebpush(x uint64) (n int) {
-	return (math_bits.Len64(x|1) + 6) / 7
-}
-func sozWebpush(x uint64) (n int) {
-	return sovWebpush(uint64((x << 1) ^ uint64((int64(x) >> 63))))
-}
-func (m *MessageEnvelope) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: MessageEnvelope: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: MessageEnvelope: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MessageId", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.MessageId = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Push", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Push = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Data", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Data = append(m.Data[:0], dAtA[iNdEx:postIndex]...)
-			if m.Data == nil {
-				m.Data = []byte{}
-			}
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Sender", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Sender == nil {
-				m.Sender = &Vapid{}
-			}
-			if err := m.Sender.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 7:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ContentEncoding", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ContentEncoding = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 8:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Salt", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Salt = append(m.Salt[:0], dAtA[iNdEx:postIndex]...)
-			if m.Salt == nil {
-				m.Salt = []byte{}
-			}
-			iNdEx = postIndex
-		case 9:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Dh", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Dh = append(m.Dh[:0], dAtA[iNdEx:postIndex]...)
-			if m.Dh == nil {
-				m.Dh = []byte{}
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *Vapid) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Vapid: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Vapid: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field K", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.K = append(m.K[:0], dAtA[iNdEx:postIndex]...)
-			if m.K == nil {
-				m.K = []byte{}
-			}
-			iNdEx = postIndex
-		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SignatureX", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.SignatureX = append(m.SignatureX[:0], dAtA[iNdEx:postIndex]...)
-			if m.SignatureX == nil {
-				m.SignatureX = []byte{}
-			}
-			iNdEx = postIndex
-		case 6:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SignatureY", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.SignatureY = append(m.SignatureY[:0], dAtA[iNdEx:postIndex]...)
-			if m.SignatureY == nil {
-				m.SignatureY = []byte{}
-			}
-			iNdEx = postIndex
-		case 7:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Data", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Data = append(m.Data[:0], dAtA[iNdEx:postIndex]...)
-			if m.Data == nil {
-				m.Data = []byte{}
-			}
-			iNdEx = postIndex
-		case 32:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TType", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.TType = append(m.TType[:0], dAtA[iNdEx:postIndex]...)
-			if m.TType == nil {
-				m.TType = []byte{}
-			}
-			iNdEx = postIndex
-		case 33:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TSignature", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.TSignature = append(m.TSignature[:0], dAtA[iNdEx:postIndex]...)
-			if m.TSignature == nil {
-				m.TSignature = []byte{}
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *SubscribeRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: SubscribeRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SubscribeRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PushSet", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PushSet = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SenderVapid", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.SenderVapid = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *SubscribeResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: SubscribeResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SubscribeResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Push", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Push = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PushSet", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PushSet = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Location", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Location = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *PushRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: PushRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: PushRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Push", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Push = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Ttl", wireType)
-			}
-			m.Ttl = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.Ttl |= int32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Data", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Data = append(m.Data[:0], dAtA[iNdEx:postIndex]...)
-			if m.Data == nil {
-				m.Data = []byte{}
-			}
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Urgency", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Urgency = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 5:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field RespondAsync", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.RespondAsync = bool(v != 0)
-		case 6:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Topic", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Topic = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 7:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ContentEncoding", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ContentEncoding = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 8:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Salt", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Salt = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 9:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Dh", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Dh = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *PushResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: PushResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: PushResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MessageId", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.MessageId = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PushReceipt", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PushReceipt = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *MonitorRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: MonitorRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: MonitorRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PushSet", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PushSet = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Authorization", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Authorization = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Key", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Key = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *AckRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: AckRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: AckRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MessageId", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.MessageId = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *AckResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: AckResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: AckResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ReceiptRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ReceiptRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ReceiptRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ReceiptSubscription", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ReceiptSubscription = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *Receipt) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Receipt: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Receipt: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MessageId", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.MessageId = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipWebpush(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if skippy < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) < 0 {
-				return ErrInvalidLengthWebpush
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func skipWebpush(dAtA []byte) (n int, err error) {
-	l := len(dAtA)
-	iNdEx := 0
-	depth := 0
-	for iNdEx < l {
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return 0, ErrIntOverflowWebpush
-			}
-			if iNdEx >= l {
-				return 0, io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= (uint64(b) & 0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		wireType := int(wire & 0x7)
-		switch wireType {
-		case 0:
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return 0, ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return 0, io.ErrUnexpectedEOF
-				}
-				iNdEx++
-				if dAtA[iNdEx-1] < 0x80 {
-					break
-				}
-			}
-		case 1:
-			iNdEx += 8
-		case 2:
-			var length int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return 0, ErrIntOverflowWebpush
-				}
-				if iNdEx >= l {
-					return 0, io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				length |= (int(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if length < 0 {
-				return 0, ErrInvalidLengthWebpush
-			}
-			iNdEx += length
-		case 3:
-			depth++
-		case 4:
-			if depth == 0 {
-				return 0, ErrUnexpectedEndOfGroupWebpush
-			}
-			depth--
-		case 5:
-			iNdEx += 4
-		default:
-			return 0, fmt.Errorf("proto: illegal wireType %d", wireType)
-		}
-		if iNdEx < 0 {
-			return 0, ErrInvalidLengthWebpush
-		}
-		if depth == 0 {
-			return iNdEx, nil
-		}
-	}
-	return 0, io.ErrUnexpectedEOF
-}
-
-var (
-	ErrInvalidLengthWebpush        = fmt.Errorf("proto: negative length found during unmarshaling")
-	ErrIntOverflowWebpush          = fmt.Errorf("proto: integer overflow")
-	ErrUnexpectedEndOfGroupWebpush = fmt.Errorf("proto: unexpected end of group")
-)

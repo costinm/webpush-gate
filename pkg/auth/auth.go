@@ -101,7 +101,8 @@ type Auth struct {
 	Authorized map[string]string
 	Known      map[string]*AuthzInfo
 
-	Authz map[string]*AuthzInfo
+	Authz     map[string]*AuthzInfo
+	AuthzByID map[uint64]*AuthzInfo
 
 	// TODO: Root certificates to trust, keyed by domain.
 	Roots map[string]*Root
@@ -252,6 +253,7 @@ func _new() *Auth {
 		Authorized: map[string]string{},
 		Known:      map[string]*AuthzInfo{},
 		Authz:      map[string]*AuthzInfo{},
+		AuthzByID:  map[uint64]*AuthzInfo{},
 	}
 }
 
@@ -290,16 +292,27 @@ func NewAuth(cfg ConfStore, name, domain string) *Auth {
 	return auth
 }
 
+func (auth *Auth) DumpKnown() {
+	for _, ai := range auth.Known {
+		fmt.Printf("%s=%v\n", ai.Role, Pub2VIP(ai.Public))
+	}
+}
+
 func (auth *Auth) Dump() {
-	pub64 := base64.StdEncoding.EncodeToString(auth.Pub)
-	log.Println("VIP: ", auth.VIP6)
-	log.Println("ID: ", base64.URLEncoding.EncodeToString(auth.NodeID()), hex.EncodeToString(auth.NodeID()), auth.NodeIDUInt())
-	log.Println("PUB(std): ", pub64)
+	fmt.Println("VIP=", auth.VIP6)
+	fmt.Println("ID=",
+		base64.RawURLEncoding.EncodeToString(auth.NodeID()),
+		hex.EncodeToString(auth.NodeID()),
+		auth.NodeIDUInt())
+
+	pub64 := base64.RawURLEncoding.EncodeToString(auth.Pub)
+
+	fmt.Println("PUB=", pub64)
 	sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " + auth.Name + "@" + auth.Domain
-	log.Println("PUB(SSH): ", sshPub)
+	fmt.Println("SSH=", sshPub)
 
 	for _, ai := range auth.Authz {
-		log.Println("SSH PUBLIC AUTH256: ", ai.Opts, ai.Role, base64.StdEncoding.EncodeToString(ai.Public))
+		fmt.Println("AUTHZ_", ai.Role, "=", Pub2VIP(ai.Public))
 	}
 }
 
@@ -356,19 +369,24 @@ func (auth *Auth) loadKnownHosts() error {
 	//
 
 	authB := bytes.Buffer{}
-	khauth, err := auth.Config.Get(".ssh/known_hosts")
-	if err == nil {
+	khauth, err := auth.Config.Get("known_hosts")
+	if err == nil && khauth != nil {
 		authB.Write(khauth)
+		authB.WriteByte('\n')
+	}
+	ksave, err := auth.Config.Get("known_hosts.save")
+	if err == nil && ksave != nil {
+		authB.Write(ksave)
 		authB.WriteByte('\n')
 	}
 
 	authb := authB.Bytes()
 	for len(authb) > 0 {
-		marker, hosts, pubKey, _, _, err := ssh.ParseKnownHosts(authb)
+		marker, hosts, pubKey, _, rest, err := ssh.ParseKnownHosts(authb)
 		if err != nil {
 			return err
 		}
-		//auth = rest
+		authb = rest
 
 		if marker == "@cert-authority" {
 			// hosts should start with *.DOMAIN
@@ -378,14 +396,18 @@ func (auth *Auth) loadKnownHosts() error {
 		if cpk, ok := pubKey.(ssh.CryptoPublicKey); ok {
 			pubk := cpk.CryptoPublicKey()
 			kbytes := KeyBytes(pubk)
-			if kbytes != nil {
+			if kbytes != nil { // len(kbytes) == 65 {
 				for _, h := range hosts {
 					// TODO: filter :5222 and extract domain
 					// IP can be ignored.
+					hn, p, _ := net.SplitHostPort(h)
+					if p != "0" && p != "5222" {
+						continue
+					}
 
 					//if len(opts) > 0 && opts[0] == ""
-					auth.Known[h] = &AuthzInfo{
-						Role:   h,
+					auth.Known[hn] = &AuthzInfo{
+						Role:   hn,
 						Key:    pubk,
 						Public: kbytes,
 						Opts:   map[string]string{},
@@ -420,19 +442,13 @@ func (auth *Auth) loadAuth() error {
 
 	authB := bytes.Buffer{}
 	authKeys, err := auth.Config.Get("authorized_keys")
-	if err == nil {
-		authB.Write(authKeys)
-		authB.WriteByte('\n')
-	}
-
-	authKeys, err = auth.Config.Get(".ssh/authorized_keys")
-	if err == nil {
+	if err == nil && authKeys != nil {
 		authB.Write(authKeys)
 		authB.WriteByte('\n')
 	}
 
 	authKeys, err = auth.Config.Get("authorized_keys.save")
-	if err == nil {
+	if err == nil && authKeys != nil {
 		authB.Write(authKeys)
 		authB.WriteByte('\n')
 	}
@@ -453,7 +469,6 @@ func (auth *Auth) loadAuth() error {
 			pubk := cpk.CryptoPublicKey()
 			kbytes := KeyBytes(pubk)
 			if kbytes != nil {
-				//if len(opts) > 0 && opts[0] == ""
 				auth.Authorized[string(kbytes)] = comment
 				ai := &AuthzInfo{
 					Role:   comment,
@@ -462,6 +477,7 @@ func (auth *Auth) loadAuth() error {
 					Opts:   map[string]string{},
 				}
 				auth.Authz[comment] = ai
+				auth.AuthzByID[Pub2ID(ai.Public)] = ai
 				for _, o := range opts {
 					if strings.Contains(o, "=") {
 						op := strings.SplitN(o, "=", 2)

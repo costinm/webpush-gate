@@ -257,7 +257,8 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 			}
 
 			// TODO: allow connections to mesh VIPs
-			if role == ROLE_GUEST && req.Rport != SSH_MESH_PORT {
+			if role == ROLE_GUEST &&
+				req.Rport != SSH_MESH_PORT && req.Rport != H2_MESH_PORT {
 				newChannel.Reject(ssh.UnknownChannelType, "only authorized users can proxy")
 				continue
 			}
@@ -312,7 +313,7 @@ func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n 
 				continue
 			}
 
-			if req.BindPort == SSH_MESH_PORT {
+			if req.BindPort == SSH_MESH_PORT || req.BindPort != H2_MESH_PORT {
 				scon.handleMeshNodeForward(req, n, r, vipHex)
 			} else {
 				if scon.role == ROLE_GUEST && req.BindPort != SSH_MESH_PORT {

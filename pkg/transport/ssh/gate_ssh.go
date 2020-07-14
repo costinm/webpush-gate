@@ -80,6 +80,7 @@ type SSHGate struct {
 }
 
 const SSH_MESH_PORT = 5222
+const H2_MESH_PORT = 5228
 
 type SSHConn struct {
 	gate *SSHGate

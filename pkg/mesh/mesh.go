@@ -8,6 +8,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/costinm/wpgate/pkg/auth"
 )
 
 const (
@@ -164,7 +166,7 @@ func NewDMNode() *DMNode {
 type StreamProxy interface {
 	Dial(destHost string, destAddr *net.TCPAddr) error
 	Proxy() error
-	Close()
+	Close() error
 }
 
 // Interface implemented by Gateway.
@@ -377,3 +379,29 @@ type MeshDevice struct {
 }
 
 func (md *MeshDevice) String() string { return fmt.Sprintf("%s/%d", md.SSID, md.Level) }
+
+// ReqContext is a context associated with a request.
+// Typically for H2:
+// 	h2ctx := r.Context().Value(mesh.H2Info).(*mesh.ReqContext)
+type ReqContext struct {
+	// Auth role - set if a authorized_keys or other authz is configured
+	Role string
+
+	// SAN list from the certificate, or equivalent auth method.
+	SAN []string
+
+	// Request start time
+	T0 time.Time
+
+	// Public key of the first cert in the chain (similar with SSH)
+	Pub []byte
+
+	// VIP associated with the public key.
+	VIP net.IP
+
+	VAPID *auth.JWT
+}
+
+type h2Key int
+
+var H2Info = h2Key(1)

@@ -204,6 +204,13 @@ func (a *ServerAll) StartMsg() {
 	// TODO: list of sinks, add NATS in-process
 
 	// TODO: eventstream client (MonitorNode)
+	a.H2.LocalMux.HandleFunc("/s/", msgs.HTTPHandlerSend)
+	a.H2.MTLSMux.HandleFunc("/push/", msgs.DefaultMux.HTTPHandlerWebpush)
+	a.H2.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
+	a.H2.MTLSMux.HandleFunc("/p/", eventstream.Handler(msgs.DefaultMux))
+
+	// /ws
+	websocket.WSTransport(msgs.DefaultMux, a.H2.MTLSMux)
 
 	msgs.DefaultMux.AddHandler(mesh.TopicConnectUP, msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
 		log.Println(cmdS, meta, data)
@@ -242,8 +249,4 @@ func (a *ServerAll) StartExtra() {
 	for _, t := range a.GW.Config.Listeners {
 		accept.NewForwarder(a.GW, t)
 	}
-
-	// TODO: also on h2s
-	websocket.WSTransport(msgs.DefaultMux, http.DefaultServeMux)
-
 }

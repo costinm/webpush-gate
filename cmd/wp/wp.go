@@ -16,6 +16,7 @@ import (
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
+	"github.com/costinm/wpgate/pkg/h2"
 )
 
 var (
@@ -32,7 +33,9 @@ var (
 
 	aud  = flag.String("aud", "", "Generate a VAPID key with the given domain. Defaults to https://fcm.googleapis.com")
 	curl = flag.Bool("curl", false, "Show curl request")
-	dump = flag.Bool("dump", false, "Dump known hosts and keys")
+
+	dump      = flag.Bool("dump", false, "Dump id and authz")
+	dumpKnown = flag.Bool("k", false, "Dump known hosts and keys")
 
 	sendVerbose = flag.Bool("v", false, "Show request and response body")
 
@@ -64,7 +67,7 @@ func sendMessage(toS string, vapid *auth.Auth, show bool, msg string) {
 	var destPubK []byte
 	var authk []byte
 
-	// browser sub:
+	// browser sub: real webpush
 	wpSub := os.Getenv(Subscription)
 	if len(wpSub) > 0 {
 		to, err := auth.SubscriptionFromJSON([]byte(wpSub))
@@ -76,15 +79,34 @@ func sendMessage(toS string, vapid *auth.Auth, show bool, msg string) {
 		destPubK = to.Key
 		authk = to.Auth
 	} else {
-		// DMesh nodes - we only have the public key, auth is not sent !
-		az := vapid.Authz[toS]
-		if az == nil {
-			log.Println("Not found ", toS)
-			return
+		subs := auth.Conf(vapid.Config, "sub_"+toS+".json", "")
+		if subs != "" {
+			to, err := auth.SubscriptionFromJSON([]byte(subs))
+			if err != nil {
+				fmt.Println("Invalid endpoint "+flag.Arg(1), err)
+				os.Exit(3)
+			}
+			destURL = to.Endpoint
+			destPubK = to.Key
+			authk = to.Auth
+			if len(authk) == 0 {
+				authk = []byte{1}
+			}
+		} else {
+			// DMesh nodes - we only have the public key, auth is not sent !
+			az := vapid.Known[toS]
+			if az == nil {
+				az = vapid.Authz[toS]
+			}
+			if az == nil {
+				log.Println("Not found ", toS)
+				return
+			}
+			destPubK = az.Public
+			vip := auth.Pub2VIP(destPubK).String()
+			destURL = "https://[" + vip + "]:5228/push/"
+			authk = []byte{1}
 		}
-		destPubK = az.Public
-		destURL = "https://VIP/push/"
-		authk = []byte{1}
 	}
 
 	ec := auth.NewContextSend(destPubK, authk)
@@ -95,6 +117,7 @@ func sendMessage(toS string, vapid *auth.Auth, show bool, msg string) {
 	if show {
 		payload64 := base64.StdEncoding.EncodeToString(c)
 		cmd := "echo -n " + payload64 + " | base64 -d > /tmp/$$.bin; curl -XPOST --data-binary @/tmp/$$.bin"
+		cmd += " -proxy 127.0.0.1:5224"
 		cmd += " -Httl:0"
 		cmd += " -H\"authorization:" + ah + "\""
 		fmt.Println(cmd + " " + destURL)
@@ -105,14 +128,23 @@ func sendMessage(toS string, vapid *auth.Auth, show bool, msg string) {
 	req, _ := http.NewRequest("POST", destURL, bytes.NewBuffer(c))
 	req.Header.Add("ttl", "0")
 	req.Header.Add("authorization", ah)
-	res, err := http.DefaultClient.Do(req)
+	hc := h2.SocksHttp("127.0.0.1:5224")
+	//hc := h2.ProxyHttp("127.0.0.1:5203")
+	res, err := hc.Do(req)
 
-	if err != nil || res.StatusCode != 201 {
-		dmpReq, err := httputil.DumpRequest(req, true)
-		fmt.Printf(string(dmpReq))
-		dmp, err := httputil.DumpResponse(res, true)
+	if res == nil {
+		fmt.Println("Failed to send ", err)
+
+	} else if err != nil {
+		fmt.Println("Failed to send ", err)
+
+	} else if res.StatusCode != 201 {
+		//dmpReq, err := httputil.DumpRequest(req, true)
+		//fmt.Printf(string(dmpReq))
+		dmp, _ := httputil.DumpResponse(res, true)
 		fmt.Println(string(dmp))
 		fmt.Println("Failed to send ", err, res.StatusCode)
+
 	} else if *sendVerbose {
 		dmpReq, _ := httputil.DumpRequest(req, true)
 		fmt.Printf(string(dmpReq))
@@ -134,6 +166,10 @@ func main() {
 
 	if *dump {
 		authz.Dump()
+		return
+	}
+	if *dumpKnown {
+		authz.DumpKnown()
 		return
 	}
 

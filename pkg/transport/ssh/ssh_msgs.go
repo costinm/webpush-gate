@@ -70,9 +70,9 @@ func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
 //
 // from is the authenticated VIP of the sender.
 // self is my own VIP
-//
-//
-func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string, self string, mconn *msgs.MsgConnection, isServer bool) {
+func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string, self string,
+	mconn *msgs.MsgConnection, isServer bool) {
+
 	mconn.HandleMessageStream(func(ev *msgs.Message) {
 		// Direct message from the client, with its own info
 		if ev.Topic == "endpoint" {

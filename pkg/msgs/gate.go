@@ -8,22 +8,23 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"github.com/costinm/wpgate/pkg/mesh"
 )
 
-// One connection - incoming or outgoing. Can send messages to the remote end, which may in turn forward
-// messages for other nodes.
+// One connection - incoming or outgoing. Can send messages to the remote end, which may
+// in turn forward messages for other nodes.
 //
 // Incoming messages are dispatched to the mux, which may deliver locally or forward.
-//
 type MsgConnection struct {
 	gate *Mux
 
 	// Key used in mux to track this connection
 	Name string
 
-	// Vip associated with the connection. Messages will not be forwarded if the VIP is in Path or From of the
-	// message.
-	vip string
+	// Authenticated Vip associated with the connection. Messages will not be forwarded if
+	// the VIP is in Path or From of the message.
+	VIP string
 
 	// Broadcast subscriptions to forward to the remote. Will have a 'From' set to current node.
 	// VPN and upstream server use "*" to receive/pass up all events.
@@ -88,6 +89,9 @@ func (mux *Mux) Id() string {
 // Message from a remote, will be forwarded to subscribed connections.
 func (mux *Mux) OnRemoteMessage(ev *Message, from, self string, connName string) error {
 	// Local handlers first
+	if ev.Time == "" {
+		ev.Time = time.Now().Format("01-02T15:04:05")
+	}
 	if ev.Id == "" {
 		ev.Id = mux.Id()
 	}
@@ -95,7 +99,7 @@ func (mux *Mux) OnRemoteMessage(ev *Message, from, self string, connName string)
 	if len(parts) < 2 {
 		return nil
 	}
-	if parts[0] == self {
+	if parts[0] == self || self == "" {
 		mux.HandleMessageForNode(ev)
 		log.Println("/mux/OnRemoteMessageLocal", ev.To)
 		return nil
@@ -162,14 +166,56 @@ func (ms *MsgConnection) maybeSend(parts []string, ev *Message, k string) {
 	log.Println("/mux/Remote", ev.To, ms.Name)
 }
 
-// Messages received from remote, over SSH.
+func (mux *Mux) ProcessMessage(line []byte, ctx *mesh.ReqContext) *Message {
+	if len(line) == 0 {
+		return nil
+	}
+	var ev *Message
+	var from string
+	if ctx != nil {
+		from = ctx.VIP.String()
+	}
+
+	if line[0] == '{' {
+		ev = ParseJSON(line)
+
+		ev.From = from
+
+		parts := strings.Split(ev.To, "/")
+		if len(parts) < 2 {
+			log.Println("Invalid To", parts)
+			return nil
+		}
+		top := parts[1]
+		ev.Topic = top
+
+		ev.Path = append(ev.Path, from)
+	} else {
+		parts := strings.Split(string(line), " ")
+		meta := map[string]string{}
+		if len(parts) > 1 {
+			for _, kv := range parts[1:] {
+				kvp := strings.SplitN(kv, "=", 2)
+				if len(kvp) == 2 {
+					meta[kvp[0]] = kvp[1]
+				} else {
+					meta[kvp[0]] = ""
+				}
+			}
+		}
+		ev = NewMessage(parts[0], meta)
+	}
+
+	return ev
+}
+
+// Messages received from remote.
 //
 // from is the authenticated VIP of the sender.
 // self is my own VIP
 //
-//
-func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *bufio.Reader, from string, self string) {
-	//defer channel.Close()
+func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message),
+	br *bufio.Reader, from string, self string) {
 	for {
 		line, _, err := br.ReadLine()
 		if err != nil {
@@ -178,6 +224,7 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *b
 		//if role == ROLE_GUEST {
 		//	continue
 		//}
+
 		if len(line) > 0 && line[0] == '{' {
 			ev := ParseJSON(line)
 
@@ -228,4 +275,5 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *b
 			mconn.gate.OnRemoteMessage(ev, from, self, mconn.Name)
 		}
 	}
+
 }

@@ -1,8 +1,9 @@
 IMAGE ?= costinm/wps:latest
 GOPATH ?= ${HOME}/go
+OUT ?= ${HOME}/go
 
 build:
-	go build ./cmd/wps
+	go build -o ${OUT}/bin/wps ./cmd/wps
 
 # Must be run first, to initialize the registry and req.
 prepare: skaffold/registry
@@ -94,3 +95,7 @@ androidAll:
 android:
 	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
 	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
+
+deploy_wpgate: gen build
+	time scp ${OUT}/bin/wps c1.webinf.info:www/dmesh
+	curl -k --key ${HOME}/ec-key.pem --cert ${HOME}/ec-cert.pem https://c1.webinf.info:5228/quitquitquit || true

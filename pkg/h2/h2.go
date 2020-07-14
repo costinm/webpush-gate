@@ -43,6 +43,7 @@ type H2 struct {
 	Vpn string
 
 	// Local mux is exposed on 127.0.0.1:5227
+	// Status, UI.
 	LocalMux *http.ServeMux
 
 	// MTLS mux.
@@ -148,7 +149,9 @@ func (h2 *H2) initH2ServerListener(tcpConn *net.TCPListener, handler http.Handle
 
 	tlsServerConfig := h2.Certs.GenerateTLSConfigServer()
 	if mtls {
-		tlsServerConfig.ClientAuth = tls.RequireAnyClientCert // only option supported by mint?
+		// only option supported by mint?
+		//tlsServerConfig.ClientAuth = tls.RequireAnyClientCert
+		tlsServerConfig.ClientAuth = tls.RequestClientCert
 	}
 	hw := h2.handlerWrapper(handler)
 	hw.mtls = mtls
@@ -245,36 +248,43 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	var vip net.IP
-	var san []string
+	h2c := &mesh.ReqContext{
+		T0: t0,
+	}
+
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
-		if hw.mtls {
-			log.Println("403 NO_MTLS", r.RemoteAddr, r.URL)
-			w.WriteHeader(403)
+		vapidH := r.Header["Authorization"]
+		if len(vapidH) == 0 {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("Missing VAPID or mTLS"))
 			return
 		}
+		tok, pub, err := auth.CheckVAPID(vapidH[0], time.Now())
+		if err != nil {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("Invalid VAPID"))
+			return
+		}
+		h2c.Pub = pub
+		h2c.VAPID = tok
+	} else {
+		pk1 := r.TLS.PeerCertificates[0].PublicKey
+		h2c.Pub = auth.KeyBytes(pk1)
+
+		// TODO: Istio-style, signed by a trusted CA. This is also for SSH-with-cert
+		h2c.SAN, _ = GetSAN(r.TLS.PeerCertificates[0])
 	}
-	pk1 := r.TLS.PeerCertificates[0].PublicKey
-	pk1b := auth.KeyBytes(pk1)
-	vip = auth.Pub2VIP(pk1b)
-	var role string
-
-	// ssh-style, known pub leaf
-	if role = hw.h2.Certs.Authorized[string(pk1b)]; role == "" {
-		role = "guest"
+	var ctx context.Context
+	if h2c.Pub != nil {
+		h2c.VIP = auth.Pub2VIP(h2c.Pub)
+		// ssh-style, known pub leaf
+		var role string
+		if role = hw.h2.Certs.Authorized[string(h2c.Pub)]; role == "" {
+			role = "guest"
+		}
+		h2c.Role = role
 	}
-
-	// TODO: Istio-style, signed by a trusted CA. This is also for SSH-with-cert
-
-	san, _ = GetSAN(r.TLS.PeerCertificates[0])
-
-	// TODO: check role
-
-	ctx := context.WithValue(r.Context(), H2Info, &H2Context{
-		SAN:  san,
-		Role: role,
-		T0:   t0,
-	})
+	ctx = context.WithValue(r.Context(), mesh.H2Info, h2c)
 	//if hw.h2.GrpcServer != nil && r.ProtoMajor == 2 && strings.HasPrefix(
 	//	r.Header.Get("Content-Type"), "application/grpc") {
 	//	hw.h2.GrpcServer.ServeHTTP(w, r)
@@ -283,7 +293,7 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// TODO: add it to an event buffer
 	if accessLogs && !strings.Contains(r.URL.Path, "/dns") {
-		log.Println("HTTP", san, vip, r.RemoteAddr, r.URL, time.Since(t0))
+		log.Println("HTTP", h2c.SAN, h2c.VIP, r.RemoteAddr, r.URL, time.Since(t0))
 	}
 }
 
@@ -296,23 +306,9 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 // Use Authorized_keys or groups to match
 
-type H2Key int
-
 var (
-	H2Info     = H2Key(1)
-	accessLogs = false
+	accessLogs = true
 )
-
-type H2Context struct {
-	// Auth role
-	Role string
-
-	// SAN list from the certificate, or equivalent auth method.
-	SAN []string
-
-	// Request start time
-	T0 time.Time
-}
 
 func GetPeerCertBytes(r *http.Request) []byte {
 	if r.TLS != nil {

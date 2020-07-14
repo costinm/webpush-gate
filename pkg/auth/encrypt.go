@@ -211,6 +211,8 @@ func (er *EncryptionContext) Encrypt(plaintext []byte) ([]byte, error) {
 	}
 	er.ecdh_secret = secret
 	if debugEncrypt {
+		log.Println("send_pub", base64.RawURLEncoding.EncodeToString(serverPublicKey))
+		log.Println("ua_pub", base64.RawURLEncoding.EncodeToString(er.UAPublicBytes))
 		log.Println("ecdh_secret", base64.RawURLEncoding.EncodeToString(secret))
 	}
 
@@ -283,6 +285,8 @@ func (er *EncryptionContext) Decrypt(cypher []byte) ([]byte, error) {
 		return nil, err
 	}
 	if debugEncrypt {
+		log.Println("send_pub", base64.RawURLEncoding.EncodeToString(serverPublicKey))
+		log.Println("ua_pub", base64.RawURLEncoding.EncodeToString(er.UAPublicBytes))
 		log.Println("ecdh_secret", base64.RawURLEncoding.EncodeToString(secret))
 	}
 
