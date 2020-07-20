@@ -25,6 +25,29 @@ skaffold/debug:
 docker/push:
 	docker build . -t ${IMAGE} && docker push ${IMAGE}
 
+docker/start:
+	docker run --init --sig-proxy=true \
+		-v /etc/passwd:/etc/passwd:ro \
+        -v /etc/group:/etc/group:ro \
+        -u "$(shell id -u):$(shell id -g)" \
+        --name wps \
+        -d --restart=always \
+        --net host \
+        -v ${HOME}/.ssh:${HOME}/.ssh \
+        -w ${HOME} \
+        -e HOME=${HOME} \
+        ${IMAGE}
+
+docker/stop:
+	docker stop wps
+	docker rm wps
+
+docker/logs:
+	docker logs wps -f
+
+docker/sh:
+	docker exec -it wps /bin/sh
+
 registry:
 	POD=$(shell kubectl get pods --namespace kube-registry -l app=kube-registry \
             -o template --template '{{range .items}}{{.metadata.name}} {{.status.phase}}{{"\n"}}{{end}}' \
