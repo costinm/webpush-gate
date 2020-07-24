@@ -63,14 +63,20 @@ var (
 	//  -x socks5://127.0.0.1:5224
 	SOCKS = 24
 
-	// ---- Other pors ----
+	//  sni based router - could be multiplexed on 443
+	SNI = 25
+
+	// ---- Other ports ----
 	// XDS, etc - istiod port
 	GRPC = 12
 
 	// curl -x http://127.0.0.10.0.0.0:15003
+	// can be added to 27/debug
 	HTTP_PROXY = 3
 
-	NOISE        = 19
+	NOISE = 19
+
+	// on H2 and HTTP_DEBUG
 	CLOUD_EVENTS = 21
 
 	// ISTIO ports - base 15000
@@ -236,7 +242,7 @@ func (a *ServerAll) StartExtra() {
 	// Outbound capture using Istio config
 	iptables.StartIstioCapture(a.GW, "127.0.0.1:15002")
 
-	go sni.SniProxy(a.GW, a.addr(7))
+	go sni.SniProxy(a.GW, a.addr(SNI))
 
 	a.hgw = httpproxy.NewHTTPGate(a.GW, a.H2)
 	a.hgw.HttpProxyCapture(a.laddr(HTTP_PROXY))

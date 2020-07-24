@@ -10,7 +10,7 @@ import (
 )
 
 // WIP: Istio-style SNI proxy.
-// Used for accept MUX - for example port 8443 on a gateway can dispatch to remote nodes
+// Used for accept MUX - for example port 5227 on a gateway can dispatch to remote nodes
 // without terminating connections.
 
 // curl https://foo.com:8443/status -k --resolve foo.com:8443:127.0.0.1:8443
@@ -58,28 +58,31 @@ const (
 	extensionServerName uint16 = 0
 )
 
-// ServeConn is used to serve a single UdpNat.
 func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
+
 	remote := gw.NewTcpProxy(local.RemoteAddr(), "SNI", nil, local, local)
 
 	buf := make([]byte, 4096)
-
 	n, err := local.Read(buf[0:5])
 	if err != nil {
 		local.Close()
 		return err
 	}
+
 	if n < 5 {
 		return sniErr
 	}
+
 	typ := buf[0] // 22 3 1 2 0
 	if typ != 22 {
 		return sniErr
 	}
+
 	vers := uint16(buf[1])<<8 | uint16(buf[2])
 	if vers != 0x301 {
 		log.Println("Version ", vers)
 	}
+
 	rlen := int(buf[3])<<8 | int(buf[4])
 	if rlen > 4096 {
 		return sniErr
@@ -102,6 +105,7 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 	}
 	data := buf[5:end]
 	end -= 5
+
 	// off is the last byte in the buffer - will be forwarded
 
 	//m.vers = uint16(data[4])<<8 | uint16(data[5])
@@ -199,7 +203,7 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 		off += length
 	}
 
-	// Does not contain port !!! Assume the port is the same (8443), or map it.
+	// Does not contain port !!! Assume the port is 443, or map it.
 	log.Println("SNI: ", m.serverName)
 
 	// TODO: unmangle server name - port, mesh node

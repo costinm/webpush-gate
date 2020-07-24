@@ -254,6 +254,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 	gw.client = &net.UDPAddr{
 		Port: 0,
 	}
+	// TODO: add grpcserver, http mux
 
 	NodeF = gw.Node
 
