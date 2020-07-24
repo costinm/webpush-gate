@@ -61,18 +61,18 @@ func (mux *Mux) AddConnection(id string, cp *MsgConnection) {
 	if h, f := mux.handlers["/open"]; f {
 		h.HandleMessage(context.Background(), "/open", map[string]string{"id": id}, nil)
 	}
-	log.Println("/mux/AddConnection", id, cp.SubscriptionsToSend)
+	log.Println("/mux/AddConnection", id, cp.VIP, cp.SubscriptionsToSend)
 }
 
-func (gate *Mux) RemoveConnection(id string, cp *MsgConnection) {
-	gate.mutex.Lock()
-	delete(gate.connections, id)
-	gate.mutex.Unlock()
+func (mux *Mux) RemoveConnection(id string, cp *MsgConnection) {
+	mux.mutex.Lock()
+	delete(mux.connections, id)
+	mux.mutex.Unlock()
 
-	if h, f := gate.handlers["/close"]; f {
+	if h, f := mux.handlers["/close"]; f {
 		h.HandleMessage(context.Background(), "/close", map[string]string{"id": id}, nil)
 	}
-	log.Println("/mux/RemoveConnection", id)
+	log.Println("/mux/RemoveConnection", id, cp.VIP)
 }
 
 func (mc *MsgConnection) Close() {
@@ -116,7 +116,7 @@ func (mux *Mux) OnRemoteMessage(ev *Message, from, self string, connName string)
 }
 
 // Send a message to one or more connections.
-func (gate *Mux) SendMsg(ev *Message) error {
+func (mux *Mux) SendMsg(ev *Message) error {
 	parts := strings.Split(ev.To, "/")
 
 	if parts[0] == "." {
@@ -126,7 +126,7 @@ func (gate *Mux) SendMsg(ev *Message) error {
 		return nil
 	}
 
-	for k, ms := range gate.connections {
+	for k, ms := range mux.connections {
 		if k == ev.From { // Exclude the connection where this was received on.
 			continue
 		}

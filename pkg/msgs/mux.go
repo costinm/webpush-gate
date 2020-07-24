@@ -24,19 +24,16 @@ type MessageHandler interface {
 	HandleMessage(ctx context.Context, cmdS string, meta map[string]string, data []byte)
 }
 
-// TODO: map by Uri, to keep track of last status.
-
 // Mux handles processing messages for this node, and sending messages from
 // local code.
 type Mux struct {
 	mutex sync.RWMutex
 
-	// MessageSenders tracks all connections that support SendMessageDirect() to send to the remote end.
+	// MessageSenders tracks all connections that support send to the remote end.
 	// For example UDS connections, SSH, etc.
 	connections map[string]*MsgConnection
 
-	// Handlers by path, for processing incoming messages.
-	// Messages are received from a remote connection (like UDS or ssh or http), or created locally.
+	// Handlers by path, for processing incoming messages to this node or local messages.
 	handlers map[string]MessageHandler
 
 	// Allows regular HTTP Handlers to process messages.
@@ -44,6 +41,7 @@ type Mux struct {
 	// http request can be mapped to a Send (not supported yet).
 	ServeMux *http.ServeMux
 
+	// Auth holds the private key and Id of this node. Used to encrypt and decrypt.
 	Auth *auth.Auth
 }
 

@@ -26,12 +26,7 @@ var (
 // Useful for debugging and sending messages to old browsers.
 // This is one of the simplest protocols, line based.
 
-type EventStreamConnection struct {
-	msgs.MsgConnection
-}
-
 // Used to receive (subscribe) to messages, using HTTP streaming protocol.
-//
 // TODO: pass the list of subscriptions, filter, 'start' message
 func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
@@ -53,9 +48,6 @@ func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 			SubscriptionsToSend: []string{"*"},
 			SendMessageToRemote: func(ev *msgs.Message) error {
 				ba := ev.MarshalJSON()
-
-				// TODO: id, set type in event: header ( or test if message is not required )
-				//
 				_, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(ba))
 				if err != nil {
 					return err
@@ -81,7 +73,6 @@ func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 		}
-
 	}
 }
 
@@ -130,11 +121,8 @@ func MonitorNode(gate *msgs.Mux, hc *http.Client, idhex *net.IPAddr) error {
 
 		if strings.HasPrefix("data:", ls) {
 			ls = ls[5:]
-
 			log.Println(idhex, ls)
-
 		} else {
-
 			log.Println(idhex, ls)
 		}
 	}
