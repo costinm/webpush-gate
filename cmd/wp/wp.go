@@ -39,7 +39,7 @@ var (
 
 	sendVerbose = flag.Bool("v", false, "Show request and response body")
 
-	pushService = flag.String("server", "http://localhost:5227", "Base URL for the push service")
+	pushService = flag.String("server", "", "Base URL for the push service")
 )
 
 const (
@@ -108,6 +108,14 @@ func sendMessage(toS string, vapid *auth.Auth, show bool, msg string) {
 			authk = []byte{1}
 		}
 	}
+	var hc *http.Client
+
+	if *pushService != "" {
+		destURL = *pushService + "/push/"
+		hc = h2.InsecureHttp()
+	} else {
+		hc = h2.SocksHttp("127.0.0.1:5224")
+	}
 
 	ec := auth.NewContextSend(destPubK, authk)
 	c, _ := ec.Encrypt([]byte(msg))
@@ -128,7 +136,7 @@ func sendMessage(toS string, vapid *auth.Auth, show bool, msg string) {
 	req, _ := http.NewRequest("POST", destURL, bytes.NewBuffer(c))
 	req.Header.Add("ttl", "0")
 	req.Header.Add("authorization", ah)
-	hc := h2.SocksHttp("127.0.0.1:5224")
+
 	//hc := h2.ProxyHttp("127.0.0.1:5203")
 	res, err := hc.Do(req)
 

@@ -359,6 +359,14 @@ func (tp *TcpProxy) Dial(dest string, addr *net.TCPAddr) error {
 	//	log.Println("DIAL: NET HTTP VPN ", g.Vpn, dest, addr, host, port)
 	//	return tp.DialViaHTTP(g.Vpn, dest)
 	//}
+	via := tp.gw.Config.Via[dest]
+	if via != "" {
+		// TODO
+	}
+
+	if tp.gw.Config.Egress != "" {
+
+	}
 
 	// Direct connection to destination, should be a public address
 	//log.Println("DIAL: DIRECT ", dest, addr, host, port)
@@ -817,6 +825,8 @@ func (gw *Gateway) proxyClientToServer(proxy *TcpProxy, remoteOut io.Writer, loc
 
 	if proxy.Initial != nil {
 		_, err = proxy.ServerOut.Write(proxy.Initial)
+		proxy.SentBytes += len(proxy.Initial)
+
 	}
 
 	// TODO: err, n to be sent on a channel, for metrics

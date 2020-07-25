@@ -13,12 +13,15 @@
     <method v="2" />
   </configuration>
   <configuration default="false" name="wps" type="GoApplicationRunConfiguration" factoryName="Go Application">
-    <module name="dmesh" />
-    <working_directory value="$PROJECT_DIR$/../wpgate" />
-    <kind value="PACKAGE" />
-    <filePath value="$PROJECT_DIR$/../wpgate/cmd/wps/wps.go" />
-    <package value="github.com/costinm/wpgate/cmd/wps" />
-    <directory value="$PROJECT_DIR$/.idea/modules" />
-    <method v="2" />
+    <module name="dmesh"/>
+    <working_directory value="$PROJECT_DIR$/../wpgate"/>
+    <envs>
+      <env name="BASE_PORT" value="5300"/>
+    </envs>
+    <kind value="PACKAGE"/>
+    <filePath value="$PROJECT_DIR$/../wpgate/cmd/wps/wps.go"/>
+    <package value="github.com/costinm/wpgate/cmd/wps"/>
+    <directory value="$PROJECT_DIR$/.idea/modules"/>
+    <method v="2"/>
   </configuration>
 </component>

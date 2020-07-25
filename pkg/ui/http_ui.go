@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"container/list"
 	"encoding/hex"
 	"encoding/json"
 	"html/template"
@@ -8,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/costinm/wpgate/pkg/conf"
@@ -33,6 +35,9 @@ type DMUI struct {
 
 	ws *websocket.Server
 	ld *local.LLDiscovery
+
+	mutex  sync.Mutex
+	events *list.List
 }
 
 // Default handler - operating as main admin handlers.
@@ -72,9 +77,10 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 	hgate *httpproxy.HTTPGate,
 	ld *local.LLDiscovery) (*DMUI, error) {
 	dmui := &DMUI{
-		dm: dm,
-		h2: h2,
-		ld: ld,
+		dm:     dm,
+		h2:     h2,
+		ld:     ld,
+		events: list.New(),
 	}
 
 	var err error
@@ -106,7 +112,7 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 
 	h2.LocalMux.HandleFunc("/dmesh/uds/", msgs.DefaultMux.HTTPUDS)
 
-	h2.LocalMux.HandleFunc("/debug/eventslog", msgs.DebugEventsHandler)
+	h2.LocalMux.HandleFunc("/debug/eventslog", dmui.DebugEventsHandler)
 	h2.LocalMux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
 
 	h2.LocalMux.Handle("/static/", http.FileServer(http.Dir("pkg/ui/www/")))
@@ -121,7 +127,41 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 	h2.LocalMux.HandleFunc("/dmesh/ll/if", dmui.HttpGetLLIf)
 	h2.LocalMux.Handle("/", http.FileServer(fs))
 
+	msgs.DefaultMux.OnMessageForNode = append(msgs.DefaultMux.OnMessageForNode, dmui.onmessage)
+
+	msgs.DefaultMux.ServeMux = h2.LocalMux
 	return dmui, nil
+}
+
+// TODO: circular buffer, poll event, for debug
+const EV_BUFFER = 200
+
+func (lm *DMUI) onmessage(ev *msgs.Message) {
+	if ev.To == "SYNC/LL" ||
+			ev.To == "SYNC/LLSRV" {
+		//log.Println("EV:", ev.Type, ev.Msg, ev.Meta)
+		return
+	}
+
+	lm.mutex.Lock()
+	lm.events.PushBack(ev)
+	if lm.events.Len() > EV_BUFFER {
+		lm.events.Remove(lm.events.Front())
+	}
+	lm.mutex.Unlock()
+}
+
+// Return the sticky and recent events.
+func (lm *DMUI) DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
+
+	w.Write([]byte("["))
+	for e := lm.events.Front(); e != nil; e = e.Next() {
+		e := e
+		ba := e.Value.(*msgs.Message).MarshalJSON()
+		w.Write(ba)
+		w.Write([]byte(",\n"))
+	}
+	w.Write([]byte("{}]"))
 }
 
 func (lm *DMUI) HttpGetLLIf(w http.ResponseWriter, r *http.Request) {

@@ -37,10 +37,11 @@ func (sshS *SSHServerConn) handleServerSessionChannel(node *mesh.DMNode, newChan
 	mconn := &msgs.MsgConnection{
 		SubscriptionsToSend: nil, // Don't send all messages down - only if explicit subscription.
 		SendMessageToRemote: sshS.SendMessageToRemote,
+		VIP:                 node.VIP.String(),
 	}
 
 	//if role != ROLE_GUEST {
-	msgs.DefaultMux.AddConnection("sshs-"+sshS.VIP6.String(), mconn)
+	msgs.DefaultMux.AddConnection("sshs-"+node.VIP.String(), mconn)
 	//}
 
 	br := bufio.NewReader(channel)
@@ -111,7 +112,7 @@ func sshClientMsgs(client *ssh.Client, sshC *SSHClientConn, n *mesh.DMNode, subs
 			}
 		}
 
-		sshC.Close()
+		//sshC.Close()
 	}()
 
 	// Technically we don't need the exec channel ! Just forwarding.
@@ -147,6 +148,7 @@ func (sshC *SSHClientConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh
 	mconn := &msgs.MsgConnection{
 		SubscriptionsToSend: subs,
 		SendMessageToRemote: sshC.SendMessageToRemote,
+		VIP:                 node.VIP.String(),
 	}
 
 	msgs.DefaultMux.AddConnection("sshc-"+sshC.VIP6.String(), mconn)

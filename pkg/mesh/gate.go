@@ -218,14 +218,15 @@ type GateCfg struct {
 	// The server will terminate TLS and HTTP, forward to the host as plain text.
 	Hosts map[string]*Host `json:"Hosts,omitempty"`
 
+	// Proxy requests to hosts (external or mesh) using the VIP of another node.
+	Via map[string]string `json:"Via,omitempty"`
+
+	// VIP of the default egress node, if no 'via' is set.
+	Egress string
+
 	// If set, all outbound requests will use the server as a proxy.
 	// Similar with Istio egress gateway.
 	Vpn string
-
-	// If not set, will be 5220 (old) or 15020 (new)
-	// Local listeners for HTTP(7), SOCKS, DNS, IPTABLES in/out
-	// Remote listeners for H2/H3(8) and SSH(2)
-	BasePort int
 }
 
 func (gw *Gateway) ActiveTCP() map[int]*TcpProxy {

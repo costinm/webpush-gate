@@ -170,7 +170,7 @@ func StartAll(a *ServerAll) {
 	// TODO: init socks on TLS, for inbound
 
 	// Connect to a mesh node
-	if meshH != "" {
+	if meshH != "" && meshH != "OFF" {
 		a.GW.Vpn = meshH
 		go sshgate.MaintainVPNConnection(a.GW)
 	}
@@ -242,7 +242,10 @@ func (a *ServerAll) StartExtra() {
 	// Outbound capture using Istio config
 	iptables.StartIstioCapture(a.GW, "127.0.0.1:15002")
 
-	go sni.SniProxy(a.GW, a.addr(SNI))
+	sniAddr := os.Getenv("SNI_ADDR")
+	if sniAddr != "" {
+		go sni.SniProxy(a.GW, sniAddr)
+	}
 
 	a.hgw = httpproxy.NewHTTPGate(a.GW, a.H2)
 	a.hgw.HttpProxyCapture(a.laddr(HTTP_PROXY))

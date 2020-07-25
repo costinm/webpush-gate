@@ -203,7 +203,7 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	sshGate.mutex.Unlock()
 
 	if oldSCon != nil {
-		oldSCon.Close()
+		//oldSCon.Close()
 	}
 
 	n := sshGate.gw.Node(vipsb)

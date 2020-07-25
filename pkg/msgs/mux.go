@@ -3,7 +3,6 @@ package msgs
 
 import (
 	"bytes"
-	"container/list"
 	"context"
 	"fmt"
 	"log"
@@ -22,6 +21,14 @@ type MessageHandler interface {
 	// Handle a message. Context may provide access to the actual message object
 	// and mux.
 	HandleMessage(ctx context.Context, cmdS string, meta map[string]string, data []byte)
+}
+
+// Adapter from func to interface
+type HandlerCallbackFunc func(ctx context.Context, cmdS string, meta map[string]string, data []byte)
+
+// ServeHTTP calls f(w, r).
+func (f HandlerCallbackFunc) HandleMessage(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
+	f(ctx, cmdS, meta, data)
 }
 
 // Mux handles processing messages for this node, and sending messages from
@@ -43,7 +50,11 @@ type Mux struct {
 
 	// Auth holds the private key and Id of this node. Used to encrypt and decrypt.
 	Auth *auth.Auth
+
+	OnMessageForNode []OnMessage
 }
+
+type OnMessage func(*Message)
 
 func NewMux() *Mux {
 	mux := &Mux{
@@ -110,8 +121,9 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 		ev.TS = time.Now()
 	}
 
-	// Temp: debug
-	mux.save(ev)
+	for _, cb := range mux.OnMessageForNode {
+		cb(ev)
+	}
 
 	//log.Println("EV: ", ev.To, ev.From)
 	if ev.To == "" {
@@ -146,8 +158,9 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 			},
 			Host: argv[0],
 		}
-		h, _ := mux.ServeMux.Handler(r)
-		if h != nil {
+		h, p := mux.ServeMux.Handler(r)
+		if h != nil && p != "/" {
+			log.Println("Server handler: ", ev.To)
 			w := &rw{}
 			h.ServeHTTP(w, r)
 		}
@@ -199,35 +212,6 @@ func (mux *Mux) AddHandler(path string, cp MessageHandler) {
 	mux.mutex.Lock()
 	mux.handlers[path] = cp
 	mux.mutex.Unlock()
-}
-
-// TODO: circular buffer, poll event, for debug
-const EV_BUFFER = 200
-
-var events = list.New()
-
-// debug
-func (mux *Mux) save(ev *Message) {
-	if ev.To == "SYNC/LL" ||
-		ev.To == "SYNC/LLSRV" {
-		//log.Println("EV:", ev.Type, ev.Msg, ev.Meta)
-		return
-	}
-
-	mux.mutex.Lock()
-	events.PushBack(ev)
-	if events.Len() > EV_BUFFER {
-		events.Remove(events.Front())
-	}
-	mux.mutex.Unlock()
-}
-
-// Adapter from func to interface
-type HandlerCallbackFunc func(ctx context.Context, cmdS string, meta map[string]string, data []byte)
-
-// ServeHTTP calls f(w, r).
-func (f HandlerCallbackFunc) HandleMessage(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
-	f(ctx, cmdS, meta, data)
 }
 
 type ChannelHandler struct {

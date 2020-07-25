@@ -1,9 +1,11 @@
 IMAGE ?= costinm/wps:latest
 GOPATH ?= ${HOME}/go
-OUT ?= ${HOME}/go
+OUT ?= ${HOME}/go/bin
+GO ?= go
 
 build:
-	go build -o ${OUT}/bin/wps ./cmd/wps
+	go build -o ${OUT}/wps ./cmd/wps
+	go build -o ${OUT}/wp ./cmd/wp
 
 # Must be run first, to initialize the registry and req.
 prepare: skaffold/registry
@@ -94,20 +96,17 @@ pkg/ui/html_static.go: ${GOPATH}/bin/esc  pkg/ui/www/status.html \
 	@echo "REGENERAGE"
 	${GOPATH}/bin/esc -include '.*\.html|.*\.js|.*\.css' -prefix pkg/ui/www -o pkg/ui/html_static.go -pkg ui pkg/ui/www/
 
-OUT ?= ${HOME}/go
-GO ?= go
-
 cross: arm arm64 mips
 
 arm64:
-	GOARCH=arm64 GOOS=linux GOARM=7 ${GO} build -o ${OUT}/bin/arm64/wps -ldflags="-s -w" ./cmd/wps
+	GOARCH=arm64 GOOS=linux GOARM=7 ${GO} build -o ${OUT}/arm64/wps -ldflags="-s -w" ./cmd/wps
 
 # Arm, mips: Noise has errors with curve25519
 arm:
-	GOARCH=arm GOOS=linux GOARM=7 ${GO} build -o ${OUT}/bin/arm/wps -ldflags="-s -w" ./cmd/wps
+	GOARCH=arm GOOS=linux GOARM=7 ${GO} build -o ${OUT}/arm/wps -ldflags="-s -w" ./cmd/wps
 
 mips:
-	GOARCH=mips GOOS=linux GOMIPS=softfloat  ${GO} build -ldflags="-s -w" -o ${OUT}/bin/mips/wps ./cmd/wps
+	GOARCH=mips GOOS=linux GOMIPS=softfloat  ${GO} build -ldflags="-s -w" -o ${OUT}/mips/wps ./cmd/wps
 
 androidAll:
 	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
@@ -119,6 +118,3 @@ android:
 	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
 	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
 
-deploy_wpgate: gen build
-	time scp ${OUT}/bin/wps c1.webinf.info:www/dmesh
-	curl -k --key ${HOME}/ec-key.pem --cert ${HOME}/ec-cert.pem https://c1.webinf.info:5228/quitquitquit || true

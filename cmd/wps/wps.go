@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/costinm/wpgate/pkg/bootstrap"
 )
@@ -16,10 +17,16 @@ import (
 // - 9003: H2S
 // - 9004: HTTP (debug, local)
 func main() {
+	bp := 5200
+	base := os.Getenv("BASE_PORT")
+	if base != "" {
+		bp, _ = strconv.Atoi(base)
+	}
+
 	cfgDir := os.Getenv("HOME") + "/.ssh/"
 	all := &bootstrap.ServerAll{
 		ConfDir:  cfgDir,
-		BasePort: 5200,
+		BasePort: bp,
 	}
 	bootstrap.StartAll(all)
 

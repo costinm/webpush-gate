@@ -99,18 +99,25 @@ func (mux *Mux) OnRemoteMessage(ev *Message, from, self string, connName string)
 	if len(parts) < 2 {
 		return nil
 	}
-	if parts[0] == self || self == "" {
+	if parts[0] == self || parts[0] == "" || self == "" {
 		mux.HandleMessageForNode(ev)
 		log.Println("/mux/OnRemoteMessageLocal", ev.To)
 		return nil
 	}
 
+	ev.Path = append(ev.Path, mux.Auth.VIP6.String())
 	for k, ms := range mux.connections {
 		if k == ev.From || k == connName {
 			continue
 		}
+		for _, a := range ev.Path {
+			if a == ms.VIP {
+				log.Println("/mux/OnRemoteMessageFWD - LOOP ", ev.To, ms.VIP, ms.Name)
+				continue
+			}
+		}
 		ms.maybeSend(parts, ev, k)
-		log.Println("/mux/OnRemoteMessageFWD", ev.To, k)
+		log.Println("/mux/OnRemoteMessageFWD", parts[0], ev.To, ms.VIP, ms.Name)
 	}
 	return nil
 }
@@ -219,6 +226,7 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message),
 	for {
 		line, _, err := br.ReadLine()
 		if err != nil {
+			log.Println("Error reading stream ", mconn.VIP, err)
 			break
 		}
 		//if role == ROLE_GUEST {

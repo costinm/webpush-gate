@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"strings"
+	"time"
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/mesh"
@@ -20,18 +21,6 @@ type Backoff interface {
 
 var ReceiveBaseUrl = "https://127.0.0.1:5228/"
 
-// Return the sticky and recent events.
-func DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
-
-	w.Write([]byte("["))
-	for e := events.Front(); e != nil; e = e.Next() {
-		e := e
-		ba := e.Value.(*Message).MarshalJSON()
-		w.Write(ba)
-		w.Write([]byte(",\n"))
-	}
-	w.Write([]byte("{}]"))
-}
 
 // Used to push a message from a remote sender.
 //
@@ -92,18 +81,28 @@ func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Invalid URL"))
 		return
-
 	}
+
+	log.Println("WEBPUSH over HTTP ", parts)
+
 	dest := parts[2]
 	if dest == "" || dest == mux.Auth.Name || dest == mux.Auth.VIP6.String() {
-		ec := auth.NewContextUA(mux.Auth.Priv, mux.Auth.Pub,
-			SharedWPAuth)
+		ec := auth.NewContextUA(mux.Auth.Priv, mux.Auth.Pub, SharedWPAuth)
 		b, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte("Body error"))
 			return
 		}
+
+		authH := r.Header.Get("Authorization")
+		if authH == "" {
+			log.Println("Missing auth ", r.Header)
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("Missing auth"))
+			return
+		}
+		jwt, pub, err := auth.CheckVAPID(authH, time.Now())
 
 		msgb, err := ec.Decrypt(b)
 		if err != nil {
@@ -112,15 +111,24 @@ func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Decrypt error"))
 			return
 		}
-		log.Println("GOT: "+string(msgb), err)
 
 		ev := mux.ProcessMessage(msgb, h2ctx)
+		log.Println("GOT WEBPUSH: ", jwt, string(msgb), ev)
+
 		if ev == nil {
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				w.Write([]byte("Invalid format"))
 				return
 			}
+		}
+
+		role := mux.Auth.Authorized[string(pub)]
+		if role == "" {
+			log.Println("Unauthorized ")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("Unauthorized"))
+			return
 		}
 
 		mux.HandleMessageForNode(ev)
