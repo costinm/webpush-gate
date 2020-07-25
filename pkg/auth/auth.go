@@ -886,7 +886,7 @@ func Verify(data []byte, pub []byte, sig []byte) error {
 		return errors.New("Invalid public key")
 	}
 
-	pubKey := &ecdsa.PublicKey{Curve256, x, y}
+	pubKey := &ecdsa.PublicKey{Curve: Curve256, X: x, Y: y}
 	r := big.NewInt(0).SetBytes(sig[0:32])
 	s := big.NewInt(0).SetBytes(sig[32:64])
 	match := ecdsa.Verify(pubKey, hash, r, s)
