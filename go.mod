@@ -5,11 +5,8 @@ go 1.14
 require (
 	github.com/cloudevents/sdk-go v0.10.1
 	github.com/gogo/protobuf v1.3.1
-	github.com/hashicorp/consul v1.8.0
-	github.com/hashicorp/golang-lru v0.5.3 // indirect
 	github.com/lucas-clemente/quic-go v0.17.1
 	github.com/miekg/dns v1.1.29
-	github.com/mjibson/esc v0.2.0 // indirect
 	github.com/nats-io/nats-server/v2 v2.0.0
 	github.com/perlin-network/noise v1.1.2
 	github.com/pkg/errors v0.9.1 // indirect
