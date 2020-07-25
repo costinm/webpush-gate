@@ -108,6 +108,8 @@ type Gateway struct {
 	// Client to VPN
 	SSHClient JumpHost
 
+	JumpHosts map[string]TunDialer
+
 	// Client to mesh expansion - not trusted, set when mesh expansion is in use.
 	// Used as a jump host to connect to the next destination.
 	// TODO: allow multiple addresses.
@@ -246,6 +248,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		AllUdpCon: make(map[string]*HostStats),
 		AllTcpCon: make(map[string]*HostStats),
 		Listeners: make(map[int]Listener),
+		JumpHosts: map[string]TunDialer{},
 		//upstreamMessageChannel: make(chan packet, 100),
 		Auth:           certs,
 		Config:         gcfg,

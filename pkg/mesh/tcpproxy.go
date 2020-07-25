@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -360,8 +361,19 @@ func (tp *TcpProxy) Dial(dest string, addr *net.TCPAddr) error {
 	//	return tp.DialViaHTTP(g.Vpn, dest)
 	//}
 	via := tp.gw.Config.Via[dest]
+	if via == "" {
+		dot := strings.Index(dest, ".")
+		dd := dest[dot+1:]
+		log.Println("Attempt via: ", dd)
+		via = tp.gw.Config.Via[dd]
+	}
 	if via != "" {
 		// TODO
+		tcpMux := g.JumpHosts[via]
+		if tcpMux == nil {
+			return nil
+		}
+		return tcpMux.DialProxy(&tp.Stream)
 	}
 
 	if tp.gw.Config.Egress != "" {

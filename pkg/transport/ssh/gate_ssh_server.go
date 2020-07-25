@@ -193,6 +193,8 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 
 	scon.role = role
 
+	sshGate.gw.JumpHosts[scon.VIP6.String()] = scon
+
 	vipHex := fmt.Sprintf("%x", scon.vip)
 	//scon.key =
 	sshGate.metrics.Active.Add(1)
@@ -219,6 +221,7 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 		if existing == scon {
 			delete(sshGate.SshConn, scon.vip)
 		}
+		delete(sshGate.gw.JumpHosts, scon.VIP6.String())
 		sshGate.mutex.Unlock()
 
 		// TODO: remove from list of active

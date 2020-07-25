@@ -126,7 +126,12 @@ func StartAll(a *ServerAll) {
 	msgs.DefaultMux.Auth = authz
 
 	gcfg := &mesh.GateCfg{}
-	conf.Get(config, "gate.json", gcfg)
+	err := conf.Get(config, "gate.json", gcfg)
+	if err != nil {
+		log.Println("Use default config ", err)
+	} else {
+		log.Println("Cfg: ", gcfg)
+	}
 
 	// HTTPGate - common structures
 	a.GW = mesh.New(authz, gcfg)

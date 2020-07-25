@@ -223,6 +223,7 @@ func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.Ju
 
 	sshGate.mutex.Lock()
 	sshGate.SshClients[addr] = sshC
+	sshGate.gw.JumpHosts[sshC.VIP6.String()] = sshC
 	sshGate.mutex.Unlock()
 
 	// Find the Node associated with the client.

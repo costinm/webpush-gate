@@ -308,7 +308,9 @@ func (auth *Auth) Dump() {
 	pub64 := base64.RawURLEncoding.EncodeToString(auth.Pub)
 
 	fmt.Println("PUB=", pub64)
-	sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " + auth.Name + "@" + auth.Domain
+	h := strings.ReplaceAll(auth.VIP6.String()[6:], ":", "-")
+	sshPub := "ecdsa-sha2-nistp256 " + SSH_ECPREFIX + pub64 + " " +
+		auth.Name + "@" + h + "." + auth.Domain
 	fmt.Println("SSH=", sshPub)
 
 	for _, ai := range auth.Authz {
@@ -804,9 +806,12 @@ func (auth *Auth) GetCerts() map[string]*tls.Certificate {
 		crt, err := tls.LoadX509KeyPair("/etc/certs/cert-chain.pem", "/etc/certs/key.pem")
 		if err != nil {
 			log.Println("Failed to load system istio certs", err)
+		} else {
+			certMap["istio"] = &crt
+			if crt.Leaf != nil {
+				log.Println("Loaded istio cert ", crt.Leaf.URIs)
+			}
 		}
-		certMap["istio"] = &crt
-		log.Println("Loaded istio cert ", crt.Leaf.URIs)
 	}
 
 	legoBase := os.Getenv("HOME") + "/.lego/certificates"
