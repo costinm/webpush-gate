@@ -104,7 +104,9 @@ type ServerAll struct {
 	H2     *h2.H2
 
 	// UI interface Handler for localhost:5227
-	UI *ui.DMUI
+	UI    *ui.DMUI
+	Local *local.LLDiscovery
+	Conf  *conf.Conf
 }
 
 func (sa *ServerAll) Close() {
@@ -114,8 +116,8 @@ func (sa *ServerAll) Close() {
 func StartAll(a *ServerAll) {
 	// File-based config
 	config := conf.NewConf(a.ConfDir, "./var/lib/dmesh/")
+	a.Conf = config
 
-	// Default matching Istio range.
 	addrN := a.BasePort
 	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
 
@@ -123,6 +125,8 @@ func StartAll(a *ServerAll) {
 	hn, _ := os.Hostname()
 	authz := auth.NewAuth(config, hn, "m.webinf.info")
 	authz.Dump()
+
+	// Init Auth on the DefaultMux, for messaging
 	msgs.DefaultMux.Auth = authz
 
 	gcfg := &mesh.GateCfg{}
@@ -138,10 +142,12 @@ func StartAll(a *ServerAll) {
 
 	// Set the 'UA' field - untrusted local declaration.
 	a.GW.UA = hn
+
 	if os.Getenv("POD_NAME") != "" {
 		a.GW.UA = os.Getenv("POD_NAME") + "." + os.Getenv("POD_NAMESPACE")
 	}
 
+	// Create the H2
 	h2s, err := h2.NewTransport(authz)
 	if err != nil {
 		log.Fatal(err)
@@ -187,6 +193,7 @@ func StartAll(a *ServerAll) {
 	// Local discovery interface - multicast, local network IPs
 	ld := local.NewLocal(a.GW, authz)
 	go ld.PeriodicThread()
+	a.Local = ld
 
 	// Start a basic UI on the debug port
 	a.UI, _ = ui.NewUI(a.GW, h2s, a.hgw, ld)

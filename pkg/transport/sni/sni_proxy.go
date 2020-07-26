@@ -9,13 +9,23 @@ import (
 	"github.com/costinm/wpgate/pkg/mesh"
 )
 
-// WIP: Istio-style SNI proxy.
-// Used for accept MUX - for example port 5227 on a gateway can dispatch to remote nodes
-// without terminating connections.
-
-// curl https://foo.com:8443/status -k --resolve foo.com:8443:127.0.0.1:8443
+// Istio-style SNI proxy.
+//
+// Used for accepting ingress stream on a public IP and routing them to a mesh node.
+//
+// Without DNS:
+//
+// curl https://foo.com/status -k --resolve *:443:1.2.3.4.
+//
+// With DNS interception - return the address of the SNI host.
+//
+// For non-mesh names - explicit config must be used, to associate the domain name
+// with an identity. This is similar with Istio 'secure naming': each node has a self-generated
+// service account, and the Gateway delegates to it (actually: namespace, but it's equivalent)
 
 // Listen on a port, forward to destination based on SNI header.
+// All incoming connections are routed according to the gateway, using
+// mesh nodes.
 func SniProxy(gw *mesh.Gateway, addr string) error {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -25,6 +35,7 @@ func SniProxy(gw *mesh.Gateway, addr string) error {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
+				log.Println("SNI listen error, closing ", err)
 				l.Close()
 				return
 			}
@@ -59,7 +70,6 @@ const (
 )
 
 func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
-
 	buf := make([]byte, 4096)
 	n, err := local.Read(buf[0:5])
 	if err != nil {
@@ -107,15 +117,17 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 	if chLen < 38 {
 		return sniErr
 	}
+
 	// off is the last byte in the buffer - will be forwarded
 
-	//m.vers = uint16(data[4])<<8 | uint16(data[5])
-	//m.random = data[6:38]
+	m.vers = uint16(clientHello[4])<<8 | uint16(clientHello[5])
+	// random: data[6:38]
+
 	sessionIdLen := int(clientHello[38])
 	if sessionIdLen > 32 || chLen < 39+sessionIdLen {
 		return sniErr
 	}
-	//m.sessionId = data[39 : 39+sessionIdLen]
+	m.sessionId = clientHello[39 : 39+sessionIdLen]
 	off = 39 + sessionIdLen
 
 	// cipherSuiteLen is the number of bytes of cipher suite numbers. Since
@@ -202,10 +214,8 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 	}
 
 	// Does not contain port !!! Assume the port is 443, or map it.
-	//log.Println("SNI: ", m.serverName)
 
 	// TODO: unmangle server name - port, mesh node
-	// Alternatove: map similar with port listener
 
 	destAddr := m.serverName + ":443"
 
