@@ -39,19 +39,5 @@ jobs:
     - name: Build
       run: |
         go build -v ./cmd/wps
-
-    services:
-      k8s:
-        image:  rancher/k3s:latest
-        ports:
-          - 6443:6443
-          - 6080:80
-        env:
-          - K3S_KUBECONFIG_OUTPUT=/conf/kubeconfig.yaml
-          - K3S_KUBECONFIG_MODE=666
-        volumes:
-          - .:/conf
-          - k3s-server:/var/lib/rancher/k3s
-        options:
-          - --privileged
+        go build -v ./cmd/wp
 

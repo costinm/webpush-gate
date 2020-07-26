@@ -3,6 +3,7 @@ package mesh
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -169,7 +170,7 @@ func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn 
 
 // Glue for interface type. The interface is a StreamProxy
 func (gw *Gateway) NewStream(addr net.IP, port uint16, ctype string, initialData []byte,
-		clientIn io.ReadCloser, clientOut io.Writer) interface{} {
+	clientIn io.ReadCloser, clientOut io.Writer) interface{} {
 	return gw.NewTcpProxy(&net.TCPAddr{IP: addr, Port: int(port)}, ctype, initialData, clientIn, clientOut)
 }
 
@@ -364,15 +365,15 @@ func (tp *TcpProxy) Dial(dest string, addr *net.TCPAddr) error {
 	if via == "" {
 		dot := strings.Index(dest, ".")
 		dd := dest[dot+1:]
-		log.Println("Attempt via: ", dd)
 		via = tp.gw.Config.Via[dd]
 	}
 	if via != "" {
 		// TODO
 		tcpMux := g.JumpHosts[via]
 		if tcpMux == nil {
-			return nil
+			return errors.New("Not found " + via)
 		}
+		log.Println("VIA: ", dest, via)
 		return tcpMux.DialProxy(&tp.Stream)
 	}
 
