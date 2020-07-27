@@ -5,6 +5,7 @@ go 1.14
 require (
 	github.com/cloudevents/sdk-go v0.10.1
 	github.com/gogo/protobuf v1.3.1
+	github.com/gorilla/mux v1.6.2
 	github.com/lucas-clemente/quic-go v0.17.1
 	github.com/miekg/dns v1.1.29
 	github.com/nats-io/nats-server/v2 v2.0.0

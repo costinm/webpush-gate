@@ -46,7 +46,7 @@ func (sshS *SSHServerConn) handleServerSessionChannel(node *mesh.DMNode, newChan
 
 	br := bufio.NewReader(channel)
 
-	go handleMessageStream(node, br, sshS.VIP6.String(), sshS.gate.certs.VIP6.String(), mconn, true)
+	go handleMessageStream(node, br, sshS.VIP6.String(), mconn, true)
 
 	mconn.SendMessageToRemote(msgs.NewMessage("/endpoint/sshs", map[string]string{
 		//"remote", nConn.RemoteAddr().String(),
@@ -71,7 +71,7 @@ func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
 //
 // from is the authenticated VIP of the sender.
 // self is my own VIP
-func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string, self string,
+func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string,
 	mconn *msgs.MsgConnection, isServer bool) {
 
 	mconn.HandleMessageStream(func(ev *msgs.Message) {
@@ -85,7 +85,7 @@ func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string, self 
 		newEv, _ := json.Marshal(ev)
 		fmt.Println(string(newEv))
 
-	}, br, from, self)
+	}, br, from)
 
 	log.Println("Message mux closed")
 }
@@ -162,7 +162,7 @@ func (sshC *SSHClientConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh
 	}))
 
 	br := bufio.NewReader(channel)
-	handleMessageStream(node, br, sshC.VIP6.String(), sshC.gate.certs.VIP6.String(), mconn, false)
+	handleMessageStream(node, br, sshC.VIP6.String(), mconn, false)
 
 	// Disconnected
 	node.TunClient = nil

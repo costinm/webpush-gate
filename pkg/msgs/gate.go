@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/auth"
 )
 
 // One connection - incoming or outgoing. Can send messages to the remote end, which may
@@ -87,7 +87,7 @@ func (mux *Mux) Id() string {
 }
 
 // Message from a remote, will be forwarded to subscribed connections.
-func (mux *Mux) OnRemoteMessage(ev *Message, from, self string, connName string) error {
+func (mux *Mux) OnRemoteMessage(ev *Message, connName string) error {
 	// Local handlers first
 	if ev.Time == "" {
 		ev.Time = time.Now().Format("01-02T15:04:05")
@@ -96,10 +96,13 @@ func (mux *Mux) OnRemoteMessage(ev *Message, from, self string, connName string)
 		ev.Id = mux.Id()
 	}
 	parts := strings.Split(ev.To, "/")
+
 	if len(parts) < 2 {
 		return nil
 	}
-	if parts[0] == self || parts[0] == "" || self == "" {
+
+	to := parts[0]
+	if to == mux.Auth.Self() || to == "" {
 		mux.HandleMessageForNode(ev)
 		log.Println("/mux/OnRemoteMessageLocal", ev.To)
 		return nil
@@ -173,14 +176,16 @@ func (ms *MsgConnection) maybeSend(parts []string, ev *Message, k string) {
 	log.Println("/mux/Remote", ev.To, ms.Name)
 }
 
-func (mux *Mux) ProcessMessage(line []byte, ctx *mesh.ReqContext) *Message {
+// ProcessMessage parses an incoming message, from a remote connection.
+// Message is further processed using one of the methods.
+func (mux *Mux) ProcessMessage(line []byte, ctx *auth.ReqContext) *Message {
 	if len(line) == 0 {
 		return nil
 	}
 	var ev *Message
 	var from string
 	if ctx != nil {
-		from = ctx.VIP.String()
+		from = ctx.ID()
 	}
 
 	if line[0] == '{' {
@@ -221,17 +226,15 @@ func (mux *Mux) ProcessMessage(line []byte, ctx *mesh.ReqContext) *Message {
 // from is the authenticated VIP of the sender.
 // self is my own VIP
 //
-func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message),
-	br *bufio.Reader, from string, self string) {
+func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *bufio.Reader, from string) {
 	for {
 		line, _, err := br.ReadLine()
 		if err != nil {
 			log.Println("Error reading stream ", mconn.VIP, err)
 			break
 		}
-		//if role == ROLE_GUEST {
-		//	continue
-		//}
+
+		//mconn.gate.ProcessMessage(line, rc)
 
 		if len(line) > 0 && line[0] == '{' {
 			ev := ParseJSON(line)
@@ -259,17 +262,13 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message),
 
 			// TODO: forwarded 'endpoint' messages, for children and peers
 
-			if cb != nil {
-				cb(ev)
-			}
-
 			loop := false
 			for _, s := range ev.Path {
-				if s == self {
+				if s == mconn.gate.Auth.Self() {
 					loop = true
 					break
 				}
-				if s == from {
+				if s == ev.From {
 					loop = true
 					break
 				}
@@ -277,10 +276,14 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message),
 			if loop {
 				continue
 			}
-			ev.Path = append(ev.Path, from)
+			ev.Path = append(ev.Path, ev.From)
 			ev.Connection = mconn
 
-			mconn.gate.OnRemoteMessage(ev, from, self, mconn.Name)
+			// For each message
+			if cb != nil {
+				cb(ev)
+			}
+			mconn.gate.OnRemoteMessage(ev, mconn.Name)
 		}
 	}
 

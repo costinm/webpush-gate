@@ -41,7 +41,8 @@ type Mux struct {
 	connections map[string]*MsgConnection
 
 	// Handlers by path, for processing incoming messages to this node or local messages.
-	handlers map[string]MessageHandler
+	handlers     map[string]MessageHandler
+	handlerRoles map[string][]string
 
 	// Allows regular HTTP Handlers to process messages.
 	// A message is mapped to a request. Like CloudEvents, response from the
@@ -58,8 +59,9 @@ type OnMessage func(*Message)
 
 func NewMux() *Mux {
 	mux := &Mux{
-		connections: map[string]*MsgConnection{},
-		handlers:    map[string]MessageHandler{},
+		connections:  map[string]*MsgConnection{},
+		handlers:     map[string]MessageHandler{},
+		handlerRoles: map[string][]string{},
 	}
 
 	return mux
@@ -137,7 +139,7 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 	}
 
 	toNode := argv[0]
-	if toNode != "" {
+	if toNode != "" && toNode != mux.Auth.VIP6.String() {
 		// Currently local handlers only support local originated messages.
 		// Use a connection for full support.
 		return nil
@@ -146,6 +148,10 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 
 	payload := ev.Binary()
 	log.Println("MSG: ", argv, ev.Meta, ev.From, ev.Data, len(payload))
+
+	if r := mux.handlerRoles[topic]; r != nil {
+		// Check From
+	}
 
 	if h, f := mux.handlers["*"]; f {
 		h.HandleMessage(context.Background(), ev.To, ev.Meta, payload)
@@ -206,9 +212,16 @@ func (r *rw) WriteHeader(statusCode int) {
 	r.Code = statusCode
 }
 
-// Add a local handler for a specific message type or *
-// This is a local function.
+// Add a local handler for a specific message type.
+// Special topics: *, /open, /close
 func (mux *Mux) AddHandler(path string, cp MessageHandler) {
+	mux.mutex.Lock()
+	mux.handlers[path] = cp
+	mux.mutex.Unlock()
+}
+
+// Add a handler that checks the role
+func (mux *Mux) AddHandlerRole(path string, role ...string) {
 	mux.mutex.Lock()
 	mux.handlers[path] = cp
 	mux.mutex.Unlock()

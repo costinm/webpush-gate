@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/dsa"
 	"crypto/ecdsa"
@@ -109,6 +110,43 @@ type Auth struct {
 
 	// cached
 	pub64 string
+}
+
+// Return the self identity. Currently it's using the VIP6 format - may change.
+// This is used in Message 'From' and in ReqContext.
+func (a *Auth) Self() string {
+	return a.VIP6.String()
+}
+
+// ReqContext is a context associated with a request.
+// Typically for H2:
+// 	h2ctx := r.Context().Value(mesh.H2Info).(*mesh.ReqContext)
+type ReqContext struct {
+	// Auth role - set if a authorized_keys or other authz is configured
+	Role string
+
+	// SAN list from the certificate, or equivalent auth method.
+	SAN []string
+
+	// Request start time
+	T0 time.Time
+
+	// Public key of the first cert in the chain (similar with SSH)
+	Pub []byte
+
+	// VIP associated with the public key.
+	VIP net.IP
+
+	VAPID *JWT
+}
+
+// ID of the caller, validated based on certs.
+// Currently based on VIP6 for mesh nods.
+func (rc *ReqContext) ID() string {
+	if rc.VIP == nil {
+		return ""
+	}
+	return rc.VIP.String()
 }
 
 // WIP: more info about authorized
@@ -264,6 +302,15 @@ func NewAuth(cfg ConfStore, name, domain string) *Auth {
 	auth := _new()
 	auth.Config = cfg
 	auth.Domain = domain
+
+	if name == "" {
+		if os.Getenv("POD_NAME") != "" {
+			name = os.Getenv("POD_NAME") + "." + os.Getenv("POD_NAMESPACE")
+		} else {
+			name, _ = os.Hostname()
+		}
+	}
+
 	auth.Name = name
 
 	// Use .ssh/ and the secondary config to load the keys.
@@ -982,4 +1029,16 @@ func ParseKey(key []byte) (*rsa.PrivateKey, error) {
 		return nil, errors.New("private key is invalid")
 	}
 	return parsed, nil
+}
+
+type h2Key int
+
+var h2Info = h2Key(1)
+
+func AuthContext(ctx context.Context) *ReqContext {
+	return ctx.Value(h2Info).(*ReqContext)
+}
+
+func ContextWithAuth(ctx context.Context, h2c *ReqContext) context.Context {
+	return context.WithValue(ctx, h2Info, h2c)
 }

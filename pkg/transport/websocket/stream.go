@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 	ws "golang.org/x/net/websocket"
 )
@@ -20,17 +19,14 @@ func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
 		Config:    ws.Config{},
 		Handshake: nil,
 		Handler: func(conn *ws.Conn) {
-			h2ctx, ok := conn.Request().Context().Value(mesh.H2Info).(*mesh.ReqContext)
-			if !ok {
-				h2ctx = nil
-			}
+			h2ctx := auth.AuthContext(conn.Request().Context())
 			websocketStream(gate, conn, h2ctx, "http-"+conn.Request().RemoteAddr)
 		},
 	}
 	mux.Handle("/ws", ws)
 }
 
-func websocketStream(mux *msgs.Mux, conn *ws.Conn, h2ctx *mesh.ReqContext, id string) {
+func websocketStream(mux *msgs.Mux, conn *ws.Conn, h2ctx *auth.ReqContext, id string) {
 	data := make([]byte, 4096)
 	fw, _ := conn.NewFrameWriter(conn.PayloadType)
 

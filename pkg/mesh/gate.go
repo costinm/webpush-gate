@@ -254,6 +254,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		Config:         gcfg,
 		VisibleDevices: map[string]*MeshDevice{},
 	}
+	gw.UA = certs.Name
 
 	gw.client = &net.UDPAddr{
 		Port: 0,

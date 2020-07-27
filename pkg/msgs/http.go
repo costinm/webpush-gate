@@ -8,10 +8,8 @@ import (
 	"net/http"
 	"net/textproto"
 	"strings"
-	"time"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/mesh"
 )
 
 type Backoff interface {
@@ -20,7 +18,6 @@ type Backoff interface {
 }
 
 var ReceiveBaseUrl = "https://127.0.0.1:5228/"
-
 
 // Used to push a message from a remote sender.
 //
@@ -70,11 +67,12 @@ func HTTPHandlerSend(w http.ResponseWriter, r *http.Request) {
 
 var SharedWPAuth = []byte{1}
 
-// Webpush handler.
-// Auth: VAPID or client cert - results in VIP of sender
+// Webpush handler - on /push[/VIP], on the HTTPS handler
 //
+// Auth: VAPID or client cert - results in VIP of sender
 func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
-	h2ctx := r.Context().Value(mesh.H2Info).(*mesh.ReqContext)
+	// VAPID or client cert already authenticated.
+	rctx := auth.AuthContext(r.Context())
 
 	parts := strings.Split(r.RequestURI, "/")
 	if len(parts) < 3 {
@@ -86,7 +84,7 @@ func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
 	log.Println("WEBPUSH over HTTP ", parts)
 
 	dest := parts[2]
-	if dest == "" || dest == mux.Auth.Name || dest == mux.Auth.VIP6.String() {
+	if dest == "" || dest == mux.Auth.Name || dest == mux.Auth.Self() {
 		ec := auth.NewContextUA(mux.Auth.Priv, mux.Auth.Pub, SharedWPAuth)
 		b, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -94,15 +92,6 @@ func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Body error"))
 			return
 		}
-
-		authH := r.Header.Get("Authorization")
-		if authH == "" {
-			log.Println("Missing auth ", r.Header)
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("Missing auth"))
-			return
-		}
-		jwt, pub, err := auth.CheckVAPID(authH, time.Now())
 
 		msgb, err := ec.Decrypt(b)
 		if err != nil {
@@ -112,8 +101,8 @@ func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ev := mux.ProcessMessage(msgb, h2ctx)
-		log.Println("GOT WEBPUSH: ", jwt, string(msgb), ev)
+		ev := mux.ProcessMessage(msgb, rctx)
+		log.Println("GOT WEBPUSH: ", rctx.ID(), string(msgb), ev)
 
 		if ev == nil {
 			if err != nil {
@@ -123,8 +112,8 @@ func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		role := mux.Auth.Authorized[string(pub)]
-		if role == "" {
+		role := rctx.Role
+		if role == "" || role == "guest" {
 			log.Println("Unauthorized ")
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte("Unauthorized"))
@@ -133,7 +122,7 @@ func (mux *Mux) HTTPHandlerWebpush(w http.ResponseWriter, r *http.Request) {
 
 		mux.HandleMessageForNode(ev)
 	} else {
-		// Dest is remote, we're just forwarding
+		// Dest is remote, we're just forwarding.
 
 	}
 

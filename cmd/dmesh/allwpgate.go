@@ -1,11 +1,10 @@
-package bootstrap
+package main
 
 import (
 	"context"
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"os"
 
 	"github.com/costinm/wpgate/pkg/auth"
@@ -20,13 +19,13 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/iptables"
 	"github.com/costinm/wpgate/pkg/transport/local"
+	"github.com/costinm/wpgate/pkg/transport/noise"
 	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 	"github.com/costinm/wpgate/pkg/ui"
-	"google.golang.org/grpc"
 )
 
 // bootstrap loads all the components of wpgate together
@@ -118,12 +117,8 @@ func StartAll(a *ServerAll) {
 	config := conf.NewConf(a.ConfDir, "./var/lib/dmesh/")
 	a.Conf = config
 
-	addrN := a.BasePort
-	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
-
 	// Init or load certificates/keys
-	hn, _ := os.Hostname()
-	authz := auth.NewAuth(config, hn, "m.webinf.info")
+	authz := auth.NewAuth(config, "", "m.webinf.info")
 	authz.Dump()
 
 	// Init Auth on the DefaultMux, for messaging
@@ -140,13 +135,6 @@ func StartAll(a *ServerAll) {
 	// HTTPGate - common structures
 	a.GW = mesh.New(authz, gcfg)
 
-	// Set the 'UA' field - untrusted local declaration.
-	a.GW.UA = hn
-
-	if os.Getenv("POD_NAME") != "" {
-		a.GW.UA = os.Getenv("POD_NAME") + "." + os.Getenv("POD_NAMESPACE")
-	}
-
 	// Create the H2
 	h2s, err := h2.NewTransport(authz)
 	if err != nil {
@@ -155,20 +143,12 @@ func StartAll(a *ServerAll) {
 	a.H2 = h2s
 
 	// GRPC XDS transport
-	s := grpc.NewServer()
 	wp := &xds.GrpcService{}
-	xds.RegisterAggregatedDiscoveryServiceServer(s, wp)
-
-	// ServerAll GRPC
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", addrN+GRPC))
-	if err != nil {
-		log.Fatal(err)
-	}
-	go s.Serve(lis)
+	xds.RegisterAggregatedDiscoveryServiceServer(h2s.GRPC, wp)
 
 	// Experimental: noise transport
 	// bring dep no compiling on arm
-	//go noise.New(uint16(addrN + NOISE))
+	go noise.New(uint16(a.BasePort + NOISE))
 
 	// SSH transport + reverse streams.
 	sshg := sshgate.NewSSHGate(a.GW, authz)
@@ -176,11 +156,10 @@ func StartAll(a *ServerAll) {
 	sshg.InitServer()
 	sshg.ListenSSH(a.addr(SSH))
 
-	// Init SOCKS - on localhost, for outbound
-
 	// TODO: init socks on TLS, for inbound
 
 	// Connect to a mesh node
+	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
 	if meshH != "" && meshH != "OFF" {
 		a.GW.Vpn = meshH
 		go sshgate.MaintainVPNConnection(a.GW)
@@ -188,7 +167,6 @@ func StartAll(a *ServerAll) {
 
 	// Non-critical, for testing
 	a.StartExtra()
-	a.StartDebug()
 
 	// Local discovery interface - multicast, local network IPs
 	ld := local.NewLocal(a.GW, authz)
@@ -200,6 +178,9 @@ func StartAll(a *ServerAll) {
 
 	a.StartMsg()
 
+	a.H2.MTLSMux.HandleFunc("/push/", msgs.DefaultMux.HTTPHandlerWebpush)
+	a.H2.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
+	a.H2.MTLSMux.HandleFunc("/p/", eventstream.Handler(msgs.DefaultMux))
 	h2s.InitMTLSServer(a.BasePort+H2, h2s.MTLSMux)
 }
 
@@ -210,12 +191,6 @@ func (a *ServerAll) addr(off int) string {
 	return fmt.Sprintf("0.0.0.0:%d", a.BasePort+off)
 }
 
-func (a *ServerAll) StartDebug() {
-	mux := http.DefaultServeMux
-
-	mux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
-}
-
 func (a *ServerAll) StartMsg() {
 	// ServerAll - accept from other sources
 	cloudevents.NewCloudEvents(msgs.DefaultMux, a.BasePort+CLOUD_EVENTS)
@@ -223,11 +198,8 @@ func (a *ServerAll) StartMsg() {
 
 	// TODO: eventstream client (MonitorNode)
 	a.H2.LocalMux.HandleFunc("/s/", msgs.HTTPHandlerSend)
-	a.H2.MTLSMux.HandleFunc("/push/", msgs.DefaultMux.HTTPHandlerWebpush)
-	a.H2.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
-	a.H2.MTLSMux.HandleFunc("/p/", eventstream.Handler(msgs.DefaultMux))
 
-	// /ws
+	// /ws - registered on the HTTPS server
 	websocket.WSTransport(msgs.DefaultMux, a.H2.MTLSMux)
 
 	msgs.DefaultMux.AddHandler(mesh.TopicConnectUP, msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
@@ -244,7 +216,7 @@ func (a *ServerAll) StartExtra() {
 	var err error
 	// accept: used for SSH -R
 
-	s5, err := socks.Socks5Capture(a.addr(SOCKS), a.GW)
+	s5, err := socks.Socks5Capture(a.laddr(SOCKS), a.GW)
 	if err != nil {
 		log.Print("Error: ", err)
 	}
@@ -265,6 +237,7 @@ func (a *ServerAll) StartExtra() {
 	// Local DNS resolver. Can forward up.
 	dns, err := dns.NewDmDns(a.BasePort + DNS)
 	go dns.Serve()
+	a.H2.MTLSMux.Handle("/dns/", dns)
 	a.GW.DNS = dns
 
 	for _, t := range a.GW.Config.Listeners {
