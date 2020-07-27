@@ -154,20 +154,6 @@ func (tp *TcpProxy) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// Implements the http.Transport.DialContext function - used for dialing requests using
-// custom net.Conn.
-//
-// Also implements x.net.proxy.ContextDialer - socks also implements it.
-func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn net.Conn, e error) {
-	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6, Port: nextProxyId()}, "DIAL", nil, nil, nil)
-	err := tp.Dial(addr, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return tp, nil
-}
-
 // Glue for interface type. The interface is a StreamProxy
 func (gw *Gateway) NewStream(addr net.IP, port uint16, ctype string, initialData []byte,
 	clientIn io.ReadCloser, clientOut io.Writer) interface{} {
@@ -283,6 +269,30 @@ func (tp *TcpProxy) SetDest(dest string) error {
 	tp.Dest = dest
 	return nil
 
+}
+
+// Implements the http.Transport.DialContext function - used for dialing requests using
+// custom net.Conn.
+//
+// Also implements x.net.proxy.ContextDialer - socks also implements it.
+func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn net.Conn, e error) {
+	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6, Port: nextProxyId()}, "DIAL", nil, nil, nil)
+	err := tp.Dial(addr, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return tp, nil
+}
+
+func (gw *Gateway) DialContextTCP(ctx context.Context, network, addr *net.TCPAddr) (conn net.Conn, e error) {
+	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6, Port: nextProxyId()}, "DIAL", nil, nil, nil)
+	err := tp.Dial("", addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return tp, nil
 }
 
 // dest can be:
