@@ -223,7 +223,7 @@ func (mux *Mux) AddHandler(path string, cp MessageHandler) {
 // Add a handler that checks the role
 func (mux *Mux) AddHandlerRole(path string, role ...string) {
 	mux.mutex.Lock()
-	mux.handlers[path] = cp
+	mux.handlerRoles[path] = role
 	mux.mutex.Unlock()
 }
 
