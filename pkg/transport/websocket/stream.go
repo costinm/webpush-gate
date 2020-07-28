@@ -24,6 +24,7 @@ func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
 		},
 	}
 	mux.Handle("/ws", ws)
+	mux.Handle("/tcpws/", ws)
 }
 
 func websocketStream(mux *msgs.Mux, conn *ws.Conn, h2ctx *auth.ReqContext, id string) {

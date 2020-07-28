@@ -1,6 +1,6 @@
-FROM golang:latest AS build-base
-# dlv doesn't seem to work yet ?
+FROM golang:latest AS build
 #FROM golang:alpine AS build-base
+# dlv doesn't seem to work yet ?
 
 WORKDIR /ws
 ENV GO111MODULE=on
@@ -9,13 +9,10 @@ ENV GOOS=linux
 ENV GOPROXY=https://proxy.golang.org
 
 #RUN apk add --no-cache git
-RUN apt-get update && apt install less net-tools
+#RUN apt-get update && apt install less net-tools
 
 
 ENTRYPOINT /bin/sh
-
-################################################################################
-FROM build-base AS build
 
 COPY go.mod ./go.mod
 COPY go.sum ./go.sum

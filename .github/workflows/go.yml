@@ -16,7 +16,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           registry: docker.pkg.github.com
-          repository: costinm/wps/wps
+          repository: costinm/wpgate/wps
           tag_with_ref: true
 
   build:
