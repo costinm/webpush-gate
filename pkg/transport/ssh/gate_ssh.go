@@ -383,7 +383,6 @@ func (sshC *SSHClientConn) AcceptDial() error {
 		return err
 	}
 
-	sshC.gate.gw.GWAddr = sshC.Addr
 	msgs.Send("./gate/sshc", "addr", sshC.Addr)
 
 	for {
@@ -532,7 +531,6 @@ func MaintainVPNConnection(gw *mesh.Gateway) {
 			time.Sleep(5 * time.Second)
 		}
 	}
-
 }
 
 // ======= Copied from SSHClientConn, to customize

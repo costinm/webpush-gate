@@ -23,6 +23,7 @@ import (
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/soheilhy/cmux"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 )
@@ -117,6 +118,54 @@ func CleanQuic(httpClient *http.Client) {
 	if ok {
 		hrt.Close()
 	}
+}
+
+// Used by a H2 server to 'fake' a secure connection.
+type fakeTLSConn struct {
+	net.Conn
+}
+
+func (c *fakeTLSConn) ConnectionState() tls.ConnectionState {
+	return tls.ConnectionState{
+		Version:     tls.VersionTLS12,
+		CipherSuite: 0xC02F,
+	}
+}
+
+// Multiplexed plaintext server, using MTLSMux and GRPCServer
+func (h2 *H2) InitPlaintext(port string) {
+	l, err := net.Listen("tcp", port)
+	if err != nil {
+		log.Fatal(err)
+	}
+	m := cmux.New(l)
+
+	grpcL := m.Match(cmux.HTTP2HeaderField("content-type", "application/grpc"))
+	// TODO: MTLS should probably be disabled in this case, but it's using Handle so may be ok
+	go h2.GRPC.Serve(grpcL)
+
+	httpL := m.Match(cmux.HTTP1Fast())
+	hs := &http.Server{
+		Handler: h2.handlerWrapper(h2.MTLSMux),
+	}
+	go hs.Serve(httpL)
+
+	h2L := m.Match(cmux.HTTP2())
+
+	go func() {
+		conn, err := h2L.Accept()
+		if err != nil {
+			return
+		}
+
+		h2Server := &http2.Server{}
+		h2Server.ServeConn(
+			&fakeTLSConn{conn},
+			&http2.ServeConnOpts{
+				Handler: h2.handlerWrapper(h2.MTLSMux)})
+	}()
+
+	go m.Serve()
 }
 
 // Start QUIC and HTTPS servers on port, using handler.
@@ -428,49 +477,5 @@ func NewSocksHttpClient(socksAddr string) *http.Client {
 			//	InsecureSkipVerify: true,
 			//},
 		},
-	}
-}
-
-func InitServer(port string) (err error) {
-	lis, err := net.Listen("tcp", port)
-	if err != nil {
-		return
-	}
-	for {
-		conn, err := lis.Accept()
-		if err != nil {
-			return err
-		}
-		go handleCon(conn)
-	}
-}
-
-// Special handler for receipts and poll, which use push promises
-func handleCon(con net.Conn) {
-	defer con.Close()
-	// writer: bufio.NewWriterSize(conn, http2IOBufSize),
-	f := http2.NewFramer(con, con)
-	settings := []http2.Setting{}
-
-	if err := f.WriteSettings(settings...); err != nil {
-		return
-	}
-
-	frame, err := f.ReadFrame()
-	if err != nil {
-		log.Println(" failed to read frame", err)
-		return
-	}
-	sf, ok := frame.(*http2.SettingsFrame)
-	if !ok {
-		log.Printf("wrong frame %T from client", frame)
-		return
-	}
-	log.Println(sf)
-	//hDec := hpack.NewDecoder()
-
-	for {
-		select {}
-
 	}
 }

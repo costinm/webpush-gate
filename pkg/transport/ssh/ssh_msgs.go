@@ -52,7 +52,7 @@ func (sshS *SSHServerConn) handleServerSessionChannel(node *mesh.DMNode, newChan
 		//"remote", nConn.RemoteAddr().String(),
 		//"key": base64.StdEncoding.EncodeToString(sshC.gate.certs.Pub),
 		//"vip": sshC.gate.certs.VIP6.String(), // TODO: configure the public addresses !
-		"ua": sshS.gate.gw.UA,
+		"ua": sshS.gate.gw.Auth.Name,
 	}))
 }
 
@@ -158,7 +158,7 @@ func (sshC *SSHClientConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh
 		//"remote", nConn.RemoteAddr().String(),
 		//"key": base64.StdEncoding.EncodeToString(sshC.gate.certs.Pub),
 		//"vip": sshC.gate.certs.VIP6.String(), // TODO: configure the public addresses !
-		"ua": sshC.gate.gw.UA,
+		"ua": sshC.gate.gw.Auth.Name,
 	}))
 
 	br := bufio.NewReader(channel)

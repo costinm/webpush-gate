@@ -39,7 +39,18 @@ jobs:
 
     - name: Build
       run: |
-        go build -v ./cmd/wps
+        go build -o wps -v ./cmd/wps
         go build -v ./cmd/wp
         go build -v ./cmd/dmesh
 
+    - name: Upload wps
+      uses: actions/upload-artifact@v2
+      with:
+        name: wps
+        path: wps
+
+    - name: Upload wp
+      uses: actions/upload-artifact@v2
+      with:
+        name: wp
+        path: wp

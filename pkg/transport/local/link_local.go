@@ -285,7 +285,7 @@ func mcMessage(gw *LLDiscovery, i *DirectActiveInterface, isAck bool) []byte {
 	// my client ssid
 	//
 	ann := &mesh.NodeAnnounce{
-		UA:   gw.gw.UA,
+		UA:   gw.gw.Auth.Name,
 		IPs:  ips(gw.DirectActiveInterfaces),
 		SSID: auth.Conf(gw.auth.Config, "ssid", ""),
 		Ack:  isAck,

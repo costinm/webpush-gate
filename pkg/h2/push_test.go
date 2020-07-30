@@ -27,18 +27,6 @@ func newLocalListener(t *testing.T) net.Listener {
 
 var tlsConfigInsecure = &tls.Config{InsecureSkipVerify: true}
 
-// Used by a H2 server to 'fake' a secure connection.
-type fakeTLSConn struct {
-	net.Conn
-}
-
-func (c *fakeTLSConn) ConnectionState() tls.ConnectionState {
-	return tls.ConnectionState{
-		Version:     tls.VersionTLS12,
-		CipherSuite: 0xC02F,
-	}
-}
-
 // Start a H2 server with fake TLS
 func startH2cServer(t *testing.T) net.Listener {
 	h2Server := &http2.Server{}

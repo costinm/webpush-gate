@@ -8,6 +8,7 @@ import (
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
+	"github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
@@ -16,6 +17,7 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
+	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 )
 
@@ -32,6 +34,9 @@ import (
 // - socks
 // - local http proxy
 func main() {
+	// Set if running in a knative env.
+	knativePort := os.Getenv("PORT")
+
 	bp := 5200
 	base := os.Getenv("BASE_PORT")
 	if base != "" {
@@ -84,9 +89,6 @@ func main() {
 	h2s.MTLSMux.HandleFunc("/push/", msgs.DefaultMux.HTTPHandlerWebpush)
 	h2s.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
 
-	// Start the HTTPS services
-	h2s.InitMTLSServer(bp+28, h2s.MTLSMux)
-
 	// Ingress: SNI sniffing. Anyone can connect - reach mesh nodes
 	// or defined destinations
 	sniAddr := os.Getenv("SNI_ADDR")
@@ -94,27 +96,36 @@ func main() {
 		go sni.SniProxy(GW, sniAddr)
 	}
 
-	// Egress - SOCKS, HTTP and
-	s5, err := socks.Socks5Capture(laddr(bp, 24), GW)
-	if err != nil {
-		log.Print("Error: ", err)
+	websocket.WSTransport(msgs.DefaultMux, h2s.MTLSMux)
+
+	if knativePort == "" {
+		// Egress - SOCKS, HTTP and
+		s5, err := socks.Socks5Capture(laddr(bp, 24), GW)
+		if err != nil {
+			log.Print("Error: ", err)
+		}
+		log.Println("Start SOCKS, use -x socks5://" + s5.Listener.Addr().String())
+
+		hgw := httpproxy.NewHTTPGate(GW, h2s)
+		hgw.HttpProxyCapture(laddr(bp, 3))
+
+		//// Local DNS resolver. Can forward up.
+		dns, err := dns.NewDmDns(bp + 23)
+		go dns.Serve()
+		GW.DNS = dns
+
+		//UI, _ := ui.NewUI(GW, h2s, nil, nil)
+		//http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", bp+27), UI)
+
+		// Start the HTTPS services
+
+		for _, t := range GW.Config.Listeners {
+			accept.NewForwarder(GW, t)
+		}
+		h2s.InitMTLSServer(bp+28, h2s.MTLSMux)
+	} else {
+		h2s.InitPlaintext(":" + knativePort)
 	}
-	log.Println("Start SOCKS, use -x socks5://" + s5.Listener.Addr().String())
-
-	hgw := httpproxy.NewHTTPGate(GW, h2s)
-	hgw.HttpProxyCapture(laddr(bp, 3))
-
-	for _, t := range GW.Config.Listeners {
-		accept.NewForwarder(GW, t)
-	}
-
-	//// Local DNS resolver. Can forward up.
-	//dns, err := dns.NewDmDns(bp + 23)
-	//go dns.Serve()
-	//GW.DNS = dns
-
-	//UI, _ := ui.NewUI(GW, h2s, nil, nil)
-	//http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", bp+27), UI)
 
 	select {}
 }

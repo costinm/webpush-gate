@@ -55,7 +55,17 @@ var (
 
 // Gateway is the main capture API.
 type Gateway struct {
-	Mesh
+	// TODO: add methods to mutate fields.
+	MeshMutex sync.RWMutex
+
+	// Direct nodes by interface address (which is derived from public key - last 8 bytes in
+	// initial prototype). This includes only directly connected notes - either Wifi on same segment, or VPNs and
+	// connected devices.
+	Nodes map[uint64]*DMNode
+
+	// Vpn is the currently active VPN server. Will be selected from the list of
+	// known VPN servers (in future - for now hardcoded to the test server)
+	Vpn string
 
 	// H2 has configured MTLS clients for QUIC or H2
 	// Used to forward the UdpNat to an upstream VPN server.
@@ -241,7 +251,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 	}
 	gw := &Gateway{
 		closed:    false,
-		Mesh:      NewMesh(),
+		Nodes:     map[uint64]*DMNode{},
 		Conf:      certs.Config,
 		ActiveUdp: make(map[string]*UdpNat),
 		ActiveTcp: make(map[int]*TcpProxy),
@@ -254,14 +264,11 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		Config:         gcfg,
 		VisibleDevices: map[string]*MeshDevice{},
 	}
-	gw.UA = certs.Name
 
 	gw.client = &net.UDPAddr{
 		Port: 0,
 	}
 	// TODO: add grpcserver, http mux
-
-	NodeF = gw.Node
 
 	return gw
 }

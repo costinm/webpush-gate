@@ -1,4 +1,4 @@
-package gate
+package toh
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 
 // K8S:
 // API_SERVER/api/v1/namespaces/%s/pods/%s/portforward
-// Forwards a local port to the pod, using SPDY
+// Forwards a local port to the pod, using SPDY or Websocket.
 
 // TODO: half close doesn't work well - if http client closes the req body, we detect and half close the remote
 // connection. However if remote half closes, we can't close the stream going back to client without terminating
@@ -23,12 +23,17 @@ import (
 // The fix is to either tweak the QUIC stack to keep sending request body, or use the low-level APIs, or to
 // packetize the response from remote to loca ( going in the response writter ).
 
-type Gateway struct {
+type TcpOverH2 struct {
 	gw *mesh.Gateway
 }
 
-func (gw *Gateway) InitMux(mux *http.ServeMux) {
-	mux.HandleFunc("/tcp/", gw.HTTPTunnelTCP)
+func New(gw *mesh.Gateway, mux *http.ServeMux) *TcpOverH2 {
+	toh := &TcpOverH2{
+		gw: gw,
+	}
+	mux.HandleFunc("/tcp/", toh.HTTPTunnelTCP)
+
+	return toh
 }
 
 // Server side 'TCP-over-H2+QUIC
@@ -42,7 +47,7 @@ func (gw *Gateway) InitMux(mux *http.ServeMux) {
 //
 // Returns 50x errors or 200 followed by a body starting with 'OK' (to flush headers)
 // Additional metadata using headers.
-func (gw *Gateway) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
+func (toh *TcpOverH2) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
 	// TODO: meta: via, trace, t0, loop detection
 
 	if r.Proto == "HTTP/1.1" {
@@ -50,8 +55,6 @@ func (gw *Gateway) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest) // 400
 		return
 	}
-
-	h2.GetPeerCertBytes(r)
 
 	parts := strings.Split(r.URL.Path, "/")
 	if len(parts) < 3 {
@@ -67,7 +70,7 @@ func (gw *Gateway) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
 	// TODO: use the VIP instead of IP. Same for SSH clients.
 	ra, _ := net.ResolveTCPAddr("tcp", r.RemoteAddr)
 
-	tcpProxy := gw.gw.NewTcpProxy(ra, "HPROXY", nil, r.Body, w)
+	tcpProxy := toh.gw.NewTcpProxy(ra, "HPROXY", nil, r.Body, w)
 	defer tcpProxy.Close()
 
 	if len(parts) > 3 {
@@ -84,25 +87,29 @@ func (gw *Gateway) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gw.httpEgressProxy(tcpProxy, w)
+	// egress proxies the connection.
+	// "proxy" wraps a TCP connection to the external host. 'remoteIn' and 'remoteOut' are the net.Conn
+	// w and rbody are the clients.
+
+	head := "OK"
+	w.WriteHeader(200)
+
+	// TODO: match SSH, use a packet.
+	// This is needed to get the connection going - client must parse the first packet as well.
+	w.Write([]byte(head))
+	w.(http.Flusher).Flush()
+
+	// Dial sets the remote streams
+
+	// TODO: packetize, compat with apiserver if possible
+	tcpProxy.Proxy()
 	return
 }
 
 const HEADER_PREV_PATH = "x-dm-p"
 
-// egress proxies the connection.
-// "proxy" wraps a TCP connection to the external host. 'remoteIn' and 'remoteOut' are the net.Conn
-// w and rbody are the clients.
-func (gw *Gateway) httpEgressProxy(proxy *mesh.TcpProxy, clientWriter http.ResponseWriter) {
+func (toh *TcpOverH2) httpEgressProxy(proxy *mesh.TcpProxy, clientWriter http.ResponseWriter) {
 	// like in socks, need to write some header to start the process.
-	head := "OK"
-	clientWriter.WriteHeader(200)
-	clientWriter.Write([]byte(head))
-	clientWriter.(http.Flusher).Flush()
-
-	// Dial sets the remote streams
-
-	proxy.Proxy()
 }
 
 // TcpProxy implements Read, so it can be passed to a HTTP connection while capturing stats.
@@ -160,7 +167,7 @@ func (br *BodyReader) Read(out []byte) (int, error) {
 // - IP4:port
 // - [fd00:MESHID]:port -> route to the MESHID, then use it to connect to the given dest addr
 // The proxy MUST have localIn and initialData already set, because the http connection will start streaming it.
-func DialViaHTTP(gw *Gateway, h2 *h2.H2, tp *mesh.TcpProxy, via, destAddr string) error {
+func (gw *TcpOverH2) DialViaHTTP(h2 *h2.H2, tp *mesh.TcpProxy, via, destAddr string) error {
 
 	t0 := time.Now()
 

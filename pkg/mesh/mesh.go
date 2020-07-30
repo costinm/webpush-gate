@@ -5,53 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"sync"
 	"time"
 )
 
 const (
 	TopicConnectUP = "connectUP"
 )
-
-// Full mesh database and connection management.
-type Mesh struct {
-	// TODO: add methods to mutate fields.
-	MeshMutex sync.RWMutex
-
-	// Direct nodes by interface address (which is derived from public key - last 8 bytes in
-	// initial prototype). This includes only directly connected notes - either Wifi on same segment, or VPNs and
-	// connected devices.
-	Nodes map[uint64]*DMNode
-
-	// Vpns contains trusted VPN servers, or exit points.
-
-	// Vpn is the currently active VPN server. Will be selected from the list of
-	// known VPN servers (in future - for now hardcoded to the test server)
-	Vpn string
-
-	// User agent - hostname or android build id or custom.
-	UA string
-
-	// List of public IPs detected. Updated by registry code.
-	// On a regular SSH server - may be detected using a shell script or dmcli, or known as the address of the
-	// server we connected to.
-	PublicIPs []string
-
-	// Address of the VPN gateway ( SSH or H2 ), where the device can be reached.
-	GWAddr string
-}
-
-func NewMesh() Mesh {
-	return Mesh{
-		Nodes: map[uint64]*DMNode{},
-		//WifiInfo: &WifiRegistrationInfo{},
-	}
-}
-
-func (m *Mesh) IsRoot() bool {
-	return os.Getenv("VPNROOT") != ""
-}
 
 // Information about a node.
 // Sent periodically, signed by the origin - for example as a JWT, or UDP
@@ -141,12 +100,6 @@ type DMNode struct {
 	// Numbers of announces received from that node on the P2P interface
 	AnnouncesFromP2P int
 }
-
-type NodeGetter func(pub []byte) *DMNode
-
-var (
-	NodeF NodeGetter
-)
 
 func NewDMNode() *DMNode {
 	now := time.Now()
