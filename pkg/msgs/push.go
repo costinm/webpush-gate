@@ -99,7 +99,7 @@ func NewRequest(dest string, key, authK []byte,
 		req.ContentLength = int64(len(payload.Ciphertext))
 		req.Header.Add("encryption",
 			headerField("salt", payload.Salt))
-		keys := headerField("dh", payload.ServerPublicKey)
+		keys := headerField("dh", payload.SendPublic)
 		req.Header.Add("crypto-key", keys)
 		req.Header.Add("content-encoding", "aesgcm")
 	}

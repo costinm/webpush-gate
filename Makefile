@@ -118,3 +118,20 @@ android:
 	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
 	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
 
+
+gen-proto:
+#	(cd pkg/msgs; PATH=${GOPATH}/bin:${PATH} protoc  --gogo_out=paths=source_relative:. webpush.proto)
+#	(cd pkg/transport/xds; PATH=${GOPATH}/bin:${PATH} protoc --gogo_out=paths=source_relative,plugins=grpc:. xds.proto)
+#	(cd pkg/istio; PATH=${GOPATH}/bin:${PATH} protoc --gogo_out=paths=source_relative:. gateway.proto)
+	(cd pkg/msgs; PATH=${GOPATH}/bin:${PATH} protoc  --go_out=paths=source_relative:. webpush.proto)
+	(cd pkg/transport/xds; PATH=${GOPATH}/bin:${PATH} protoc --go_out=paths=source_relative:. xds.proto)
+	(cd pkg/istio; PATH=${GOPATH}/bin:${PATH} protoc --go_out=paths=source_relative:. gateway.proto)
+
+install/proto:
+	go get google.golang.org/protobuf/cmd/protoc-gen-go
+#	go get github.com/gogo/protobuf/proto
+#	go get github.com/gogo/protobuf/jsonpb
+#	go get github.com/gogo/protobuf/gogoproto
+#	go get github.com/gogo/protobuf/protoc-gen-gogo
+#	go get github.com/gogo/protobuf/protoc-gen-gogofast
+#	go get github.com/gogo/protobuf/protoc-gen-gogoslick

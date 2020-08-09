@@ -5,6 +5,7 @@ go 1.14
 require (
 	github.com/cloudevents/sdk-go v0.10.1
 	github.com/gogo/protobuf v1.3.1
+	github.com/golang/protobuf v1.4.1
 	github.com/gorilla/mux v1.6.2 // indirect
 	github.com/lucas-clemente/quic-go v0.17.1
 	github.com/miekg/dns v1.1.29
@@ -22,5 +23,6 @@ require (
 	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e // indirect
 	golang.org/x/sys v0.0.0-20200223170610-d5e6a3e2c0ae
 	golang.org/x/tools v0.0.0-20200626171337-aa94e735be7f // indirect
-	google.golang.org/grpc v1.24.0
+	google.golang.org/grpc v1.27.0
+	google.golang.org/protobuf v1.25.0
 )

@@ -144,8 +144,8 @@ func TestEncrypt(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if !bytes.Equal(result.ServerPublicKey, expKey) {
-		t.Errorf("Server key was %v, expected %v", result.ServerPublicKey, expKey)
+	if !bytes.Equal(result.SendPublic, expKey) {
+		t.Errorf("Server key was %v, expected %v", result.SendPublic, expKey)
 	}
 
 	expSalt, err := mockSalt()
@@ -307,8 +307,8 @@ func TestWebpush(t *testing.T) {
 
 	ec := NewContextSend(rv.Pub, authB)
 	// To reproduce the same output, use the key from the RFC.
-	ec.SendPrivateBytes = sv.Priv
-	ec.ServerPublicKey = sv.Pub
+	ec.SendPrivate = sv.Priv
+	ec.SendPublic = sv.Pub
 	ec.Salt = saltB
 
 	cipher, err := ec.Encrypt([]byte(plain))

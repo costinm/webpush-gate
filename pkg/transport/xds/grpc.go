@@ -169,11 +169,8 @@ func (s *GrpcService) StreamAggregatedResources(stream AggregatedDiscoveryServic
 func (s *GrpcService) process(connection *Connection, request *Request) error {
 	for _, r := range request.Resources {
 		s.Mux.SendMessage(&msgs.Message{
-			Time:       "",
 			To:         request.TypeUrl,
-			Subject:    "",
 			Path:       nil,
-			From:       "",
 			Data:       r,
 			TS:         time.Now(),
 			Meta:       map[string]string{},

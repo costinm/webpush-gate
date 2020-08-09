@@ -140,18 +140,20 @@ type EncryptionContext struct {
 	Salt []byte
 
 	// Temp EC key for encryption, 65B
-	ServerPublicKey []byte
-
-	// Only used for encrypt
-	SendPrivateBytes []byte
-	// Only used for decrypt
-	UAPrivateBytes []byte
+	SendPublic []byte
 
 	// UA Public bytes - from subscription
-	UAPublicBytes []byte
+	UAPublic []byte
+
+	// Only used for encrypt
+	SendPrivate []byte
+	// Only used for decrypt
+	UAPrivate []byte
+
 	// Auth - from subscription
 	Auth []byte
 
+	// Computed from public/private
 	ecdh_secret []byte
 }
 
@@ -161,35 +163,36 @@ const debugEncrypt = false
 
 func NewContextSend(uapub, auth []byte) *EncryptionContext {
 	return &EncryptionContext{
-		Auth:          auth,
-		UAPublicBytes: uapub,
+		Auth:     auth,
+		UAPublic: uapub,
 	}
 }
 
 func NewContextUA(uapriv, uapub, auth []byte) *EncryptionContext {
 	return &EncryptionContext{
-		Auth:           auth,
-		UAPublicBytes:  uapub,
-		UAPrivateBytes: uapriv,
+		Auth:      auth,
+		UAPublic:  uapub,
+		UAPrivate: uapriv,
 	}
 }
 
 // Encrypt a message such that it can be sent using the Web Push protocol.
 //
-// RFC8030
+// RFC8030 - message
+// RFC8291 - encryption
 func (er *EncryptionContext) Encrypt(plaintext []byte) ([]byte, error) {
 	var err error
 	if er.Salt == nil {
 		er.Salt, err = randomSalt()
 	}
-	if er.ServerPublicKey == nil {
-		er.SendPrivateBytes, er.ServerPublicKey, err = randomKey()
+	if er.SendPublic == nil {
+		er.SendPrivate, er.SendPublic, err = randomKey()
 	}
 
-	ua_pubkey := er.UAPublicBytes
+	ua_pubkey := er.UAPublic
 	auth := er.Auth
-	serverPrivateKey := er.SendPrivateBytes
-	serverPublicKey := er.ServerPublicKey
+	serverPrivateKey := er.SendPrivate
+	serverPublicKey := er.SendPublic
 
 	if len(plaintext) > maxPayloadLength {
 		return nil, fmt.Errorf("payload is too large. The max number of bytes is %d, input is %d bytes ", maxPayloadLength, len(plaintext))
@@ -212,7 +215,7 @@ func (er *EncryptionContext) Encrypt(plaintext []byte) ([]byte, error) {
 	er.ecdh_secret = secret
 	if debugEncrypt {
 		log.Println("send_pub", base64.RawURLEncoding.EncodeToString(serverPublicKey))
-		log.Println("ua_pub", base64.RawURLEncoding.EncodeToString(er.UAPublicBytes))
+		log.Println("ua_pub", base64.RawURLEncoding.EncodeToString(er.UAPublic))
 		log.Println("ecdh_secret", base64.RawURLEncoding.EncodeToString(secret))
 	}
 
@@ -259,7 +262,7 @@ func (er *EncryptionContext) Encrypt(plaintext []byte) ([]byte, error) {
 
 	res := er.Salt
 	res = append(res, 0, 0, 16, 0, 65)
-	res = append(res, er.ServerPublicKey...)
+	res = append(res, er.SendPublic...)
 
 	if debugEncrypt {
 		log.Println("header ", base64.RawURLEncoding.EncodeToString(res))
@@ -275,18 +278,18 @@ func (er *EncryptionContext) Decrypt(cypher []byte) ([]byte, error) {
 	er.Ciphertext = cypher
 	salt := er.Ciphertext[0:16]
 	serverPublicKey := er.Ciphertext[21 : 21+65]
-	ua_pubkey := er.UAPublicBytes
+	ua_pubkey := er.UAPublic
 	auth := er.Auth
 
 	// Use ECDH to derive a shared secret between us and the client. We generate
 	// a fresh private/public key pair at random every time we encrypt.
-	secret, err := sharedSecret(curve, serverPublicKey, er.UAPrivateBytes)
+	secret, err := sharedSecret(curve, serverPublicKey, er.UAPrivate)
 	if err != nil {
 		return nil, err
 	}
 	if debugEncrypt {
 		log.Println("send_pub", base64.RawURLEncoding.EncodeToString(serverPublicKey))
-		log.Println("ua_pub", base64.RawURLEncoding.EncodeToString(er.UAPublicBytes))
+		log.Println("ua_pub", base64.RawURLEncoding.EncodeToString(er.UAPublic))
 		log.Println("ecdh_secret", base64.RawURLEncoding.EncodeToString(secret))
 	}
 

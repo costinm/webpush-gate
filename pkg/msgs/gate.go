@@ -89,8 +89,8 @@ func (mux *Mux) Id() string {
 // Message from a remote, will be forwarded to subscribed connections.
 func (mux *Mux) OnRemoteMessage(ev *Message, connName string) error {
 	// Local handlers first
-	if ev.Time == "" {
-		ev.Time = time.Now().Format("01-02T15:04:05")
+	if ev.Time == 0 {
+		ev.Time = time.Now().Unix()
 	}
 	if ev.Id == "" {
 		ev.Id = mux.Id()
@@ -241,8 +241,8 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *b
 
 			// TODO: if a JWT is present and encrypted or signed binary - use the original from.
 
-			if ev.Time == "" {
-				ev.Time = time.Now().Format("01-02T15:04:05")
+			if ev.Time == 0 {
+				ev.Time = time.Now().Unix()
 			}
 			if ev.From == "" {
 				ev.From = from

@@ -23,26 +23,35 @@ import (
 // zapcore:
 // istio:  zapcore + Infof, InfoEnabled, scopes (including default), lumberjack for rotate, grpc->zaprpc, cobra
 
-// CloudEvents: each event is POST-ed to a URL
+// CloudEvents:
+// - each event is POST-ed to a URL or mapped to a transport
 // ce-specversion: "0.3-wip"
 // ce-type: "com.example.someevent"
 // ce-time: "2018-04-05T03:56:24Z"
 // ce-id: "1234-1234-1234"
 // ce-source: "/mycontext/subcontext"
+//
+// Producer==actual instance ( ID/labels/etc)
+// Source==URI, 'context' - group of producers originating, direclty or via proxy
+// Consumer== receives the event
+// Context==metadata
+// Subject==attribute indicating the object in the topic.
+
+// Subject can be encoded in from/to URLs
 
 // Records recent received messages and broadcasts, for debug and UI
 type Message struct {
 
 	//RFC3339 "2018-04-05T17:31:00Z"
-	Time string `json:"time,omitempty"`
+	// ev.Time = time.Now().Format("01-02T15:04:05")
+	Time int64 `json:"time,omitempty"`
 
 	// ID of event, to dedup. Included as meta 'id'
 	Id string `json:"id,omitempty"`
 
-	// Can be 'topic', or destination
+	// Original destination - can be a group/topic or individual URL
+	// Called 'type' in cloud events, 'topic' in pubsub.
 	To string `json:"to,omitempty"`
-
-	Subject string `json:"subject,omitempty"`
 
 	// VIPs in the path
 	Path []string `json:"path,omitempty"`

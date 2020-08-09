@@ -73,19 +73,19 @@ func EncryptWithTempKey(key, auth []byte, plaintext []byte,
 	}
 
 	// Return all of the values needed to construct a Web Push HTTP request.
-	return &EncryptionContext{Ciphertext: ciphertext, Salt: salt, ServerPublicKey: serverPublicKey}, nil
+	return &EncryptionContext{Ciphertext: ciphertext, Salt: salt, SendPublic: serverPublicKey}, nil
 }
 
 // Decrypt an encrypted messages.
 func Decrypt(sub *Subscription, crypt *EncryptionContext, subPrivate []byte) (plain []byte, err error) {
-	secret, err := sharedSecret(curve, crypt.ServerPublicKey, subPrivate)
+	secret, err := sharedSecret(curve, crypt.SendPublic, subPrivate)
 	if err != nil {
 		return
 	}
 	prk := hkdf(sub.Auth, secret, authInfo, 32)
 
 	// Derive the Content Encryption Key and nonce
-	ctx := newContext(sub.Key, crypt.ServerPublicKey)
+	ctx := newContext(sub.Key, crypt.SendPublic)
 	cek := newCEK(ctx, crypt.Salt, prk)
 	nonce := newNonce(ctx, crypt.Salt, prk)
 

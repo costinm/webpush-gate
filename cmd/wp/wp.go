@@ -136,6 +136,7 @@ func sendMessage(toS string, vapid *auth.Auth, show bool, msg string) {
 	req, _ := http.NewRequest("POST", destURL, bytes.NewBuffer(c))
 	req.Header.Add("ttl", "0")
 	req.Header.Add("authorization", ah)
+	req.Header.Add("Content-Encoding", "aes128gcm")
 
 	//hc := h2.ProxyHttp("127.0.0.1:5203")
 	res, err := hc.Do(req)
