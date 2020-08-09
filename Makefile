@@ -125,9 +125,11 @@ gen-proto:
 #	(cd pkg/istio; PATH=${GOPATH}/bin:${PATH} protoc --gogo_out=paths=source_relative:. gateway.proto)
 	(cd pkg/msgs; PATH=${GOPATH}/bin:${PATH} protoc  --go_out=paths=source_relative:. webpush.proto)
 	(cd pkg/transport/xds; PATH=${GOPATH}/bin:${PATH} protoc --go_out=paths=source_relative:. xds.proto)
+	(cd pkg/transport/xds; PATH=${GOPATH}/bin:${PATH} protoc --go-grpc_out=paths=source_relative:. xds.proto)
 	(cd pkg/istio; PATH=${GOPATH}/bin:${PATH} protoc --go_out=paths=source_relative:. gateway.proto)
 
 install/proto:
+	go get google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	go get google.golang.org/protobuf/cmd/protoc-gen-go
 #	go get github.com/gogo/protobuf/proto
 #	go get github.com/gogo/protobuf/jsonpb
