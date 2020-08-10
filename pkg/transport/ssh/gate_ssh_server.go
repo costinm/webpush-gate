@@ -177,12 +177,12 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	}
 
 	scon := &SSHServerConn{
-		sshConn: conn,
 		SSHConn: SSHConn{
 			gate:    sshGate,
 			Connect: time.Now(),
 			Addr:    nConn.RemoteAddr().String(),
 			open:    true,
+			sshConn: conn,
 		},
 	}
 
@@ -287,9 +287,6 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 // Server connection from one SSHClientConn client - inbound
 type SSHServerConn struct {
 	SSHConn
-
-	sshConn *ssh.ServerConn
-	Remote  string
 }
 
 func (sshS *SSHServerConn) Close() error {
@@ -299,8 +296,6 @@ func (sshS *SSHServerConn) Close() error {
 
 // Global requests
 func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n *mesh.DMNode, nConn net.Conn, conn *ssh.ServerConn, vipHex string, sshGate *SSHGate) {
-	scon.Remote = nConn.RemoteAddr().String()
-
 	for r := range reqs {
 		// Global types.
 		switch r.Type {
@@ -364,7 +359,7 @@ func (scon *SSHServerConn) handleMeshNodeForward(req tcpipForwardRequest,
 
 	// TODO: propagate the endpoint, reflect it in the UI
 	msgs.Send("/endpoint/ssh",
-		"remote", scon.Remote,
+		"remote", scon.Addr,
 		"key", base64.StdEncoding.EncodeToString([]byte(scon.sshConn.Permissions.Extensions["key"])),
 		"vip", vipHex) // TODO: configure the public addresses !
 }

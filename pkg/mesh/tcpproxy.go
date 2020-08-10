@@ -69,7 +69,7 @@ type TcpProxy struct {
 	// - For accept, a net.Conn
 	// - for TCP-over-HTTP server - req.Body
 	// - ...
-	ClientIn io.ReadCloser
+	ClientIn io.Reader
 
 	// A chunk of initial data, to be sent before localIn.
 	// Currently not used - SNI proxy and other cases where data is sent along var-len header might use it.
@@ -636,8 +636,8 @@ func (tp *TcpProxy) updateStatsOnClose(g *Gateway) {
 			r.Close()
 		}
 	}
-	if tp.ClientIn != nil {
-		tp.ClientIn.Close()
+	if cl, ok := tp.ClientIn.(io.Closer); ok {
+		cl.Close()
 	}
 
 	log.Printf("TCPC: %d src=%s dst=%s rcv=%d/%d snd=%d/%d la=%v ra=%v op=%v dest=%v %v %s",
@@ -688,6 +688,16 @@ func (tp *TcpProxy) ProxyHTTPInTcpOut(clientOut http.ResponseWriter, clientIn io
 	return tp.Proxy()
 }
 
+func Proxy(tproxy net.Conn, in io.Reader, out io.WriteCloser) {
+	tp, ok := tproxy.(*TcpProxy)
+	if !ok {
+		return
+	}
+	tp.ClientIn = in
+	tp.ClientOut = out
+	tp.Proxy()
+}
+
 // Proxy will start forwarding the connection to the remote.
 // This is a blocking call - will return when done.
 func (tp *TcpProxy) Proxy() error {
@@ -715,7 +725,7 @@ func (tp *TcpProxy) Proxy() error {
 
 }
 
-func closeIn(src io.ReadCloser) {
+func closeIn(src io.Closer) {
 	if src == nil {
 		return
 	}
@@ -835,14 +845,16 @@ func (gw *Gateway) proxyServerToClient(tcpProxy *TcpProxy,
 	errch <- err
 
 	closeIn(remoteIn) // likely already closed (remoteIn.Read returned error or EOF)
-	closeIn(tcpProxy.ClientIn)
+	if cl, ok := tcpProxy.ClientIn.(io.Closer); ok {
+		closeIn(cl)
+	}
 
 	return n, err
 }
 
 // Copy data from local (intercepted or H2/SSHClientConn client) to remote (TCP over something), notify errch at the end.
 // This runs in a go-routine. May write some initial data captured before Gateway (part of handshake)
-func (gw *Gateway) proxyClientToServer(proxy *TcpProxy, remoteOut io.Writer, localIn io.ReadCloser, errch chan error) {
+func (gw *Gateway) proxyClientToServer(proxy *TcpProxy, remoteOut io.Writer, localIn io.Reader, errch chan error) {
 	//PooledIoCopy(dst, src)
 	var err error
 

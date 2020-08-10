@@ -6,6 +6,9 @@
     <option name="imageRepositoryOverride" value="localhost:5000" />
     <option name="kubernetesContext" />
     <option name="redeployOnChanges" value="true" />
+    <option name="selectedOptions">
+      <set />
+    </option>
     <option name="skaffoldConfigurationFilePath" value="$PROJECT_DIR$/../wpgate/skaffold.yaml" />
     <option name="skaffoldNamespace" />
     <option name="skaffoldProfile" />
@@ -13,15 +16,15 @@
     <method v="2" />
   </configuration>
   <configuration default="false" name="wps" type="GoApplicationRunConfiguration" factoryName="Go Application">
-    <module name="dmesh"/>
-    <working_directory value="$PROJECT_DIR$/../wpgate"/>
+    <module name="dmeshws" />
+    <working_directory value="/x/sync/dmesh-src/wpgate" />
     <envs>
-      <env name="BASE_PORT" value="5300"/>
+      <env name="BASE_PORT" value="5300" />
     </envs>
-    <kind value="PACKAGE"/>
-    <filePath value="$PROJECT_DIR$/../wpgate/cmd/wps/wps.go"/>
-    <package value="github.com/costinm/wpgate/cmd/wps"/>
-    <directory value="$PROJECT_DIR$/.idea/modules"/>
-    <method v="2"/>
+    <kind value="PACKAGE" />
+    <filePath value="$PROJECT_DIR$/../wpgate/cmd/wps/wps.go" />
+    <package value="github.com/costinm/wpgate/cmd/wps" />
+    <directory value="$PROJECT_DIR$/.idea/modules" />
+    <method v="2" />
   </configuration>
 </component>

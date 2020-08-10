@@ -135,7 +135,7 @@ func (gw *Gateway) HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, l
 
 }
 
-// Dial a stream over a multiplexed connection.
+// Egress Dial a stream over a multiplexed connection.
 type TunDialer interface {
 	// DialProxy will use the remote gateway to jump to
 	// a different destination, indicated by stream.
@@ -167,8 +167,10 @@ type JumpHost interface {
 	RemoteVIP() net.IP
 }
 
-// MUXDialer is implemented by a transport that can be
-// used for egress for streams. SSHGate creating SSHClients is an example.
+// MUXDialer is implemented by a transport that can be used for egress and ingress.
+//
+//
+// SSHGate creating SSHClients is an example.
 type MUXDialer interface {
 	// Dial one TCP/mux connection to the IP:port.
 	// The destination is a mesh node - port typically 5222, or 22 for 'regular' SSH serves.

@@ -56,7 +56,7 @@ type SSHGate struct {
 	// Key is the host:Port or IP:port used in Dial
 	// Clients typically open at least port -R :5222, so it is possible
 	// to initiate 'push' connections.
-	SshClients map[string]*SSHClientConn
+	SshClients map[string]*SSHConn
 
 	// Accepted connections. If the server is running as VPN server, connections from all clients.
 	// If this node is an AP or mesh node, connections from immediate neighbors.
@@ -82,10 +82,12 @@ type SSHGate struct {
 const SSH_MESH_PORT = 5222
 const H2_MESH_PORT = 5228
 
+// Base connection - use SSHClientConn or SSHServerConn
 type SSHConn struct {
 	gate *SSHGate
 
 	open bool
+
 	// Remote address (IP:port or host:port) of the directly
 	// connected peer.
 	Addr string
@@ -110,6 +112,11 @@ type SSHConn struct {
 	VIP6       net.IP
 
 	Node *mesh.DMNode
+
+	// TODO: both extend ssh.Conn - server has Permissions
+	sshConn *ssh.ServerConn
+
+	sshclient *ssh.Client
 }
 
 //func (sg *SSHGate) HandleMessage(ctx context2.Context, cmdS string, meta map[string]string, data []byte) {
@@ -122,7 +129,7 @@ type SSHConn struct {
 // Initialize the SSH gateway.
 func NewSSHGate(gw *mesh.Gateway, certs *auth.Auth) *SSHGate {
 	sg := &SSHGate{
-		SshClients: map[string]*SSHClientConn{},
+		SshClients: map[string]*SSHConn{},
 		SshConn:    map[uint64]*SSHServerConn{},
 		gw:         gw,
 		certs:      certs,
@@ -148,14 +155,12 @@ func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.Ju
 
 	sshGate.cmetrics.Total.Add(1)
 
-	sshC := &SSHClientConn{
-		SSHConn: SSHConn{
-			Addr:                addr,
-			gate:                sshGate,
-			Connect:             time.Now(),
-			SubscriptionsToSend: subs,
-			open:                true,
-		},
+	sshC := &SSHConn{
+		Addr:                addr,
+		gate:                sshGate,
+		Connect:             time.Now(),
+		SubscriptionsToSend: subs,
+		open:                true,
 	}
 
 	authm := []ssh.AuthMethod{}
@@ -275,14 +280,7 @@ func (sc *SSHConn) RemoteVIP() net.IP {
 	return sc.VIP6
 }
 
-// SSHClientConn client connection - outbound.
-type SSHClientConn struct {
-	SSHConn
-
-	sshclient *ssh.Client
-}
-
-func (sshC *SSHClientConn) Close() error {
+func (sshC *SSHConn) Close() error {
 	if !sshC.open {
 		return nil
 	}
@@ -311,7 +309,7 @@ func (sshC *SSHClientConn) Close() error {
 // On success, tp.Server[In|Out] will be set with a connection to
 //  tp.Dest:tp.DestPort
 // Uses the equivalent of "-L".
-func (sshC *SSHClientConn) DialProxy(tp *mesh.Stream) error {
+func (sshC *SSHConn) DialProxy(tp *mesh.Stream) error {
 	// Parse the address into host and numeric port.
 	h, _, _ := net.SplitHostPort(tp.Dest)
 
@@ -367,7 +365,7 @@ func (sshC *SSHClientConn) DialProxy(tp *mesh.Stream) error {
 // to this client.
 // TODO: make it work with standard ssh servers - for example
 // get a dynamic port, and bounce it as an incoming ssh connection.
-func (sshC *SSHClientConn) AcceptDial() error {
+func (sshC *SSHConn) AcceptDial() error {
 	// Options:
 	// 1. Expose a SSH listener - will expose this node as ssh server
 	// 2. Expose the H2 port (ideal)
@@ -417,7 +415,7 @@ func (sshC *SSHClientConn) AcceptDial() error {
 // vpn is the address of the vpn server
 // dest is the address to forward incoming listener connections, passed as parameter to handler
 // handler is a function capable of 2-way forwarding.
-func (sshC *SSHClientConn) RemoteAccept(remoteListenAddr string, dest string) error {
+func (sshC *SSHConn) RemoteAccept(remoteListenAddr string, dest string) error {
 
 	// TODO: as optimization, allow an option to take the Listener and pass it to http, with a mux - make it H2, with TLS
 
@@ -448,7 +446,7 @@ func (sshC *SSHClientConn) RemoteAccept(remoteListenAddr string, dest string) er
 
 // Connection accepted on the capture port or SSHClientConn or other mechanisms, now forward to the explicit
 // host. Similar code with socks5, etc.
-func (sshC *SSHClientConn) handleRConnection(dest string, c net.Conn) error {
+func (sshC *SSHConn) handleRConnection(dest string, c net.Conn) error {
 	proxy := sshC.gate.gw.NewTcpProxy(c.RemoteAddr(), "SSHC-ACCEPT", nil, c, c)
 	proxy.LocalDest = true
 

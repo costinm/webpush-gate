@@ -90,7 +90,7 @@ func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string,
 	log.Println("Message mux closed")
 }
 
-func sshClientMsgs(client *ssh.Client, sshC *SSHClientConn, n *mesh.DMNode, subs []string) (mesh.JumpHost, error) {
+func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []string) (mesh.JumpHost, error) {
 	// Each ClientConn can support multiple interactive sessions,
 	// represented by a Session.
 	// go implementation is geared toward term emulation/shell - use the raw mechanism.
@@ -141,7 +141,7 @@ func sshClientMsgs(client *ssh.Client, sshC *SSHClientConn, n *mesh.DMNode, subs
 // Messages from local mux are sent to the server - sub is *.
 //
 // The mux is responsible for eliminating loops and forwarding.
-func (sshC *SSHClientConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Channel, subs []string) {
+func (sshC *SSHConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Channel, subs []string) {
 
 	// TODO: get rid of the message over SSH, use a port forward
 	// and H2 or the stream.

@@ -727,7 +727,7 @@ func (gw *LLDiscovery) processMCAnnounce(data []byte, addr *net.UDPAddr, iface *
 
 	now := time.Now()
 
-	node := mesh.NodeF(pub)
+	node := gw.gw.Node(pub)
 
 	since := int(now.Sub(node.LastSeen) / time.Second)
 	if since > 2 {
