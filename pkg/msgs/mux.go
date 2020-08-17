@@ -79,8 +79,10 @@ func Send(msgType string, meta ...string) {
 //
 func (mux *Mux) Send(msgType string, data interface{}, meta ...string) error {
 	ev := &Message{
-		To:   msgType,
-		Meta: map[string]string{},
+		MessageData: MessageData {
+			To: msgType,
+			Meta: map[string]string{},
+		},
 		Data: data,
 	}
 	for i := 0; i < len(meta); i += 2 {
@@ -119,8 +121,8 @@ func (mux *Mux) SendMessage(ev *Message) error {
 //
 // TODO: authorization (based on identity of the caller)
 func (mux *Mux) HandleMessageForNode(ev *Message) error {
-	if ev.TS.IsZero() {
-		ev.TS = time.Now()
+	if ev.Time== 0 {
+		ev.Time = time.Now().Unix()
 	}
 
 	for _, cb := range mux.OnMessageForNode {

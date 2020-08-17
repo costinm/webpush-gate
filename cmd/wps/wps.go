@@ -47,6 +47,7 @@ func main() {
 
 	// File-based config, load identity and auth
 	config := conf.NewConf(cfgDir, "./var/lib/dmesh/")
+
 	authz := auth.NewAuth(config, "", "m.webinf.info")
 	authz.Dump()
 	// Init Auth on the DefaultMux, for messaging
@@ -89,35 +90,37 @@ func main() {
 	h2s.MTLSMux.HandleFunc("/push/", msgs.DefaultMux.HTTPHandlerWebpush)
 	h2s.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
 
-	// Ingress: SNI sniffing. Anyone can connect - reach mesh nodes
-	// or defined destinations
-	sniAddr := os.Getenv("SNI_ADDR")
-	if sniAddr != "" {
-		go sni.SniProxy(GW, sniAddr)
-	}
-
+	// Messages and streams over websocket - HTTP/1.1 compatible
 	websocket.WSTransport(msgs.DefaultMux, h2s.MTLSMux)
 
+	// Egress - SOCKS, HTTP and
+	s5, err := socks.Socks5Capture(laddr(bp, 24), GW)
+	if err != nil {
+		log.Print("Error: ", err)
+	}
+	log.Println("Start SOCKS, use -x socks5://" + s5.Listener.Addr().String())
+
+	hgw := httpproxy.NewHTTPGate(GW, h2s)
+	hgw.HttpProxyCapture(laddr(bp, 3))
+
+	//// Local DNS resolver. Can forward up.
+	dns, _ := dns.NewDmDns(bp + 23)
+	go dns.Serve()
+
+	GW.DNS = dns
+
 	if knativePort == "" {
-		// Egress - SOCKS, HTTP and
-		s5, err := socks.Socks5Capture(laddr(bp, 24), GW)
-		if err != nil {
-			log.Print("Error: ", err)
-		}
-		log.Println("Start SOCKS, use -x socks5://" + s5.Listener.Addr().String())
-
-		hgw := httpproxy.NewHTTPGate(GW, h2s)
-		hgw.HttpProxyCapture(laddr(bp, 3))
-
-		//// Local DNS resolver. Can forward up.
-		dns, err := dns.NewDmDns(bp + 23)
-		go dns.Serve()
-		GW.DNS = dns
-
 		//UI, _ := ui.NewUI(GW, h2s, nil, nil)
 		//http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", bp+27), UI)
 
-		// Start the HTTPS services
+
+		// Ingress with SNI sniffing. Anyone can connect to reach mesh nodes
+		// or explicit configured destinations. Typically exposed on 443.
+		sniAddr := os.Getenv("SNI_ADDR")
+		if sniAddr != "" {
+			go sni.SniProxy(GW, sniAddr)
+		}
+		// TODO: same, on port 80
 
 		for _, t := range GW.Config.Listeners {
 			accept.NewForwarder(GW, t)

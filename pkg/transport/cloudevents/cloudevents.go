@@ -162,13 +162,14 @@ func (ce *CloudEvents) receive(ctx context.Context, event cloudevents.Event) { /
 	}
 	// TODO: allow sending back a response ?
 	m := &msgs.Message{
-		Time:       event.Time().Unix(),
-		Id:         event.ID(),
-		To:         to,
-		From:       event.Source(),
+		MessageData: msgs.MessageData{
+			Time: event.Time().Unix(),
+			Id:   event.ID(),
+			To:   to,
+			From: event.Source(),
+			Meta:       map[string]string{},
+		},
 		Data:       event.Data,
-		TS:         event.Time(),
-		Meta:       map[string]string{},
 		Connection: ce.mc,
 	}
 	for k, v := range event.Extensions() {

@@ -26,18 +26,25 @@ const (
 const _ = proto.ProtoPackageIsVersion4
 
 // Common fields to be encoded in the 'data' proto
-type Message struct {
+type MessageData struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Time int64  `protobuf:"varint,1,opt,name=time,proto3" json:"time,omitempty"`
-	Id   string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	To   string `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
+	// Time when the message was sent, according to the sender clock.
+	Time int64 `protobuf:"varint,1,opt,name=time,proto3" json:"time,omitempty"`
+	// Original ID. If missing, the envelope ID will be used.
+	Id string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// Original destination
+	To    string            `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
+	From  string            `protobuf:"bytes,4,opt,name=from,proto3" json:"from,omitempty"`
+	Topic string            `protobuf:"bytes,5,opt,name=topic,proto3" json:"topic,omitempty"`
+	Meta  map[string]string `protobuf:"bytes,6,rep,name=meta,proto3" json:"meta,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Data  []byte            `protobuf:"bytes,7,opt,name=data,proto3" json:"data,omitempty"`
 }
 
-func (x *Message) Reset() {
-	*x = Message{}
+func (x *MessageData) Reset() {
+	*x = MessageData{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_webpush_proto_msgTypes[0]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -45,13 +52,13 @@ func (x *Message) Reset() {
 	}
 }
 
-func (x *Message) String() string {
+func (x *MessageData) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Message) ProtoMessage() {}
+func (*MessageData) ProtoMessage() {}
 
-func (x *Message) ProtoReflect() protoreflect.Message {
+func (x *MessageData) ProtoReflect() protoreflect.Message {
 	mi := &file_webpush_proto_msgTypes[0]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -63,30 +70,58 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Message.ProtoReflect.Descriptor instead.
-func (*Message) Descriptor() ([]byte, []int) {
+// Deprecated: Use MessageData.ProtoReflect.Descriptor instead.
+func (*MessageData) Descriptor() ([]byte, []int) {
 	return file_webpush_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Message) GetTime() int64 {
+func (x *MessageData) GetTime() int64 {
 	if x != nil {
 		return x.Time
 	}
 	return 0
 }
 
-func (x *Message) GetId() string {
+func (x *MessageData) GetId() string {
 	if x != nil {
 		return x.Id
 	}
 	return ""
 }
 
-func (x *Message) GetTo() string {
+func (x *MessageData) GetTo() string {
 	if x != nil {
 		return x.To
 	}
 	return ""
+}
+
+func (x *MessageData) GetFrom() string {
+	if x != nil {
+		return x.From
+	}
+	return ""
+}
+
+func (x *MessageData) GetTopic() string {
+	if x != nil {
+		return x.Topic
+	}
+	return ""
+}
+
+func (x *MessageData) GetMeta() map[string]string {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *MessageData) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
 }
 
 // Message is returned as PUSH PROMISE frames in the spec. The alternative protocol wraps it in
@@ -504,11 +539,22 @@ var File_webpush_proto protoreflect.FileDescriptor
 
 var file_webpush_proto_rawDesc = []byte{
 	0x0a, 0x0d, 0x77, 0x65, 0x62, 0x70, 0x75, 0x73, 0x68, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12,
-	0x07, 0x77, 0x65, 0x62, 0x70, 0x75, 0x73, 0x68, 0x22, 0x3d, 0x0a, 0x07, 0x4d, 0x65, 0x73, 0x73,
-	0x61, 0x67, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x69, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x03, 0x52, 0x04, 0x74, 0x69, 0x6d, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x02, 0x20,
-	0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x0e, 0x0a, 0x02, 0x74, 0x6f, 0x18, 0x03, 0x20,
-	0x01, 0x28, 0x09, 0x52, 0x02, 0x74, 0x6f, 0x22, 0xe3, 0x01, 0x0a, 0x0e, 0x57, 0x65, 0x62, 0x70,
+	0x07, 0x77, 0x65, 0x62, 0x70, 0x75, 0x73, 0x68, 0x22, 0xec, 0x01, 0x0a, 0x0b, 0x4d, 0x65, 0x73,
+	0x73, 0x61, 0x67, 0x65, 0x44, 0x61, 0x74, 0x61, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x69, 0x6d, 0x65,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x04, 0x74, 0x69, 0x6d, 0x65, 0x12, 0x0e, 0x0a, 0x02,
+	0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x0e, 0x0a, 0x02,
+	0x74, 0x6f, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x74, 0x6f, 0x12, 0x12, 0x0a, 0x04,
+	0x66, 0x72, 0x6f, 0x6d, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x66, 0x72, 0x6f, 0x6d,
+	0x12, 0x14, 0x0a, 0x05, 0x74, 0x6f, 0x70, 0x69, 0x63, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x05, 0x74, 0x6f, 0x70, 0x69, 0x63, 0x12, 0x32, 0x0a, 0x04, 0x6d, 0x65, 0x74, 0x61, 0x18, 0x06,
+	0x20, 0x03, 0x28, 0x0b, 0x32, 0x1e, 0x2e, 0x77, 0x65, 0x62, 0x70, 0x75, 0x73, 0x68, 0x2e, 0x4d,
+	0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x44, 0x61, 0x74, 0x61, 0x2e, 0x4d, 0x65, 0x74, 0x61, 0x45,
+	0x6e, 0x74, 0x72, 0x79, 0x52, 0x04, 0x6d, 0x65, 0x74, 0x61, 0x12, 0x12, 0x0a, 0x04, 0x64, 0x61,
+	0x74, 0x61, 0x18, 0x07, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x64, 0x61, 0x74, 0x61, 0x1a, 0x37,
+	0x0a, 0x09, 0x4d, 0x65, 0x74, 0x61, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b,
+	0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x14, 0x0a,
+	0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x76, 0x61,
+	0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x22, 0xe3, 0x01, 0x0a, 0x0e, 0x57, 0x65, 0x62, 0x70,
 	0x75, 0x73, 0x68, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64,
 	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x29, 0x0a, 0x10, 0x63, 0x6f,
 	0x6e, 0x74, 0x65, 0x6e, 0x74, 0x5f, 0x65, 0x6e, 0x63, 0x6f, 0x64, 0x69, 0x6e, 0x67, 0x18, 0x07,
@@ -564,23 +610,25 @@ func file_webpush_proto_rawDescGZIP() []byte {
 	return file_webpush_proto_rawDescData
 }
 
-var file_webpush_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_webpush_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_webpush_proto_goTypes = []interface{}{
-	(*Message)(nil),        // 0: webpush.Message
+	(*MessageData)(nil),    // 0: webpush.MessageData
 	(*WebpushMessage)(nil), // 1: webpush.WebpushMessage
 	(*Via)(nil),            // 2: webpush.Via
 	(*Vapid)(nil),          // 3: webpush.Vapid
 	(*PushRequest)(nil),    // 4: webpush.PushRequest
 	(*PushResponse)(nil),   // 5: webpush.PushResponse
+	nil,                    // 6: webpush.MessageData.MetaEntry
 }
 var file_webpush_proto_depIdxs = []int32{
-	2, // 0: webpush.WebpushMessage.path:type_name -> webpush.Via
-	3, // 1: webpush.WebpushMessage.sender:type_name -> webpush.Vapid
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	6, // 0: webpush.MessageData.meta:type_name -> webpush.MessageData.MetaEntry
+	2, // 1: webpush.WebpushMessage.path:type_name -> webpush.Via
+	3, // 2: webpush.WebpushMessage.sender:type_name -> webpush.Vapid
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_webpush_proto_init() }
@@ -590,7 +638,7 @@ func file_webpush_proto_init() {
 	}
 	if !protoimpl.UnsafeEnabled {
 		file_webpush_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Message); i {
+			switch v := v.(*MessageData); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -668,7 +716,7 @@ func file_webpush_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_webpush_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

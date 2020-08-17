@@ -266,9 +266,11 @@ func (conn *UdsConn) streamCommon() {
 		}
 
 		msg := &msgs.Message{
-			To:         cmd,
-			Meta:       meta,
-			From:       conn.Name,
+			MessageData: msgs.MessageData{
+				To: cmd,
+				Meta: meta,
+				From: conn.Name,
+			},
 			Connection: &conn.MsgConnection,
 		}
 

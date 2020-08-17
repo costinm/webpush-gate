@@ -29,9 +29,17 @@ import (
 type BufferedReader struct {
 	source     io.Reader
 	buffer     bytes.Buffer
+
+	// read so far from buffer. Unread data in bufferRead:bufferSize
 	bufferRead int
+
+	// number of bytes in buffer
 	bufferSize int
+
+	// if true, anything read will be added to buffer.
 	sniffing   bool
+
+	// If an error happened while sniffing
 	lastErr    error
 }
 

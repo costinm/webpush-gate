@@ -448,7 +448,7 @@ func (sshC *SSHConn) RemoteAccept(remoteListenAddr string, dest string) error {
 // host. Similar code with socks5, etc.
 func (sshC *SSHConn) handleRConnection(dest string, c net.Conn) error {
 	proxy := sshC.gate.gw.NewTcpProxy(c.RemoteAddr(), "SSHC-ACCEPT", nil, c, c)
-	proxy.LocalDest = true
+	proxy.DestDirectNoVPN = true
 
 	err := proxy.Dial(dest, nil)
 	if err != nil {

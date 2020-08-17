@@ -175,6 +175,7 @@ type HostStats struct {
 // Currently full cone, i.e. one local port per NAT.
 type UdpNat struct {
 	Stream
+
 	// bound to a local port (on the real network).
 	UDP *net.UDPConn
 
@@ -183,10 +184,6 @@ type UdpNat struct {
 
 	LastRemoteIP    net.IP
 	LastsRemotePort uint16
-}
-
-type TcpRemoteHost struct {
-	Stream
 }
 
 type Listener interface {
@@ -345,7 +342,7 @@ func (gw *Gateway) FreeIdleSockets() {
 		if t0.Sub(remote.LastClientActivity) > tcpClose &&
 			t0.Sub(remote.LastRemoteActivity) > tcpClose {
 			log.Printf("UDPC: %s:%d rcv=%d/%d snd=%d/%d ac=%v ra=%v op=%v la=%s",
-				remote.DestIP, remote.DestPort,
+				remote.DestAddr.IP, remote.DestAddr.Port,
 				remote.RcvdPackets, remote.RcvdBytes,
 				remote.SentPackets, remote.SentBytes,
 				time.Since(remote.LastClientActivity), time.Since(remote.LastRemoteActivity), time.Since(remote.Open),
@@ -357,8 +354,10 @@ func (gw *Gateway) FreeIdleSockets() {
 	for _, client := range tcpClientsToTimeout {
 		tp := gw.ActiveTcp[client]
 
+		// Send FIN
 		closeWrite(tp.ServerOut, true)
 		closeWrite(tp.ClientOut, false)
+		// Close the reading side.
 		closeIn(tp.ServerIn)
 		closeIn(tp.ClientIn)
 

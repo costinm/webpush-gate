@@ -17,6 +17,12 @@ import (
 	"github.com/costinm/wpgate/pkg/ui"
 )
 
+// Minimal implementation - for old android devices, very low end routers, etc.
+// - messaging using webpush
+// - SSH-based TCP tunnels
+// - local discovery (?)
+// - UI (?)
+// - HTTP proxy capture (?)
 func main() {
 	log.Print("Starting native process pwd=", os.Getenv("PWD"))
 

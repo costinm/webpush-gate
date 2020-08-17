@@ -4,15 +4,23 @@ package webpush;
 option go_package = "github.com/costinm/wpgate/pkg/msgs";
 
 // Common fields to be encoded in the 'data' proto
-message Message {
+message MessageData {
+
+    // Time when the message was sent, according to the sender clock.
     int64 time = 1;
 
+    // Original ID. If missing, the envelope ID will be used.
     string id = 2;
 
+    // Original destination
     string to = 3;
 
+    string from = 4;
 
+    string topic = 5;
 
+    map<string, string> meta = 6;
+    bytes data = 7;
 }
 
 // Message is returned as PUSH PROMISE frames in the spec. The alternative protocol wraps it in

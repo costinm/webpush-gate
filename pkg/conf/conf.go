@@ -26,7 +26,7 @@ type Conf struct {
 }
 
 // Returns a config store.
-// Implements a basic ConfStore interface
+// Implements a basic auth.ConfStore interface
 func NewConf(base ...string) *Conf {
 	// TODO: https for remote - possibly using local creds and K8S style or XDS
 	return &Conf{base: base, Conf: map[string]string{}}
