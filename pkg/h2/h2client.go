@@ -62,6 +62,17 @@ func SocksHttp(socksAddr string) *http.Client {
 	}
 }
 
+func InsecureHttp() *http.Client {
+	return &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+}
+
 // Returns a HTTP client using HTTP PROXY and CONNECT
 func ProxyHttp(addr string) *http.Client {
 	// Configure a HTTP CONNECT client to be used against the clientGW

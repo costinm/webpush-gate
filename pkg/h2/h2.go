@@ -1,7 +1,6 @@
 package h2
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
@@ -24,7 +23,9 @@ import (
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/soheilhy/cmux"
 	"golang.org/x/net/http2"
+	"google.golang.org/grpc"
 )
 
 // H2 provides network communication over HTTP/2, QUIC, SSH
@@ -43,6 +44,7 @@ type H2 struct {
 	Vpn string
 
 	// Local mux is exposed on 127.0.0.1:5227
+	// Status, UI.
 	LocalMux *http.ServeMux
 
 	// MTLS mux.
@@ -55,6 +57,8 @@ type H2 struct {
 	//GrpcServer http.Handler
 
 	Certs *auth.Auth
+
+	GRPC *grpc.Server
 }
 
 var (
@@ -76,6 +80,7 @@ func NewTransport(authz *auth.Auth) (*H2, error) {
 		MTLSMux:     &http.ServeMux{},
 		LocalMux:    &http.ServeMux{},
 		quicClients: map[string]*http.Client{},
+		GRPC:        grpc.NewServer(),
 	}
 
 	h2.Certs = authz
@@ -115,6 +120,54 @@ func CleanQuic(httpClient *http.Client) {
 	}
 }
 
+// Used by a H2 server to 'fake' a secure connection.
+type fakeTLSConn struct {
+	net.Conn
+}
+
+func (c *fakeTLSConn) ConnectionState() tls.ConnectionState {
+	return tls.ConnectionState{
+		Version:     tls.VersionTLS12,
+		CipherSuite: 0xC02F,
+	}
+}
+
+// Multiplexed plaintext server, using MTLSMux and GRPCServer
+func (h2 *H2) InitPlaintext(port string) {
+	l, err := net.Listen("tcp", port)
+	if err != nil {
+		log.Fatal(err)
+	}
+	m := cmux.New(l)
+
+	grpcL := m.Match(cmux.HTTP2HeaderField("content-type", "application/grpc"))
+	// TODO: MTLS should probably be disabled in this case, but it's using Handle so may be ok
+	go h2.GRPC.Serve(grpcL)
+
+	httpL := m.Match(cmux.HTTP1Fast())
+	hs := &http.Server{
+		Handler: h2.handlerWrapper(h2.MTLSMux),
+	}
+	go hs.Serve(httpL)
+
+	h2L := m.Match(cmux.HTTP2())
+
+	go func() {
+		conn, err := h2L.Accept()
+		if err != nil {
+			return
+		}
+
+		h2Server := &http2.Server{}
+		h2Server.ServeConn(
+			&fakeTLSConn{conn},
+			&http2.ServeConnOpts{
+				Handler: h2.handlerWrapper(h2.MTLSMux)})
+	}()
+
+	go m.Serve()
+}
+
 // Start QUIC and HTTPS servers on port, using handler.
 func (h2 *H2) InitMTLSServer(port int, handler http.Handler) error {
 	if mesh.MetricsHandlerWrapper != nil {
@@ -141,17 +194,22 @@ func (h2 *H2) InitH2Server(port string, handler http.Handler, mtls bool) error {
 		log.Println("Failed to listen https ", port)
 		return err
 	}
-	return h2.initH2ServerListener(tcpConn, handler, mtls)
+
+	return h2.InitH2ServerListener(tcpConn, handler, mtls)
 }
 
-func (h2 *H2) initH2ServerListener(tcpConn *net.TCPListener, handler http.Handler, mtls bool) error {
+// Init a HTTPS server on a given listener.
+// Will add TLS transport and certs !
+//
+func (h2 *H2) InitH2ServerListener(tcpConn *net.TCPListener, handler http.Handler, requestTLSClient bool) error {
 
 	tlsServerConfig := h2.Certs.GenerateTLSConfigServer()
-	if mtls {
-		tlsServerConfig.ClientAuth = tls.RequireAnyClientCert // only option supported by mint?
+	if requestTLSClient {
+		// only option supported by mint?
+		//tlsServerConfig.ClientAuth = tls.RequireAnyClientCert
+		tlsServerConfig.ClientAuth = tls.RequestClientCert
 	}
 	hw := h2.handlerWrapper(handler)
-	hw.mtls = mtls
 	// Self-signed cert
 	s := &http.Server{
 		TLSConfig: tlsServerConfig,
@@ -211,18 +269,23 @@ func traceMap(r *http.Request) string {
 type handlerWrapper struct {
 	handler http.Handler
 	h2      *H2
-	mtls    bool
 }
 
 func (h2 *H2) handlerWrapper(h http.Handler) *handlerWrapper { // http.Handler {
-	return &handlerWrapper{handler: h, h2: h2, mtls: true}
+	return &handlerWrapper{handler: h, h2: h2}
 }
 
 func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t0 := time.Now()
-	// TODO: authenticate first, either localhost (for proxy) or JWT/clientcert
-	// TODO: split localhost to different method ?
+	h2c := &auth.ReqContext{
+		T0: t0,
+	}
+
 	defer func() {
+		// TODO: add it to an event buffer
+		if accessLogs && h2c != nil && !strings.Contains(r.URL.Path, "/dns") {
+			log.Println("HTTP", h2c.SAN, h2c.ID(), r.RemoteAddr, r.URL, time.Since(t0))
+		}
 		if r := recover(); r != nil {
 			fmt.Println("Recovered in f", r)
 
@@ -245,46 +308,43 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	var vip net.IP
-	var san []string
-	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
-		if hw.mtls {
-			log.Println("403 NO_MTLS", r.RemoteAddr, r.URL)
-			w.WriteHeader(403)
-			return
+	vapidH := r.Header["Authorization"]
+	if len(vapidH) > 0 {
+		tok, pub, err := auth.CheckVAPID(vapidH[0], time.Now())
+		if err == nil {
+			h2c.Pub = pub
+			h2c.VAPID = tok
 		}
 	}
-	pk1 := r.TLS.PeerCertificates[0].PublicKey
-	pk1b := auth.KeyBytes(pk1)
-	vip = auth.Pub2VIP(pk1b)
-	var role string
 
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		pk1 := r.TLS.PeerCertificates[0].PublicKey
+		h2c.Pub = auth.KeyBytes(pk1)
+		// TODO: Istio-style, signed by a trusted CA. This is also for SSH-with-cert
+		h2c.SAN, _ = GetSAN(r.TLS.PeerCertificates[0])
+	}
+	if h2c.Pub == nil {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("Missing VAPID or mTLS"))
+		return
+	}
+
+	h2c.VIP = auth.Pub2VIP(h2c.Pub)
 	// ssh-style, known pub leaf
-	if role = hw.h2.Certs.Authorized[string(pk1b)]; role == "" {
+	var role string
+	if role = hw.h2.Certs.Authorized[string(h2c.Pub)]; role == "" {
 		role = "guest"
 	}
+	h2c.Role = role
 
-	// TODO: Istio-style, signed by a trusted CA. This is also for SSH-with-cert
-
-	san, _ = GetSAN(r.TLS.PeerCertificates[0])
-
-	// TODO: check role
-
-	ctx := context.WithValue(r.Context(), H2Info, &H2Context{
-		SAN:  san,
-		Role: role,
-		T0:   t0,
-	})
-	//if hw.h2.GrpcServer != nil && r.ProtoMajor == 2 && strings.HasPrefix(
-	//	r.Header.Get("Content-Type"), "application/grpc") {
-	//	hw.h2.GrpcServer.ServeHTTP(w, r)
-	//}
-	hw.handler.ServeHTTP(w, r.WithContext(ctx))
-
-	// TODO: add it to an event buffer
-	if accessLogs && !strings.Contains(r.URL.Path, "/dns") {
-		log.Println("HTTP", san, vip, r.RemoteAddr, r.URL, time.Since(t0))
+	ctx := auth.ContextWithAuth(r.Context(), h2c)
+	if hw.h2.GRPC != nil && r.ProtoMajor == 2 && strings.HasPrefix(
+		r.Header.Get("Content-Type"), "application/grpc") {
+		hw.h2.GRPC.ServeHTTP(w, r.WithContext(ctx))
+		return
 	}
+
+	hw.handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
 // Common RBAC/Policy
@@ -296,23 +356,9 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 // Use Authorized_keys or groups to match
 
-type H2Key int
-
 var (
-	H2Info     = H2Key(1)
-	accessLogs = false
+	accessLogs = true
 )
-
-type H2Context struct {
-	// Auth role
-	Role string
-
-	// SAN list from the certificate, or equivalent auth method.
-	SAN []string
-
-	// Request start time
-	T0 time.Time
-}
 
 func GetPeerCertBytes(r *http.Request) []byte {
 	if r.TLS != nil {
@@ -431,49 +477,5 @@ func NewSocksHttpClient(socksAddr string) *http.Client {
 			//	InsecureSkipVerify: true,
 			//},
 		},
-	}
-}
-
-func InitServer(port string) (err error) {
-	lis, err := net.Listen("tcp", port)
-	if err != nil {
-		return
-	}
-	for {
-		conn, err := lis.Accept()
-		if err != nil {
-			return err
-		}
-		go handleCon(conn)
-	}
-}
-
-// Special handler for receipts and poll, which use push promises
-func handleCon(con net.Conn) {
-	defer con.Close()
-	// writer: bufio.NewWriterSize(conn, http2IOBufSize),
-	f := http2.NewFramer(con, con)
-	settings := []http2.Setting{}
-
-	if err := f.WriteSettings(settings...); err != nil {
-		return
-	}
-
-	frame, err := f.ReadFrame()
-	if err != nil {
-		log.Println(" failed to read frame", err)
-		return
-	}
-	sf, ok := frame.(*http2.SettingsFrame)
-	if !ok {
-		log.Printf("wrong frame %T from client", frame)
-		return
-	}
-	log.Println(sf)
-	//hDec := hpack.NewDecoder()
-
-	for {
-		select {}
-
 	}
 }

@@ -3,7 +3,6 @@ package msgs
 
 import (
 	"bytes"
-	"container/list"
 	"context"
 	"fmt"
 	"log"
@@ -24,33 +23,45 @@ type MessageHandler interface {
 	HandleMessage(ctx context.Context, cmdS string, meta map[string]string, data []byte)
 }
 
-// TODO: map by Uri, to keep track of last status.
+// Adapter from func to interface
+type HandlerCallbackFunc func(ctx context.Context, cmdS string, meta map[string]string, data []byte)
+
+// ServeHTTP calls f(w, r).
+func (f HandlerCallbackFunc) HandleMessage(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
+	f(ctx, cmdS, meta, data)
+}
 
 // Mux handles processing messages for this node, and sending messages from
 // local code.
 type Mux struct {
 	mutex sync.RWMutex
 
-	// MessageSenders tracks all connections that support SendMessageDirect() to send to the remote end.
+	// MessageSenders tracks all connections that support send to the remote end.
 	// For example UDS connections, SSH, etc.
 	connections map[string]*MsgConnection
 
-	// Handlers by path, for processing incoming messages.
-	// Messages are received from a remote connection (like UDS or ssh or http), or created locally.
-	handlers map[string]MessageHandler
+	// Handlers by path, for processing incoming messages to this node or local messages.
+	handlers     map[string]MessageHandler
+	handlerRoles map[string][]string
 
 	// Allows regular HTTP Handlers to process messages.
 	// A message is mapped to a request. Like CloudEvents, response from the
 	// http request can be mapped to a Send (not supported yet).
 	ServeMux *http.ServeMux
 
+	// Auth holds the private key and Id of this node. Used to encrypt and decrypt.
 	Auth *auth.Auth
+
+	OnMessageForNode []OnMessage
 }
+
+type OnMessage func(*Message)
 
 func NewMux() *Mux {
 	mux := &Mux{
-		connections: map[string]*MsgConnection{},
-		handlers:    map[string]MessageHandler{},
+		connections:  map[string]*MsgConnection{},
+		handlers:     map[string]MessageHandler{},
+		handlerRoles: map[string][]string{},
 	}
 
 	return mux
@@ -68,8 +79,10 @@ func Send(msgType string, meta ...string) {
 //
 func (mux *Mux) Send(msgType string, data interface{}, meta ...string) error {
 	ev := &Message{
-		To:   msgType,
-		Meta: map[string]string{},
+		MessageData: MessageData {
+			To: msgType,
+			Meta: map[string]string{},
+		},
 		Data: data,
 	}
 	for i := 0; i < len(meta); i += 2 {
@@ -108,12 +121,13 @@ func (mux *Mux) SendMessage(ev *Message) error {
 //
 // TODO: authorization (based on identity of the caller)
 func (mux *Mux) HandleMessageForNode(ev *Message) error {
-	if ev.TS.IsZero() {
-		ev.TS = time.Now()
+	if ev.Time== 0 {
+		ev.Time = time.Now().Unix()
 	}
 
-	// Temp: debug
-	mux.save(ev)
+	for _, cb := range mux.OnMessageForNode {
+		cb(ev)
+	}
 
 	//log.Println("EV: ", ev.To, ev.From)
 	if ev.To == "" {
@@ -127,7 +141,7 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 	}
 
 	toNode := argv[0]
-	if toNode != "" {
+	if toNode != "" && toNode != mux.Auth.VIP6.String() {
 		// Currently local handlers only support local originated messages.
 		// Use a connection for full support.
 		return nil
@@ -136,6 +150,10 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 
 	payload := ev.Binary()
 	log.Println("MSG: ", argv, ev.Meta, ev.From, ev.Data, len(payload))
+
+	if r := mux.handlerRoles[topic]; r != nil {
+		// Check From
+	}
 
 	if h, f := mux.handlers["*"]; f {
 		h.HandleMessage(context.Background(), ev.To, ev.Meta, payload)
@@ -148,8 +166,9 @@ func (mux *Mux) HandleMessageForNode(ev *Message) error {
 			},
 			Host: argv[0],
 		}
-		h, _ := mux.ServeMux.Handler(r)
-		if h != nil {
+		h, p := mux.ServeMux.Handler(r)
+		if h != nil && p != "/" {
+			log.Println("Server handler: ", ev.To)
 			w := &rw{}
 			h.ServeHTTP(w, r)
 		}
@@ -195,41 +214,19 @@ func (r *rw) WriteHeader(statusCode int) {
 	r.Code = statusCode
 }
 
-// Add a local handler for a specific message type or *
-// This is a local function.
+// Add a local handler for a specific message type.
+// Special topics: *, /open, /close
 func (mux *Mux) AddHandler(path string, cp MessageHandler) {
 	mux.mutex.Lock()
 	mux.handlers[path] = cp
 	mux.mutex.Unlock()
 }
 
-// TODO: circular buffer, poll event, for debug
-const EV_BUFFER = 200
-
-var events = list.New()
-
-// debug
-func (mux *Mux) save(ev *Message) {
-	if ev.To == "SYNC/LL" ||
-		ev.To == "SYNC/LLSRV" {
-		//log.Println("EV:", ev.Type, ev.Msg, ev.Meta)
-		return
-	}
-
+// Add a handler that checks the role
+func (mux *Mux) AddHandlerRole(path string, role ...string) {
 	mux.mutex.Lock()
-	events.PushBack(ev)
-	if events.Len() > EV_BUFFER {
-		events.Remove(events.Front())
-	}
+	mux.handlerRoles[path] = role
 	mux.mutex.Unlock()
-}
-
-// Adapter from func to interface
-type HandlerCallbackFunc func(ctx context.Context, cmdS string, meta map[string]string, data []byte)
-
-// ServeHTTP calls f(w, r).
-func (f HandlerCallbackFunc) HandleMessage(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
-	f(ctx, cmdS, meta, data)
 }
 
 type ChannelHandler struct {

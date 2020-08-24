@@ -1,11 +1,10 @@
-package bootstrap
+package main
 
 import (
 	"context"
 	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"os"
 
 	"github.com/costinm/wpgate/pkg/auth"
@@ -20,13 +19,13 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/iptables"
 	"github.com/costinm/wpgate/pkg/transport/local"
+	"github.com/costinm/wpgate/pkg/transport/noise"
 	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 	"github.com/costinm/wpgate/pkg/ui"
-	"google.golang.org/grpc"
 )
 
 // bootstrap loads all the components of wpgate together
@@ -63,14 +62,20 @@ var (
 	//  -x socks5://127.0.0.1:5224
 	SOCKS = 24
 
-	// ---- Other pors ----
+	//  sni based router - could be multiplexed on 443
+	SNI = 25
+
+	// ---- Other ports ----
 	// XDS, etc - istiod port
 	GRPC = 12
 
 	// curl -x http://127.0.0.10.0.0.0:15003
+	// can be added to 27/debug
 	HTTP_PROXY = 3
 
-	NOISE        = 19
+	NOISE = 19
+
+	// on H2 and HTTP_DEBUG
 	CLOUD_EVENTS = 21
 
 	// ISTIO ports - base 15000
@@ -98,7 +103,9 @@ type ServerAll struct {
 	H2     *h2.H2
 
 	// UI interface Handler for localhost:5227
-	UI *ui.DMUI
+	UI    *ui.DMUI
+	Local *local.LLDiscovery
+	Conf  *conf.Conf
 }
 
 func (sa *ServerAll) Close() {
@@ -107,23 +114,28 @@ func (sa *ServerAll) Close() {
 
 func StartAll(a *ServerAll) {
 	// File-based config
-	config := conf.NewConf(a.ConfDir)
-
-	// Default matching Istio range.
-	addrN := a.BasePort
-	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
+	config := conf.NewConf(a.ConfDir, "./var/lib/dmesh/")
+	a.Conf = config
 
 	// Init or load certificates/keys
-	hn, _ := os.Hostname()
-	authz := auth.NewAuth(config, hn, "m.webinf.info")
+	authz := auth.NewAuth(config, "", "m.webinf.info")
+	authz.Dump()
+
+	// Init Auth on the DefaultMux, for messaging
 	msgs.DefaultMux.Auth = authz
 
 	gcfg := &mesh.GateCfg{}
-	conf.Get(config, "gate.json", gcfg)
+	err := conf.Get(config, "gate.json", gcfg)
+	if err != nil {
+		log.Println("Use default config ", err)
+	} else {
+		log.Println("Cfg: ", gcfg)
+	}
 
 	// HTTPGate - common structures
 	a.GW = mesh.New(authz, gcfg)
 
+	// Create the H2
 	h2s, err := h2.NewTransport(authz)
 	if err != nil {
 		log.Fatal(err)
@@ -131,20 +143,12 @@ func StartAll(a *ServerAll) {
 	a.H2 = h2s
 
 	// GRPC XDS transport
-	s := grpc.NewServer()
 	wp := &xds.GrpcService{}
-	xds.RegisterAggregatedDiscoveryServiceServer(s, wp)
-
-	// ServerAll GRPC
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", addrN+GRPC))
-	if err != nil {
-		log.Fatal(err)
-	}
-	go s.Serve(lis)
+	xds.RegisterAggregatedDiscoveryServiceServer(h2s.GRPC, wp)
 
 	// Experimental: noise transport
 	// bring dep no compiling on arm
-	//go noise.New(uint16(addrN + NOISE))
+	go noise.New(uint16(a.BasePort + NOISE))
 
 	// SSH transport + reverse streams.
 	sshg := sshgate.NewSSHGate(a.GW, authz)
@@ -152,29 +156,31 @@ func StartAll(a *ServerAll) {
 	sshg.InitServer()
 	sshg.ListenSSH(a.addr(SSH))
 
-	// Init SOCKS - on localhost, for outbound
-
 	// TODO: init socks on TLS, for inbound
 
 	// Connect to a mesh node
-	if meshH != "" {
+	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
+	if meshH != "" && meshH != "OFF" {
 		a.GW.Vpn = meshH
 		go sshgate.MaintainVPNConnection(a.GW)
 	}
 
 	// Non-critical, for testing
 	a.StartExtra()
-	a.StartDebug()
 
 	// Local discovery interface - multicast, local network IPs
 	ld := local.NewLocal(a.GW, authz)
 	go ld.PeriodicThread()
+	a.Local = ld
 
 	// Start a basic UI on the debug port
 	a.UI, _ = ui.NewUI(a.GW, h2s, a.hgw, ld)
 
 	a.StartMsg()
 
+	a.H2.MTLSMux.HandleFunc("/push/", msgs.DefaultMux.HTTPHandlerWebpush)
+	a.H2.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
+	a.H2.MTLSMux.HandleFunc("/p/", eventstream.Handler(msgs.DefaultMux))
 	h2s.InitMTLSServer(a.BasePort+H2, h2s.MTLSMux)
 }
 
@@ -185,18 +191,16 @@ func (a *ServerAll) addr(off int) string {
 	return fmt.Sprintf("0.0.0.0:%d", a.BasePort+off)
 }
 
-func (a *ServerAll) StartDebug() {
-	mux := http.DefaultServeMux
-
-	mux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
-}
-
 func (a *ServerAll) StartMsg() {
 	// ServerAll - accept from other sources
 	cloudevents.NewCloudEvents(msgs.DefaultMux, a.BasePort+CLOUD_EVENTS)
 	// TODO: list of sinks, add NATS in-process
 
 	// TODO: eventstream client (MonitorNode)
+	a.H2.LocalMux.HandleFunc("/s/", msgs.HTTPHandlerSend)
+
+	// /ws - registered on the HTTPS server
+	websocket.WSTransport(msgs.DefaultMux, a.H2.MTLSMux)
 
 	msgs.DefaultMux.AddHandler(mesh.TopicConnectUP, msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
 		log.Println(cmdS, meta, data)
@@ -212,7 +216,7 @@ func (a *ServerAll) StartExtra() {
 	var err error
 	// accept: used for SSH -R
 
-	s5, err := socks.Socks5Capture(a.addr(SOCKS), a.GW)
+	s5, err := socks.Socks5Capture(a.laddr(SOCKS), a.GW)
 	if err != nil {
 		log.Print("Error: ", err)
 	}
@@ -222,7 +226,10 @@ func (a *ServerAll) StartExtra() {
 	// Outbound capture using Istio config
 	iptables.StartIstioCapture(a.GW, "127.0.0.1:15002")
 
-	go sni.SniProxy(a.GW, a.addr(7))
+	sniAddr := os.Getenv("SNI_ADDR")
+	if sniAddr != "" {
+		go sni.SniProxy(a.GW, sniAddr)
+	}
 
 	a.hgw = httpproxy.NewHTTPGate(a.GW, a.H2)
 	a.hgw.HttpProxyCapture(a.laddr(HTTP_PROXY))
@@ -230,13 +237,10 @@ func (a *ServerAll) StartExtra() {
 	// Local DNS resolver. Can forward up.
 	dns, err := dns.NewDmDns(a.BasePort + DNS)
 	go dns.Serve()
+	a.H2.MTLSMux.Handle("/dns/", dns)
 	a.GW.DNS = dns
 
 	for _, t := range a.GW.Config.Listeners {
 		accept.NewForwarder(a.GW, t)
 	}
-
-	// TODO: also on h2s
-	websocket.WSTransport(msgs.DefaultMux, http.DefaultServeMux)
-
 }

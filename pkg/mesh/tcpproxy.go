@@ -3,12 +3,14 @@ package mesh
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -39,12 +41,6 @@ import (
 //   JoinSessionRequest/Response
 // TODO: we may link the library or use the relay servers. Low priority.
 
-// SIP
-
-// SSHClientConn
-
-// SOCKS
-
 // === L4/TCP common code  ===
 //
 // - Handles SOCKS, HTTP CONNECT, TUN captured
@@ -55,6 +51,11 @@ import (
 //
 // Implements ReadCloser over the localIn stream - so it can be passed to http.Post() or used for reading.
 //
+//  Use cases:
+// - local capture, send to remote dest
+// - ingress from remote, send to local port
+// - ingress gateway
+// - egress gateway
 type TcpProxy struct {
 	Stream
 
@@ -67,7 +68,7 @@ type TcpProxy struct {
 	// - For accept, a net.Conn
 	// - for TCP-over-HTTP server - req.Body
 	// - ...
-	ClientIn io.ReadCloser
+	ClientIn io.Reader
 
 	// A chunk of initial data, to be sent before localIn.
 	// Currently not used - SNI proxy and other cases where data is sent along var-len header might use it.
@@ -83,36 +84,8 @@ type TcpProxy struct {
 	// Note that reading from clientIn might continue.
 	ClientOut io.Writer
 
-	// remoteCtx is a context associated with the remote side connection, for example in http cases.
-	RemoteCtx context.CancelFunc
-
 	// Track the status of the 2 FIN. If both FINs are set, the inputs are also closed and proxy is done.
 
-	// True if the destination is local, no VPN needed
-	// Used for VPN-accepted connections,
-	LocalDest bool
-
-	localAddr net.Addr
-}
-
-func (tp *TcpProxy) Write(b []byte) (n int, err error) {
-	if tp.ServerOut == nil {
-		return
-	}
-	n, err = tp.ServerOut.Write(b)
-	tp.SentBytes += n
-	tp.SentPackets++
-	tp.LastClientActivity = time.Now()
-
-	return
-}
-
-func (tp *TcpProxy) Read(out []byte) (int, error) {
-	n, err := tp.ServerIn.Read(out)
-	tp.RcvdBytes += n
-	tp.RcvdPackets++
-	tp.LastRemoteActivity = time.Now()
-	return n, err
 }
 
 func (tp *TcpProxy) Close() error {
@@ -131,14 +104,6 @@ func (tp *TcpProxy) Close() error {
 	return nil
 }
 
-func (tp *TcpProxy) LocalAddr() net.Addr {
-	return tp.localAddr
-}
-
-func (tp *TcpProxy) RemoteAddr() net.Addr {
-	// Dial doesn't set it very well...
-	return tp.localAddr
-}
 
 func (tp *TcpProxy) SetDeadline(t time.Time) error {
 	return nil
@@ -152,23 +117,9 @@ func (tp *TcpProxy) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// Implements the http.Transport.DialContext function - used for dialing requests using
-// custom net.Conn.
-//
-// Also implements x.net.proxy.ContextDialer - socks also implements it.
-func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn net.Conn, e error) {
-	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6, Port: nextProxyId()}, "DIAL", nil, nil, nil)
-	err := tp.Dial(addr, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return tp, nil
-}
-
 // Glue for interface type. The interface is a StreamProxy
 func (gw *Gateway) NewStream(addr net.IP, port uint16, ctype string, initialData []byte,
-		clientIn io.ReadCloser, clientOut io.Writer) interface{} {
+	clientIn io.ReadCloser, clientOut io.Writer) interface{} {
 	return gw.NewTcpProxy(&net.TCPAddr{IP: addr, Port: int(port)}, ctype, initialData, clientIn, clientOut)
 }
 
@@ -208,8 +159,8 @@ func (gw *Gateway) NewTcpProxy(src net.Addr,
 			Origin:     src.String(),
 			OriginIP:   origIP,
 			OriginPort: origPort,
+			SrcAddr:   src,
 		},
-		localAddr: src,
 		gw:        gw,
 		Initial:   initialData,
 		ClientIn:  clientIn,
@@ -241,8 +192,6 @@ func (tp *TcpProxy) SetDestAddr(addr *net.TCPAddr) {
 	dest = net.JoinHostPort(host, port)
 
 	tp.DestAddr = addr
-	tp.DestIP = addr.IP
-	tp.DestPort = addr.Port
 
 	if tp.gw.DNS != nil {
 		dns := tp.gw.DNS.IPResolve(host)
@@ -267,7 +216,6 @@ func (tp *TcpProxy) SetDest(dest string) error {
 
 	addrIP := net.ParseIP(host)
 	if addrIP != nil {
-		tp.DestIP = addrIP
 		addr := &net.TCPAddr{IP: addrIP, Port: portN}
 		if tp.gw.DNS != nil {
 			dns := tp.gw.DNS.IPResolve(host)
@@ -281,6 +229,30 @@ func (tp *TcpProxy) SetDest(dest string) error {
 	tp.Dest = dest
 	return nil
 
+}
+
+// Implements the http.Transport.DialContext function - used for dialing requests using
+// custom net.Conn.
+//
+// Also implements x.net.proxy.ContextDialer - socks also implements it.
+func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn net.Conn, e error) {
+	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6, Port: nextProxyId()}, "DIAL", nil, nil, nil)
+	err := tp.Dial(addr, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return tp, nil
+}
+
+func (gw *Gateway) DialContextTCP(ctx context.Context, network, addr *net.TCPAddr) (conn net.Conn, e error) {
+	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6, Port: nextProxyId()}, "DIAL", nil, nil, nil)
+	err := tp.Dial("", addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return tp, nil
 }
 
 // dest can be:
@@ -320,11 +292,11 @@ func (tp *TcpProxy) Dial(dest string, addr *net.TCPAddr) error {
 		return tp.DialMesh()
 	}
 
-	if tp.LocalDest || host == "localhost" || host == "" || host == "127.0.0.1" ||
-		(tp.DestIP != nil && IsRFC1918(tp.DestIP)) {
+	if tp.DestDirectNoVPN || host == "localhost" || host == "" || host == "127.0.0.1" ||
+		(tp.DestAddr != nil && IsRFC1918(tp.DestAddr.IP)) {
 		// Direct connection to destination, should be a public address
 		//log.Println("DIAL: DIRECT LOCAL ", dest, addr, host, port)
-		return tp.dialDirect(dest, tp.DestIP, tp.DestPort)
+		return tp.dialDirect(dest, tp.DestAddr)
 	}
 
 	g := tp.gw
@@ -359,10 +331,29 @@ func (tp *TcpProxy) Dial(dest string, addr *net.TCPAddr) error {
 	//	log.Println("DIAL: NET HTTP VPN ", g.Vpn, dest, addr, host, port)
 	//	return tp.DialViaHTTP(g.Vpn, dest)
 	//}
+	via := tp.gw.Config.Via[dest]
+	if via == "" {
+		dot := strings.Index(dest, ".")
+		dd := dest[dot+1:]
+		via = tp.gw.Config.Via[dd]
+	}
+	if via != "" {
+		// TODO
+		tcpMux := g.JumpHosts[via]
+		if tcpMux == nil {
+			return errors.New("Not found " + via)
+		}
+		log.Println("VIA: ", dest, via)
+		return tcpMux.DialProxy(&tp.Stream)
+	}
+
+	if tp.gw.Config.Egress != "" {
+
+	}
 
 	// Direct connection to destination, should be a public address
 	//log.Println("DIAL: DIRECT ", dest, addr, host, port)
-	return tp.dialDirect(dest, tp.DestIP, tp.DestPort)
+	return tp.dialDirect(dest, tp.DestAddr)
 }
 
 // DialMesh creates a circuit to a mesh host:
@@ -382,7 +373,7 @@ func (tp *TcpProxy) Dial(dest string, addr *net.TCPAddr) error {
 //
 func (tp *TcpProxy) DialMesh() error {
 	// TODO: host can also be XXXXXX.m.MESH_DOMAIN - with 16 byte hex interface address (we can also support 6)
-	ip6 := tp.DestIP
+	ip6 := tp.DestAddr.IP
 	key := binary.BigEndian.Uint64(ip6[8:])
 
 	g := tp.gw
@@ -393,7 +384,7 @@ func (tp *TcpProxy) DialMesh() error {
 		// TODO: port may be forwarded to a specific destination (configured by the control plane/node)
 		tp.Type = tp.Type + "-MD"
 		log.Println("DIAL: TARGET REACHED", tp.DestDNS, tp.DestPort)
-		return tp.dialDirect("", []byte{127, 0, 0, 1}, tp.DestPort)
+		return tp.dialDirect("", &net.TCPAddr{IP:[]byte{127, 0, 0, 1}, Port: tp.DestPort})
 	}
 
 	node, f := tp.gw.GetNodeByID(key)
@@ -535,18 +526,17 @@ func IsRFC1918(ip net.IP) bool {
 // Note that part of the handshake the initialData may also be sent. Gateway method will handle any additional data.
 //
 // error returned if connection and handshake fail.
-func (tp *TcpProxy) dialDirect(addr string, dstIP net.IP, dstPort int) error {
+func (tp *TcpProxy) dialDirect(addr string, dst *net.TCPAddr) error {
 	var err error
 
 	var dstAddr *net.TCPAddr
-	if dstIP == nil {
+	if dst == nil {
 		dstAddr, err = net.ResolveTCPAddr("tcp", addr)
 		if err != nil {
 			return err
 		}
-		tp.DestIP = dstAddr.IP
 	} else {
-		dstAddr = &net.TCPAddr{IP: dstIP, Port: dstPort}
+		dstAddr = dst
 	}
 
 	c1, err := net.DialTCP("tcp", nil, dstAddr)
@@ -605,8 +595,8 @@ func (tp *TcpProxy) updateStatsOnClose(g *Gateway) {
 			r.Close()
 		}
 	}
-	if tp.ClientIn != nil {
-		tp.ClientIn.Close()
+	if cl, ok := tp.ClientIn.(io.Closer); ok {
+		cl.Close()
 	}
 
 	log.Printf("TCPC: %d src=%s dst=%s rcv=%d/%d snd=%d/%d la=%v ra=%v op=%v dest=%v %v %s",
@@ -657,6 +647,16 @@ func (tp *TcpProxy) ProxyHTTPInTcpOut(clientOut http.ResponseWriter, clientIn io
 	return tp.Proxy()
 }
 
+func Proxy(tproxy net.Conn, in io.Reader, out io.WriteCloser) {
+	tp, ok := tproxy.(*TcpProxy)
+	if !ok {
+		return
+	}
+	tp.ClientIn = in
+	tp.ClientOut = out
+	tp.Proxy()
+}
+
 // Proxy will start forwarding the connection to the remote.
 // This is a blocking call - will return when done.
 func (tp *TcpProxy) Proxy() error {
@@ -684,7 +684,10 @@ func (tp *TcpProxy) Proxy() error {
 
 }
 
-func closeIn(src io.ReadCloser) {
+// Close remote and local in.
+// Normally called after a FIN or ERR are received.
+//
+func closeIn(src interface{}) {
 	if src == nil {
 		return
 	}
@@ -692,9 +695,13 @@ func closeIn(src io.ReadCloser) {
 	if ok {
 		tcpCloseRead.Add(1)
 		srcT.CloseRead()
-	} else {
-		src.Close()
+		return
+	}
+	closeT, ok := src.(io.Closer)
+	if ok {
+		closeT.Close()
 		tcpCloseIn.Add(1)
+		return
 	}
 }
 
@@ -703,6 +710,7 @@ type closeWriter interface {
 }
 
 // Called for dst out and local out.
+// Should send a FIN or equivalent half close.
 // - proxyRemoteToLocal
 //
 func closeWrite(dst io.Writer, server bool) {
@@ -804,19 +812,23 @@ func (gw *Gateway) proxyServerToClient(tcpProxy *TcpProxy,
 	errch <- err
 
 	closeIn(remoteIn) // likely already closed (remoteIn.Read returned error or EOF)
-	closeIn(tcpProxy.ClientIn)
+	if cl, ok := tcpProxy.ClientIn.(io.Closer); ok {
+		closeIn(cl)
+	}
 
 	return n, err
 }
 
 // Copy data from local (intercepted or H2/SSHClientConn client) to remote (TCP over something), notify errch at the end.
 // This runs in a go-routine. May write some initial data captured before Gateway (part of handshake)
-func (gw *Gateway) proxyClientToServer(proxy *TcpProxy, remoteOut io.Writer, localIn io.ReadCloser, errch chan error) {
+func (gw *Gateway) proxyClientToServer(proxy *TcpProxy, remoteOut io.Writer, localIn io.Reader, errch chan error) {
 	//PooledIoCopy(dst, src)
 	var err error
 
 	if proxy.Initial != nil {
 		_, err = proxy.ServerOut.Write(proxy.Initial)
+		proxy.SentBytes += len(proxy.Initial)
+
 	}
 
 	// TODO: err, n to be sent on a channel, for metrics

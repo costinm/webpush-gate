@@ -1,8 +1,11 @@
 IMAGE ?= costinm/wps:latest
 GOPATH ?= ${HOME}/go
+OUT ?= ${HOME}/go/bin
+GO ?= go
 
 build:
-	go build ./cmd/wps
+	go build -o ${OUT}/wps ./cmd/wps
+	go build -o ${OUT}/wp ./cmd/wp
 
 # Must be run first, to initialize the registry and req.
 prepare: skaffold/registry
@@ -23,6 +26,29 @@ skaffold/debug:
 
 docker/push:
 	docker build . -t ${IMAGE} && docker push ${IMAGE}
+
+docker/start:
+	docker run --init --sig-proxy=true \
+		-v /etc/passwd:/etc/passwd:ro \
+        -v /etc/group:/etc/group:ro \
+        -u "$(shell id -u):$(shell id -g)" \
+        --name wps \
+        -d --restart=always \
+        --net host \
+        -v ${HOME}/.ssh:${HOME}/.ssh \
+        -w ${HOME} \
+        -e HOME=${HOME} \
+        ${IMAGE}
+
+docker/stop:
+	docker stop wps
+	docker rm wps
+
+docker/logs:
+	docker logs wps -f
+
+docker/sh:
+	docker exec -it wps /bin/sh
 
 registry:
 	POD=$(shell kubectl get pods --namespace kube-registry -l app=kube-registry \
@@ -70,20 +96,17 @@ pkg/ui/html_static.go: ${GOPATH}/bin/esc  pkg/ui/www/status.html \
 	@echo "REGENERAGE"
 	${GOPATH}/bin/esc -include '.*\.html|.*\.js|.*\.css' -prefix pkg/ui/www -o pkg/ui/html_static.go -pkg ui pkg/ui/www/
 
-OUT ?= ${HOME}/go
-GO ?= go
-
 cross: arm arm64 mips
 
 arm64:
-	GOARCH=arm64 GOOS=linux GOARM=7 ${GO} build -o ${OUT}/bin/arm64/wps -ldflags="-s -w" ./cmd/wps
+	GOARCH=arm64 GOOS=linux GOARM=7 ${GO} build -o ${OUT}/arm64/wps -ldflags="-s -w" ./cmd/wps
 
 # Arm, mips: Noise has errors with curve25519
 arm:
-	GOARCH=arm GOOS=linux GOARM=7 ${GO} build -o ${OUT}/bin/arm/wps -ldflags="-s -w" ./cmd/wps
+	GOARCH=arm GOOS=linux GOARM=7 ${GO} build -o ${OUT}/arm/wps -ldflags="-s -w" ./cmd/wps
 
 mips:
-	GOARCH=mips GOOS=linux GOMIPS=softfloat  ${GO} build -ldflags="-s -w" -o ${OUT}/bin/mips/wps ./cmd/wps
+	GOARCH=mips GOOS=linux GOMIPS=softfloat  ${GO} build -ldflags="-s -w" -o ${OUT}/mips/wps ./cmd/wps
 
 androidAll:
 	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
@@ -94,3 +117,23 @@ androidAll:
 android:
 	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
 	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
+
+
+gen-proto:
+#	(cd pkg/msgs; PATH=${GOPATH}/bin:${PATH} protoc  --gogo_out=paths=source_relative:. webpush.proto)
+#	(cd pkg/transport/xds; PATH=${GOPATH}/bin:${PATH} protoc --gogo_out=paths=source_relative,plugins=grpc:. xds.proto)
+#	(cd pkg/istio; PATH=${GOPATH}/bin:${PATH} protoc --gogo_out=paths=source_relative:. gateway.proto)
+	(cd pkg/msgs; PATH=${GOPATH}/bin:${PATH} protoc  --go_out=paths=source_relative:. webpush.proto)
+	(cd pkg/transport/xds; PATH=${GOPATH}/bin:${PATH} protoc --go_out=paths=source_relative:. xds.proto)
+	(cd pkg/transport/xds; PATH=${GOPATH}/bin:${PATH} protoc --go-grpc_out=paths=source_relative:. xds.proto)
+	(cd pkg/istio; PATH=${GOPATH}/bin:${PATH} protoc --go_out=paths=source_relative:. gateway.proto)
+
+install/proto:
+	go get google.golang.org/grpc/cmd/protoc-gen-go-grpc
+	go get google.golang.org/protobuf/cmd/protoc-gen-go
+#	go get github.com/gogo/protobuf/proto
+#	go get github.com/gogo/protobuf/jsonpb
+#	go get github.com/gogo/protobuf/gogoproto
+#	go get github.com/gogo/protobuf/protoc-gen-gogo
+#	go get github.com/gogo/protobuf/protoc-gen-gogofast
+#	go get github.com/gogo/protobuf/protoc-gen-gogoslick

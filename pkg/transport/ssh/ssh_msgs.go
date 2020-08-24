@@ -37,21 +37,22 @@ func (sshS *SSHServerConn) handleServerSessionChannel(node *mesh.DMNode, newChan
 	mconn := &msgs.MsgConnection{
 		SubscriptionsToSend: nil, // Don't send all messages down - only if explicit subscription.
 		SendMessageToRemote: sshS.SendMessageToRemote,
+		VIP:                 node.VIP.String(),
 	}
 
 	//if role != ROLE_GUEST {
-	msgs.DefaultMux.AddConnection("sshs-"+sshS.VIP6.String(), mconn)
+	msgs.DefaultMux.AddConnection("sshs-"+node.VIP.String(), mconn)
 	//}
 
 	br := bufio.NewReader(channel)
 
-	go handleMessageStream(node, br, sshS.VIP6.String(), sshS.gate.certs.VIP6.String(), mconn, true)
+	go handleMessageStream(node, br, sshS.VIP6.String(), mconn, true)
 
 	mconn.SendMessageToRemote(msgs.NewMessage("/endpoint/sshs", map[string]string{
 		//"remote", nConn.RemoteAddr().String(),
 		//"key": base64.StdEncoding.EncodeToString(sshC.gate.certs.Pub),
 		//"vip": sshC.gate.certs.VIP6.String(), // TODO: configure the public addresses !
-		"ua": sshS.gate.gw.UA,
+		"ua": sshS.gate.gw.Auth.Name,
 	}))
 }
 
@@ -70,9 +71,9 @@ func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
 //
 // from is the authenticated VIP of the sender.
 // self is my own VIP
-//
-//
-func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string, self string, mconn *msgs.MsgConnection, isServer bool) {
+func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string,
+	mconn *msgs.MsgConnection, isServer bool) {
+
 	mconn.HandleMessageStream(func(ev *msgs.Message) {
 		// Direct message from the client, with its own info
 		if ev.Topic == "endpoint" {
@@ -84,12 +85,12 @@ func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string, self 
 		newEv, _ := json.Marshal(ev)
 		fmt.Println(string(newEv))
 
-	}, br, from, self)
+	}, br, from)
 
 	log.Println("Message mux closed")
 }
 
-func sshClientMsgs(client *ssh.Client, sshC *SSHClientConn, n *mesh.DMNode, subs []string) (mesh.JumpHost, error) {
+func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []string) (mesh.JumpHost, error) {
 	// Each ClientConn can support multiple interactive sessions,
 	// represented by a Session.
 	// go implementation is geared toward term emulation/shell - use the raw mechanism.
@@ -111,7 +112,7 @@ func sshClientMsgs(client *ssh.Client, sshC *SSHClientConn, n *mesh.DMNode, subs
 			}
 		}
 
-		sshC.Close()
+		//sshC.Close()
 	}()
 
 	// Technically we don't need the exec channel ! Just forwarding.
@@ -140,13 +141,14 @@ func sshClientMsgs(client *ssh.Client, sshC *SSHClientConn, n *mesh.DMNode, subs
 // Messages from local mux are sent to the server - sub is *.
 //
 // The mux is responsible for eliminating loops and forwarding.
-func (sshC *SSHClientConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Channel, subs []string) {
+func (sshC *SSHConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Channel, subs []string) {
 
 	// TODO: get rid of the message over SSH, use a port forward
 	// and H2 or the stream.
 	mconn := &msgs.MsgConnection{
 		SubscriptionsToSend: subs,
 		SendMessageToRemote: sshC.SendMessageToRemote,
+		VIP:                 node.VIP.String(),
 	}
 
 	msgs.DefaultMux.AddConnection("sshc-"+sshC.VIP6.String(), mconn)
@@ -156,11 +158,11 @@ func (sshC *SSHClientConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh
 		//"remote", nConn.RemoteAddr().String(),
 		//"key": base64.StdEncoding.EncodeToString(sshC.gate.certs.Pub),
 		//"vip": sshC.gate.certs.VIP6.String(), // TODO: configure the public addresses !
-		"ua": sshC.gate.gw.UA,
+		"ua": sshC.gate.gw.Auth.Name,
 	}))
 
 	br := bufio.NewReader(channel)
-	handleMessageStream(node, br, sshC.VIP6.String(), sshC.gate.certs.VIP6.String(), mconn, false)
+	handleMessageStream(node, br, sshC.VIP6.String(), mconn, false)
 
 	// Disconnected
 	node.TunClient = nil

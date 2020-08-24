@@ -55,7 +55,17 @@ var (
 
 // Gateway is the main capture API.
 type Gateway struct {
-	Mesh
+	// TODO: add methods to mutate fields.
+	MeshMutex sync.RWMutex
+
+	// Direct nodes by interface address (which is derived from public key - last 8 bytes in
+	// initial prototype). This includes only directly connected notes - either Wifi on same segment, or VPNs and
+	// connected devices.
+	Nodes map[uint64]*DMNode
+
+	// Vpn is the currently active VPN server. Will be selected from the list of
+	// known VPN servers (in future - for now hardcoded to the test server)
+	Vpn string
 
 	// H2 has configured MTLS clients for QUIC or H2
 	// Used to forward the UdpNat to an upstream VPN server.
@@ -107,6 +117,8 @@ type Gateway struct {
 
 	// Client to VPN
 	SSHClient JumpHost
+
+	JumpHosts map[string]TunDialer
 
 	// Client to mesh expansion - not trusted, set when mesh expansion is in use.
 	// Used as a jump host to connect to the next destination.
@@ -163,6 +175,7 @@ type HostStats struct {
 // Currently full cone, i.e. one local port per NAT.
 type UdpNat struct {
 	Stream
+
 	// bound to a local port (on the real network).
 	UDP *net.UDPConn
 
@@ -171,10 +184,6 @@ type UdpNat struct {
 
 	LastRemoteIP    net.IP
 	LastsRemotePort uint16
-}
-
-type TcpRemoteHost struct {
-	Stream
 }
 
 type Listener interface {
@@ -218,14 +227,15 @@ type GateCfg struct {
 	// The server will terminate TLS and HTTP, forward to the host as plain text.
 	Hosts map[string]*Host `json:"Hosts,omitempty"`
 
+	// Proxy requests to hosts (external or mesh) using the VIP of another node.
+	Via map[string]string `json:"Via,omitempty"`
+
+	// VIP of the default egress node, if no 'via' is set.
+	Egress string
+
 	// If set, all outbound requests will use the server as a proxy.
 	// Similar with Istio egress gateway.
 	Vpn string
-
-	// If not set, will be 5220 (old) or 15020 (new)
-	// Local listeners for HTTP(7), SOCKS, DNS, IPTABLES in/out
-	// Remote listeners for H2/H3(8) and SSH(2)
-	BasePort int
 }
 
 func (gw *Gateway) ActiveTCP() map[int]*TcpProxy {
@@ -238,13 +248,14 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 	}
 	gw := &Gateway{
 		closed:    false,
-		Mesh:      NewMesh(),
+		Nodes:     map[uint64]*DMNode{},
 		Conf:      certs.Config,
 		ActiveUdp: make(map[string]*UdpNat),
 		ActiveTcp: make(map[int]*TcpProxy),
 		AllUdpCon: make(map[string]*HostStats),
 		AllTcpCon: make(map[string]*HostStats),
 		Listeners: make(map[int]Listener),
+		JumpHosts: map[string]TunDialer{},
 		//upstreamMessageChannel: make(chan packet, 100),
 		Auth:           certs,
 		Config:         gcfg,
@@ -254,8 +265,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 	gw.client = &net.UDPAddr{
 		Port: 0,
 	}
-
-	NodeF = gw.Node
+	// TODO: add grpcserver, http mux
 
 	return gw
 }
@@ -332,7 +342,7 @@ func (gw *Gateway) FreeIdleSockets() {
 		if t0.Sub(remote.LastClientActivity) > tcpClose &&
 			t0.Sub(remote.LastRemoteActivity) > tcpClose {
 			log.Printf("UDPC: %s:%d rcv=%d/%d snd=%d/%d ac=%v ra=%v op=%v la=%s",
-				remote.DestIP, remote.DestPort,
+				remote.DestAddr.IP, remote.DestAddr.Port,
 				remote.RcvdPackets, remote.RcvdBytes,
 				remote.SentPackets, remote.SentBytes,
 				time.Since(remote.LastClientActivity), time.Since(remote.LastRemoteActivity), time.Since(remote.Open),
@@ -344,8 +354,10 @@ func (gw *Gateway) FreeIdleSockets() {
 	for _, client := range tcpClientsToTimeout {
 		tp := gw.ActiveTcp[client]
 
+		// Send FIN
 		closeWrite(tp.ServerOut, true)
 		closeWrite(tp.ClientOut, false)
+		// Close the reading side.
 		closeIn(tp.ServerIn)
 		closeIn(tp.ClientIn)
 

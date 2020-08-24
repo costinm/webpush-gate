@@ -17,12 +17,12 @@ import (
 	"github.com/costinm/wpgate/pkg/msgs"
 )
 
-// link local announcements and discovery.
+// link local announcements,discovery and messaging
 // The discovered nodes are not trusted by default, but
 // may be used as jump hosts.
 
 var (
-	// Address used for link local discovery.
+	// Address used for link local discovery. Multicast on port 5227
 	MulticastDiscoveryIP6 = net.ParseIP("FF02::5227")
 	MulticastDiscoveryIP4 = net.ParseIP("224.0.0.250")
 )
@@ -41,12 +41,10 @@ var (
 	regDNCE = expvar.NewInt("RegDCE")
 )
 
-var (
-	useIP4 = false
-	useIP6 = true
-)
-
+// Link local discovery tracks local interfaces and neighbors.
+// Aware of P2P links and Android specific behavior - it also tracks Wifi information if available.
 type LLDiscovery struct {
+
 	// Will be updated with the list of active interfaces.
 	DirectActiveInterfaces map[string]*DirectActiveInterface
 
@@ -57,6 +55,8 @@ type LLDiscovery struct {
 	// All nodes have LL addresses including the old zone - might be better to remove any known node,
 	// and wait for it to reannounce or respond to our announce. It'll take some time to reconnect as well.
 	ActiveP2P string
+
+	// Information about AP extracted from messages sent by the dmesh-l2 or Android application.
 
 	// Zero if AP is not running. Set to the time when AP started.
 	APStartTime time.Time
@@ -105,21 +105,21 @@ func NewLocal(gw *mesh.Gateway, auth *auth.Auth) *LLDiscovery {
 	}
 }
 
-// Create a UDP listener for local UDP messages.
-func ListenUDP(gw *LLDiscovery) {
-	m2, err := net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
-	if err != nil {
-		log.Println("Error listening on UDP ", gw.udpPort, err)
-		gw.udpPort = 0
-		m2, err = net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
-		if err != nil {
-			log.Println("Error listening on UDP ", mesh.UDPMsgPort, err)
-			return
-		}
-	}
-	gw.gw.UDPMsgConn = m2
-	go unicastReaderThread(gw, m2, nil)
-}
+//// Create a UDP listener for local UDP messages.
+//func ListenUDP(gw *LLDiscovery) {
+//	m2, err := net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
+//	if err != nil {
+//		log.Println("Error listening on UDP ", gw.udpPort, err)
+//		gw.udpPort = 0
+//		m2, err = net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
+//		if err != nil {
+//			log.Println("Error listening on UDP ", mesh.UDPMsgPort, err)
+//			return
+//		}
+//	}
+//	gw.gw.UDPMsgConn = m2
+//	go unicastReaderThread(gw, m2, nil)
+//}
 
 // DirectActiveInterface tracks interfaces with mesh or internet connections.
 //
@@ -285,7 +285,7 @@ func mcMessage(gw *LLDiscovery, i *DirectActiveInterface, isAck bool) []byte {
 	// my client ssid
 	//
 	ann := &mesh.NodeAnnounce{
-		UA:   gw.gw.UA,
+		UA:   gw.gw.Auth.Name,
 		IPs:  ips(gw.DirectActiveInterfaces),
 		SSID: auth.Conf(gw.auth.Config, "ssid", ""),
 		Ack:  isAck,
@@ -335,34 +335,6 @@ var (
 	refreshMutex sync.RWMutex
 )
 
-// helper to listen on a base port on a specific interface only.
-func (gw *LLDiscovery) listen6(base int, ip net.IP, iface *DirectActiveInterface) (int, *net.UDPConn) {
-	var err error
-	var m *net.UDPConn
-	for i := 0; i < 10; i++ {
-		udpAddr := &net.UDPAddr{
-			IP:   ip,
-			Port: base,
-			Zone: iface.Name,
-		}
-
-		m, err = net.ListenUDP("udp6", udpAddr)
-
-		if err == nil {
-			go unicastReaderThread(gw, m, iface)
-			return m.LocalAddr().(*net.UDPAddr).Port, m
-		} else {
-			log.Println("MCDirect: Port in use or error, ", iface, base, err)
-			if m != nil {
-				m.Close()
-			}
-		}
-		base++
-	}
-
-	return 0, nil
-}
-
 //
 //// Listen using UDP4, bound to a specific interface
 //func listen4Priv(base int, ip net.IP, iface *net.Interface) (int, net.PacketConn) {
@@ -404,7 +376,35 @@ func (gw *LLDiscovery) listen6(base int, ip net.IP, iface *DirectActiveInterface
 //	return base, c
 //}
 
-// Listen using UDP4
+// helper to listen on a base port on a specific interface only.
+func (gw *LLDiscovery) listen6(base int, ip net.IP, iface *DirectActiveInterface) (int, *net.UDPConn) {
+	var err error
+	var m *net.UDPConn
+	for i := 0; i < 10; i++ {
+		udpAddr := &net.UDPAddr{
+			IP:   ip,
+			Port: base,
+			Zone: iface.Name,
+		}
+
+		m, err = net.ListenUDP("udp6", udpAddr)
+
+		if err == nil {
+			go unicastReaderThread(gw, m, iface)
+			return m.LocalAddr().(*net.UDPAddr).Port, m
+		} else {
+			log.Println("MCDirect: Port in use or error, ", iface, base, err)
+			if m != nil {
+				m.Close()
+			}
+		}
+		base++
+	}
+
+	return 0, nil
+}
+
+// Listen on link-local interface using UDP4
 func (gw *LLDiscovery) listen4(base int, ip net.IP, iface *DirectActiveInterface) (int, net.PacketConn) {
 	var err error
 	var m *net.UDPConn
@@ -727,7 +727,7 @@ func (gw *LLDiscovery) processMCAnnounce(data []byte, addr *net.UDPAddr, iface *
 
 	now := time.Now()
 
-	node := mesh.NodeF(pub)
+	node := gw.gw.Node(pub)
 
 	since := int(now.Sub(node.LastSeen) / time.Second)
 	if since > 2 {

@@ -1,5 +1,6 @@
-FROM golang:latest AS build-base
+FROM golang:latest AS build
 #FROM golang:alpine AS build-base
+# dlv doesn't seem to work yet ?
 
 WORKDIR /ws
 ENV GO111MODULE=on
@@ -8,19 +9,19 @@ ENV GOOS=linux
 ENV GOPROXY=https://proxy.golang.org
 
 #RUN apk add --no-cache git
-RUN apt-get update && apt install less net-tools
+#RUN apt-get update && apt install less net-tools
 
 
-RUN go get github.com/go-delve/delve/cmd/dlv && \
-   go get github.com/google/ko/cmd/ko@v0.4.0
 ENTRYPOINT /bin/sh
-
-################################################################################
-FROM build-base AS build
 
 COPY go.mod ./go.mod
 COPY go.sum ./go.sum
 RUN go mod download
+
+RUN go build -o /ws/dlv github.com/go-delve/delve/cmd/dlv
+#RUN   go build -o /ws/ko github.com/google/ko/cmd/ko@v0.4.0
+
+
 COPY cmd ./cmd
 COPY pkg ./pkg
 

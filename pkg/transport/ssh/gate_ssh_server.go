@@ -27,6 +27,8 @@ func (sshGate *SSHGate) authPub(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.
 		}
 		// 1. Verify cert.SignatureKey is a CA
 
+		//cert.SignatureKey.(ssh.CryptoPublicKey)
+
 		// conn.User() is usually set to 'dmesh' - and ignored.
 		//
 
@@ -175,12 +177,12 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	}
 
 	scon := &SSHServerConn{
-		sshConn: conn,
 		SSHConn: SSHConn{
 			gate:    sshGate,
 			Connect: time.Now(),
 			Addr:    nConn.RemoteAddr().String(),
 			open:    true,
+			sshConn: conn,
 		},
 	}
 
@@ -190,6 +192,8 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	scon.pubKey = vipsb
 
 	scon.role = role
+
+	sshGate.gw.JumpHosts[scon.VIP6.String()] = scon
 
 	vipHex := fmt.Sprintf("%x", scon.vip)
 	//scon.key =
@@ -201,7 +205,7 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	sshGate.mutex.Unlock()
 
 	if oldSCon != nil {
-		oldSCon.Close()
+		//oldSCon.Close()
 	}
 
 	n := sshGate.gw.Node(vipsb)
@@ -217,6 +221,7 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 		if existing == scon {
 			delete(sshGate.SshConn, scon.vip)
 		}
+		delete(sshGate.gw.JumpHosts, scon.VIP6.String())
 		sshGate.mutex.Unlock()
 
 		// TODO: remove from list of active
@@ -255,7 +260,8 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 			}
 
 			// TODO: allow connections to mesh VIPs
-			if role == ROLE_GUEST && req.Rport != SSH_MESH_PORT {
+			if role == ROLE_GUEST &&
+				req.Rport != SSH_MESH_PORT && req.Rport != H2_MESH_PORT {
 				newChannel.Reject(ssh.UnknownChannelType, "only authorized users can proxy")
 				continue
 			}
@@ -281,9 +287,6 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 // Server connection from one SSHClientConn client - inbound
 type SSHServerConn struct {
 	SSHConn
-
-	sshConn *ssh.ServerConn
-	Remote  string
 }
 
 func (sshS *SSHServerConn) Close() error {
@@ -293,8 +296,6 @@ func (sshS *SSHServerConn) Close() error {
 
 // Global requests
 func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n *mesh.DMNode, nConn net.Conn, conn *ssh.ServerConn, vipHex string, sshGate *SSHGate) {
-	scon.Remote = nConn.RemoteAddr().String()
-
 	for r := range reqs {
 		// Global types.
 		switch r.Type {
@@ -310,7 +311,7 @@ func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n 
 				continue
 			}
 
-			if req.BindPort == SSH_MESH_PORT {
+			if req.BindPort == SSH_MESH_PORT || req.BindPort != H2_MESH_PORT {
 				scon.handleMeshNodeForward(req, n, r, vipHex)
 			} else {
 				if scon.role == ROLE_GUEST && req.BindPort != SSH_MESH_PORT {
@@ -358,7 +359,7 @@ func (scon *SSHServerConn) handleMeshNodeForward(req tcpipForwardRequest,
 
 	// TODO: propagate the endpoint, reflect it in the UI
 	msgs.Send("/endpoint/ssh",
-		"remote", scon.Remote,
+		"remote", scon.Addr,
 		"key", base64.StdEncoding.EncodeToString([]byte(scon.sshConn.Permissions.Extensions["key"])),
 		"vip", vipHex) // TODO: configure the public addresses !
 }
@@ -390,7 +391,7 @@ func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Re
 		"req", fmt.Sprintf("%d", req.BindPort),
 		"vip", scon.VIP6.String(),
 		"key", base64.StdEncoding.EncodeToString([]byte(scon.sshConn.Permissions.Extensions["key"])),
-		"addr",fmt.Sprintf("%s:%d", "", forPort)) // TODO: configure the public addresses !
+		"addr", fmt.Sprintf("%s:%d", "", forPort)) // TODO: configure the public addresses !
 
 	var res tcpipForwardResponse
 	forPort32, _ := strconv.Atoi(port)
@@ -521,7 +522,6 @@ func extractAddress(c net.Conn) string {
 	c.Read(head[0:sz])
 	return string(head[0:sz])
 }
-
 
 // Handles SOCKS (-D) and local fwd (-L), mapping remote ports to connections to a host:port
 // It is equivalent with /dmesh/tcp/IP/port request.

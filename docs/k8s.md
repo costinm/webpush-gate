@@ -6,7 +6,7 @@
   /api/v1/namespaces/[namespace]/[resource]/[resourceName]/
  ApiGroup:
    
-   /apis/[apiGroup]/[apiVersion]/namespaces/[namespace]/[resource]/[resourceName]/
+   /apis/[apiGroup]/[apiVersion]/namespaces/[namespace]/[resource or Kind]/[resourceName]/
 
 Example:
 

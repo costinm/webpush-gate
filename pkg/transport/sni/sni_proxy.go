@@ -9,13 +9,23 @@ import (
 	"github.com/costinm/wpgate/pkg/mesh"
 )
 
-// WIP: Istio-style SNI proxy.
-// Used for accept MUX - for example port 8443 on a gateway can dispatch to remote nodes
-// without terminating connections.
-
-// curl https://foo.com:8443/status -k --resolve foo.com:8443:127.0.0.1:8443
+// Istio-style SNI proxy.
+//
+// Used for accepting ingress stream on a public IP and routing them to a mesh node.
+//
+// Without DNS:
+//
+// curl https://foo.com/status -k --resolve *:443:1.2.3.4.
+//
+// With DNS interception - return the address of the SNI host.
+//
+// For non-mesh names - explicit config must be used, to associate the domain name
+// with an identity. This is similar with Istio 'secure naming': each node has a self-generated
+// service account, and the Gateway delegates to it (actually: namespace, but it's equivalent)
 
 // Listen on a port, forward to destination based on SNI header.
+// All incoming connections are routed according to the gateway, using
+// mesh nodes.
 func SniProxy(gw *mesh.Gateway, addr string) error {
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -25,6 +35,7 @@ func SniProxy(gw *mesh.Gateway, addr string) error {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
+				log.Println("SNI listen error, closing ", err)
 				l.Close()
 				return
 			}
@@ -58,28 +69,28 @@ const (
 	extensionServerName uint16 = 0
 )
 
-// ServeConn is used to serve a single UdpNat.
 func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
-	remote := gw.NewTcpProxy(local.RemoteAddr(), "SNI", nil, local, local)
-
 	buf := make([]byte, 4096)
-
 	n, err := local.Read(buf[0:5])
 	if err != nil {
 		local.Close()
 		return err
 	}
+
 	if n < 5 {
 		return sniErr
 	}
+
 	typ := buf[0] // 22 3 1 2 0
 	if typ != 22 {
 		return sniErr
 	}
+
 	vers := uint16(buf[1])<<8 | uint16(buf[2])
 	if vers != 0x301 {
 		log.Println("Version ", vers)
 	}
+
 	rlen := int(buf[3])<<8 | int(buf[4])
 	if rlen > 4096 {
 		return sniErr
@@ -100,27 +111,30 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 			break
 		}
 	}
-	data := buf[5:end]
-	end -= 5
+	clientHello := buf[5:end]
+	chLen := end - 5
+
+	if chLen < 38 {
+		return sniErr
+	}
+
 	// off is the last byte in the buffer - will be forwarded
 
-	//m.vers = uint16(data[4])<<8 | uint16(data[5])
-	//m.random = data[6:38]
-	sessionIdLen := int(data[38])
-	if sessionIdLen > 32 || len(data) < 39+sessionIdLen {
+	m.vers = uint16(clientHello[4])<<8 | uint16(clientHello[5])
+	// random: data[6:38]
+
+	sessionIdLen := int(clientHello[38])
+	if sessionIdLen > 32 || chLen < 39+sessionIdLen {
 		return sniErr
 	}
-	//m.sessionId = data[39 : 39+sessionIdLen]
+	m.sessionId = clientHello[39 : 39+sessionIdLen]
 	off = 39 + sessionIdLen
-	if end-off < 2 {
-		return sniErr
-	}
 
 	// cipherSuiteLen is the number of bytes of cipher suite numbers. Since
 	// they are uint16s, the number must be even.
-	cipherSuiteLen := int(data[off])<<8 | int(data[off+1])
+	cipherSuiteLen := int(clientHello[off])<<8 | int(clientHello[off+1])
 	off += 2
-	if cipherSuiteLen%2 == 1 || end-off < 2+cipherSuiteLen {
+	if cipherSuiteLen%2 == 1 || chLen-off < 2+cipherSuiteLen {
 		return sniErr
 	}
 
@@ -131,29 +145,29 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 	//}
 	off += cipherSuiteLen
 
-	compressionMethodsLen := int(data[off])
+	compressionMethodsLen := int(clientHello[off])
 	off++
-	if end-off < 1+compressionMethodsLen {
+	if chLen-off < 1+compressionMethodsLen {
 		return sniErr
 	}
 	//m.compressionMethods = data[1 : 1+compressionMethodsLen]
 	off += compressionMethodsLen
 
-	if off+2 > end {
+	if off+2 > chLen {
 		// ClientHello is optionally followed by extension data
 		return sniErr
 	}
 
-	extensionsLength := int(data[off])<<8 | int(data[off+1])
+	extensionsLength := int(clientHello[off])<<8 | int(clientHello[off+1])
 	off = off + 2
-	if extensionsLength != end-off {
+	if extensionsLength != chLen-off {
 		return sniErr
 	}
 
-	for off < end {
-		extension := uint16(data[off])<<8 | uint16(data[off+1])
+	for off < chLen {
+		extension := uint16(clientHello[off])<<8 | uint16(clientHello[off+1])
 		off += 2
-		length := int(data[off])<<8 | int(data[off+1])
+		length := int(clientHello[off])<<8 | int(clientHello[off+1])
 		off += 2
 		if off >= end {
 			return sniErr
@@ -161,7 +175,7 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 
 		switch extension {
 		case extensionServerName:
-			d := data[off : off+length]
+			d := clientHello[off : off+length]
 			if len(d) < 2 {
 				return sniErr
 			}
@@ -193,22 +207,20 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 				d = d[nameLen:]
 			}
 		default:
-			log.Println("TLS Ext", extension, length)
+			//log.Println("TLS Ext", extension, length)
 		}
 
 		off += length
 	}
 
-	// Does not contain port !!! Assume the port is the same (8443), or map it.
-	log.Println("SNI: ", m.serverName)
+	// Does not contain port !!! Assume the port is 443, or map it.
 
 	// TODO: unmangle server name - port, mesh node
-	// Alternatove: map similar with port listener
-	destAddr := m.serverName
 
-	// Direct connect to the internet (not clear why...)
+	destAddr := m.serverName + ":443"
 
-	remote.Initial = buf[0:off]
+	remote := gw.NewTcpProxy(local.RemoteAddr(), "SNI", buf[0:end], local, local)
+
 	err = remote.Dial(destAddr, nil)
 	if err != nil {
 		local.Close()

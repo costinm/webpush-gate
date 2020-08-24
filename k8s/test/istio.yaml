@@ -1,0 +1,58 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Sidecar
+metadata:
+  name: default
+  namespace: test
+spec:
+  ingress:
+    - port:
+        number: 6001
+        protocol: HTTP
+        name: httplocal
+      defaultEndpoint: 127.0.0.1:5000
+  egress:
+    # Only in NONE
+    # TODO: allow them in normal mode, as additions.
+    - port:
+        number: 5000
+        protocol: HTTP
+        name:  tcp-registry
+      bind: 0.0.0.0
+      #bind: 127.0.0.1
+      hosts:
+        - kube-registry/kube-registry.kube-registry
+    - port:
+        number: 5001
+        protocol: HTTP
+        name:  registry1
+      bind: 127.0.0.1
+      captureMode: NONE
+      hosts:
+        - kube-registry/kube-registry2.kube-registry
+    - port:
+        number: 5002
+        protocol: HTTP
+        name:  tcp-registry
+      bind: 0.0.0.0
+      #bind: 127.0.0.1
+      hosts:
+        - kube-registry/registry.local
+---
+
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: istiod-local-15010
+  namespace: kube-registry
+spec:
+  exportTo:
+    - "."
+  hosts:
+    - registry.local
+  ports:
+    - number: 5002
+      name: http
+      protocol: HTTP
+  resolution: STATIC
+  endpoints:
+    - address: 127.0.0.1

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"container/list"
 	"encoding/hex"
 	"encoding/json"
 	"html/template"
@@ -8,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/costinm/wpgate/pkg/conf"
@@ -17,7 +19,6 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/local"
-	"golang.org/x/net/websocket"
 )
 
 // curl -v http://s6.webinf.info:5227/status
@@ -31,11 +32,14 @@ type DMUI struct {
 	dm *mesh.Gateway
 	h2 *h2.H2
 
-	ws *websocket.Server
 	ld *local.LLDiscovery
+
+	// Debug recent events
+	mutex  sync.Mutex
+	events *list.List
 }
 
-// Default handler - operating as main admin handlers.
+// Default handler - operating as main admin handlers, on localhost
 //
 // Host headers:
 // - NODEID.dm -> forwarded to node, using connected client or parent.
@@ -51,13 +55,6 @@ func (dm *DMUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, pattern = dm.h2.LocalMux.Handler(r)
-	if len(pattern) > 0 {
-		dm.h2.LocalMux.ServeHTTP(w, r)
-		log.Println("LMHTTP: ", pattern, r.Method, r.Host, r.RemoteAddr, r.URL)
-		return
-	}
-
 	_, pattern = dm.h2.MTLSMux.Handler(r)
 	if len(pattern) > 0 {
 		dm.h2.MTLSMux.ServeHTTP(w, r)
@@ -66,15 +63,17 @@ func (dm *DMUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dm.h2.LocalMux.ServeHTTP(w, r)
+	log.Println("LMHTTP: ", pattern, r.Method, r.Host, r.RemoteAddr, r.URL)
 }
 
 func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 	hgate *httpproxy.HTTPGate,
 	ld *local.LLDiscovery) (*DMUI, error) {
 	dmui := &DMUI{
-		dm: dm,
-		h2: h2,
-		ld: ld,
+		dm:     dm,
+		h2:     h2,
+		ld:     ld,
+		events: list.New(),
 	}
 
 	var err error
@@ -91,43 +90,81 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 	//dm.Registry.InitHttp(dm.H2.MTLSMux)
 	//dm.Registry.InitHttpAdm(dm.H2.LocalMux)
 
-	for _, mux := range []*http.ServeMux{h2.LocalMux} {
-		mux.HandleFunc("/xtcp/", dmui.Merge("tcpall.html"))
-		mux.HandleFunc("/peers", dmui.Merge("peers.html"))
-		mux.HandleFunc("/events", dmui.Merge("events.html"))
-		mux.HandleFunc("/status", dmui.Merge("status.html"))
-		mux.HandleFunc("/wifi", dmui.Merge("wifi.html"))
-		mux.HandleFunc("/active", dmui.Merge("active.html"))
-		mux.HandleFunc("/info", dmui.Merge("info.html"))
+	h2.LocalMux.HandleFunc("/xtcp/", dmui.Merge("tcpall.html"))
+	h2.LocalMux.HandleFunc("/peers", dmui.Merge("peers.html"))
+	h2.LocalMux.HandleFunc("/events", dmui.Merge("events.html"))
+	h2.LocalMux.HandleFunc("/status", dmui.Merge("status.html"))
+	h2.LocalMux.HandleFunc("/wifi", dmui.Merge("wifi.html"))
+	h2.LocalMux.HandleFunc("/active", dmui.Merge("active.html"))
+	h2.LocalMux.HandleFunc("/info", dmui.Merge("info.html"))
 
-		mux.HandleFunc("/quitquitquit", QuitHandler)
+	// Streaming message using 'eventstream' - mostly for UI
+	// SSH, gRPC and websocket are better options
+	h2.LocalMux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
 
-		//		mux.HandleFunc("/debug/scan", dm.Wifi.JsonScan)
-		//		mux.HandleFunc("/wifi/con", dm.Wifi.HTTPCon)
+	h2.LocalMux.HandleFunc("/quitquitquit", QuitHandler)
 
-		mux.HandleFunc("/dmesh/uds/", msgs.DefaultMux.HTTPUDS)
+	h2.LocalMux.HandleFunc("/dmesh/uds/", msgs.DefaultMux.HTTPUDS)
 
-		mux.HandleFunc("/debug/eventslog", msgs.DebugEventsHandler)
-		mux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
+	// Saved event history
+	h2.LocalMux.HandleFunc("/debug/eventslog", dmui.DebugEventsHandler)
 
-		mux.Handle("/static/", http.FileServer(http.Dir("pkg/ui/www/")))
+	h2.LocalMux.Handle("/static/", http.FileServer(http.Dir("pkg/ui/www/")))
 
-		mux.Handle("/debug/", http.DefaultServeMux)
-		mux.HandleFunc("/dm/", hgate.HttpForwardPath)
-		mux.HandleFunc("/dm2/", hgate.HttpForwardPath2)
-
-		mux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
-		mux.HandleFunc("/dmesh/ip6", dmui.HttpGetNodes)
-		//mux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
-		mux.HandleFunc("/dmesh/ll/if", dmui.HttpGetLLIf)
-
+	h2.LocalMux.Handle("/debug/", http.DefaultServeMux)
+	if hgate != nil {
+		h2.LocalMux.HandleFunc("/dm/", hgate.HttpForwardPath)
+		h2.LocalMux.HandleFunc("/dm2/", hgate.HttpForwardPath2)
 	}
 
+	h2.LocalMux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
+	h2.LocalMux.HandleFunc("/dmesh/ip6", dmui.HttpGetNodes)
+	//h2.LocalMux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
+	h2.LocalMux.HandleFunc("/dmesh/ll/if", dmui.HttpGetLLIf)
 	h2.LocalMux.Handle("/", http.FileServer(fs))
+
+	msgs.DefaultMux.OnMessageForNode = append(msgs.DefaultMux.OnMessageForNode, dmui.onmessage)
+
+	// Add handlers to the messaging serve mux.
+	msgs.DefaultMux.ServeMux = h2.LocalMux
 	return dmui, nil
 }
 
+// TODO: circular buffer, poll event, for debug
+const EV_BUFFER = 200
+
+func (lm *DMUI) onmessage(ev *msgs.Message) {
+	if ev.To == "SYNC/LL" ||
+		ev.To == "SYNC/LLSRV" {
+		//log.Println("EV:", ev.Type, ev.Msg, ev.Meta)
+		return
+	}
+
+	lm.mutex.Lock()
+	lm.events.PushBack(ev)
+	if lm.events.Len() > EV_BUFFER {
+		lm.events.Remove(lm.events.Front())
+	}
+	lm.mutex.Unlock()
+}
+
+// Return the sticky and recent events.
+func (lm *DMUI) DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
+
+	w.Write([]byte("["))
+	for e := lm.events.Front(); e != nil; e = e.Next() {
+		e := e
+		ba := e.Value.(*msgs.Message).MarshalJSON()
+		w.Write(ba)
+		w.Write([]byte(",\n"))
+	}
+	w.Write([]byte("{}]"))
+}
+
 func (lm *DMUI) HttpGetLLIf(w http.ResponseWriter, r *http.Request) {
+	if lm.ld == nil {
+		return
+	}
 	lm.ld.RefreshNetworks()
 
 	lm.dm.MeshMutex.Lock()
@@ -150,6 +187,9 @@ func (lm *DMUI) HttpGetNodes(w http.ResponseWriter, r *http.Request) {
 // HttpRefreshAndRegister (/dmesh/rd) will initiate a multicast UDP, asking for local masters.
 // After a small wait it'll return the list of peers. Debugging only.
 func (lm *DMUI) HttpRefreshAndRegister(w http.ResponseWriter, r *http.Request) {
+	if lm.ld == nil {
+		return
+	}
 	lm.ld.RefreshNetworks()
 	lm.ld.AnnounceMulticast()
 
