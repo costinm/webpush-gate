@@ -26,5 +26,8 @@ func main() {
 	// Debug interface
 	log.Println("Starting WPS server on ", all.BasePort)
 
-	http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", all.BasePort+bootstrap.HTTP_DEBUG), all.UI)
+	err := http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", all.BasePort+bootstrap.HTTP_DEBUG), all.UI)
+	if err != nil {
+		log.Fatal("Error starting", err)
+	}
 }
