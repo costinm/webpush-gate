@@ -1,4 +1,4 @@
-package stream
+package uds
 
 import (
 	"bytes"
@@ -107,7 +107,7 @@ import (
 //	}
 //}
 
-var Debug = false
+//var Debug = false
 
 // Send a binary packet, with len prefix.
 // Currently used in the UDS mapping.

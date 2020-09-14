@@ -7,6 +7,7 @@ import (
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/h2"
+	"github.com/costinm/wpgate/pkg/tests"
 )
 
 // Verify mutual cert authentication

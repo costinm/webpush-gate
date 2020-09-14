@@ -23,7 +23,6 @@ import (
 	"testing"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/send"
 )
 
 func TestSendWebPush(t *testing.T) {
@@ -38,7 +37,7 @@ func TestSendWebPush(t *testing.T) {
 			t.Error(err)
 		}
 
-		message   := `I am the walrus`
+		message := `I am the walrus`
 
 		// 2 bytes padding and 16 bytes auth tag
 		expectedLength := len(message) + 2 + 16
@@ -77,7 +76,7 @@ func TestSendWebPush(t *testing.T) {
 	sub := &auth.Subscription{ts.URL, key, a, ""}
 	message := "I am the walrus"
 
-	if _, err = send.Send(nil, sub, message, ""); err != nil {
+	if _, err = Send(nil, sub, message, ""); err != nil {
 		t.Error(err)
 	}
 }
@@ -106,7 +105,7 @@ func TestSendTickle(t *testing.T) {
 
 	sub := &auth.Subscription{Endpoint: ts.URL}
 
-	if _, err := send.Send(nil, sub, "", ""); err != nil {
+	if _, err := Send(nil, sub, "", ""); err != nil {
 		t.Error(err)
 	}
 }

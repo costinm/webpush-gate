@@ -12,7 +12,25 @@ import (
 // Common to TCP and UDP proxies
 // Represents an outgoing connection to a remote site, with stats.
 //
+// Common to TCP and UDP proxies. Results of a "Dial"
+// originating a connection to a remote or local destination.
+//
 type Stream struct {
+	// remote In - data from remote app to local.
+	// May be an instance:
+	// - net.Conn - for outbound TCP connections
+	// - a res.Body for http-over-HTTP client. Note that remoteOut will be null in this case.
+	// - a TCPConnection for socks
+	// - for ssh -
+	ServerIn io.ReadCloser `json:"-"`
+
+	// remoteOut - stream sending to the server.
+	// will be nil for http or cases where the API uses Read() and has its own local->remote proxy logic.
+	//
+	// Normally an instance of net.Conn, create directly to app or to another node.
+	//
+	ServerOut io.WriteCloser `json:"-"`
+
 	Open time.Time
 
 	// last receive from local (and send to remote)
@@ -36,7 +54,7 @@ type Stream struct {
 	OriginPort int
 
 	// Original dest - hostname or IP, including port. Parameter of the orginal Dial from the captured egress stream.
-	// May be a mesh IP6, host, etc.
+	// May be a mesh IP6, host, etc. If original address was captured by IP, destIP will also be set.
 	Dest string
 
 	// Resolved destination IP. May be nil if SOCKS or forwarding is done. Final Gateway will have it set.
@@ -48,9 +66,20 @@ type Stream struct {
 	// Used for VPN-accepted connections,
 	LocalDest bool
 
+	// True if the destination is local, no VPN needed
+	// Used for VPN-accepted connections forwarded to directly
+	// reachable hosts, disables dialing through other VPNs.
+	DestDirectNoVPN bool
+
 	DestIP net.IP
 
+	// DestPort is set
 	DestPort int
+
+	// Address of the source. For accepted/forwarded
+	// stream it is the remote address of the accepted connection.
+	// For local capture is localhost and the remote port.
+	SrcAddr net.Addr
 
 	// Hostname of the destination, based on DNS cache and interception.
 	// Used as a key in the 'per host' stats.
@@ -88,20 +117,19 @@ type Stream struct {
 	// Additional closer, to be called after the proxy function is done and both client and remote closed.
 	Closer func() `json:"-"`
 
-	// remote In - data from remote app to local.
-	// May be an instance:
-	// - net.Conn - for outbound TCP connections
-	// - a res.Body for http-over-HTTP client. Note that remoteOut will be null in this case.
-	// - a TCPConnection for socks
-	// - for ssh -
-	ServerIn io.ReadCloser `json:"-"`
+	// remoteCtx is a context associated with the remote side connection,
+	// for example in http cases.
+	RemoteCtx context.CancelFunc
+}
 
-	// remoteOut - stream sending to the server.
-	// will be nil for http or cases where the API uses Read() and has its own local->remote proxy logic.
-	//
-	// Normally an instance of net.Conn, create directly to app or to another node.
-	//
-	ServerOut io.Writer `json:"-"`
+type nameAddress string
+
+// name of the network (for example, "tcp", "udp")
+func (na nameAddress) Network() string {
+	return "mesh"
+}
+func (na nameAddress) String() string {
+	return string(na)
 }
 
 var (
@@ -216,4 +244,37 @@ func (stats *Stream) CopyBuffered(dst io.Writer, src io.Reader, srcIsRemote bool
 		}
 	}
 	return written, err
+}
+
+func (tp *Stream) LocalAddr() net.Addr {
+	return tp.SrcAddr
+}
+
+func (tp *Stream) RemoteAddr() net.Addr {
+	if tp.DestAddr != nil {
+		return tp.DestAddr
+	}
+	return nameAddress(tp.Dest)
+	// Dial doesn't set it very well...
+	//return tp.SrcAddr
+}
+
+func (tp *Stream) Write(b []byte) (n int, err error) {
+	if tp.ServerOut == nil {
+		return
+	}
+	n, err = tp.ServerOut.Write(b)
+	tp.SentBytes += n
+	tp.SentPackets++
+	tp.LastClientActivity = time.Now()
+
+	return
+}
+
+func (tp *Stream) Read(out []byte) (int, error) {
+	n, err := tp.ServerIn.Read(out)
+	tp.RcvdBytes += n
+	tp.RcvdPackets++
+	tp.LastRemoteActivity = time.Now()
+	return n, err
 }

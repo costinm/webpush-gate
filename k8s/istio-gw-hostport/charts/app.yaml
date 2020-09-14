@@ -1,3 +1,4 @@
+# Simplified Istio gateway, running on Node with some hostPort configs.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -23,8 +24,6 @@ spec:
           args:
             - "proxy"
             - "router"
-            #            - "--proxyLogLevel"
-            #            - "trace"
             - "--serviceCluster"
             - "istio-hostport"
           env:
@@ -33,13 +32,9 @@ spec:
               value: /etc/istio/proxy/
             - name: PROXY_CONFIG
               value: |-
-                proxy_metadata:
-                  a: b
-                discoveryAddress: istiod-canary.istio-system.svc:15012
+                discoveryAddress: istiod.istio-system.svc:15012
                 zipkin:
                   address: ""
-
-
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -50,7 +45,6 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
-
           ports:
             # Creates on each host a port forwarder:
             # -A CNI-DN-78555e74edb8054e88910 -p tcp -m tcp --dport 5000 -j DNAT --to-destination 10.48.0.156:5000
@@ -58,23 +52,21 @@ spec:
               name: docker
               protocol: TCP
               hostPort: 5000
-            - containerPort: 5001
-              name: docker1
-              protocol: TCP
-              hostPort: 5001
             - containerPort: 15443
               name: https
               protocol: TCP
-              hostPort: 443
+              hostPort: 8443
             - containerPort: 15080
               name: http
               protocol: TCP
-              hostPort: 80
+              hostPort: 8080
           volumeMounts:
             - mountPath: /var/run/secrets/istio
               name: istiod-ca-cert
+
             - name: istio-envoy
               mountPath: /etc/istio/proxy
+
             - name: istio-token
               mountPath: /var/run/secrets/tokens
               readOnly: true
@@ -87,6 +79,7 @@ spec:
         - name: istiod-ca-cert
           configMap:
             name: istio-ca-root-cert
+
         - name: podinfo
           downwardAPI:
             items:
@@ -96,8 +89,10 @@ spec:
               - path: "annotations"
                 fieldRef:
                   fieldPath: metadata.annotations
+
         - name: istio-envoy
           emptyDir: {}
+
         - name: istio-token
           projected:
             sources:

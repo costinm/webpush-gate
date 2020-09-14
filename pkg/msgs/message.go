@@ -3,7 +3,6 @@ package msgs
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // Wrapper around 'pubsub' or event based systems.
@@ -23,50 +22,56 @@ import (
 // zapcore:
 // istio:  zapcore + Infof, InfoEnabled, scopes (including default), lumberjack for rotate, grpc->zaprpc, cobra
 
-// CloudEvents: each event is POST-ed to a URL
+// CloudEvents:
+// - each event is POST-ed to a URL or mapped to a transport
 // ce-specversion: "0.3-wip"
 // ce-type: "com.example.someevent"
 // ce-time: "2018-04-05T03:56:24Z"
 // ce-id: "1234-1234-1234"
 // ce-source: "/mycontext/subcontext"
+//
+// Producer==actual instance ( ID/labels/etc)
+// Source==URI, 'context' - group of producers originating, direclty or via proxy
+// Consumer== receives the event
+// Context==metadata
+// Subject==attribute indicating the object in the topic.
+
+// Subject can be encoded in from/to URLs
 
 // Records recent received messages and broadcasts, for debug and UI
 type Message struct {
-
-	//RFC3339 "2018-04-05T17:31:00Z"
-	Time string `json:"time,omitempty"`
-
-	// ID of event, to dedup. Included as meta 'id'
-	Id string `json:"id,omitempty"`
-
-	// Can be 'topic', or destination
-	To string `json:"to,omitempty"`
-
-	Subject string `json:"subject,omitempty"`
+	MessageData
+	////RFC3339 "2018-04-05T17:31:00Z"
+	//// ev.Time = time.Now().Format("01-02T15:04:05")
+	//Time int64 `json:"time,omitempty"`
+	//
+	//// ID of event, to dedup. Included as meta 'id'
+	//Id string `json:"id,omitempty"`
+	//
+	//// Original destination - can be a group/topic or individual URL
+	//// Called 'type' in cloud events, 'topic' in pubsub.
+	//To string `json:"to,omitempty"`
 
 	// VIPs in the path
 	Path []string `json:"path,omitempty"`
 
-	// Describes the event producer - VIP or public key
-	From string `json:"from,omitempty"`
+	//// Describes the event producer - VIP or public key
+	//From string `json:"from,omitempty"`
 
 	// JSON-serializable payload.
 	// Interface means will be serialized as base64 if []byte, as String if string or actual Json without encouding
 	// otherwise.
 	Data interface{} `json:"data,omitempty"`
 
-	// TS is the timestamp, in go format. When sending over the wire, converted to Time. From time when received.
-	TS time.Time `json:"-"`
-
-	// If data is a map (common case)
-	Meta map[string]string `json:"meta,omitempty"`
+	//// If data is a map (common case)
+	//Meta map[string]string `json:"meta,omitempty"`
 
 	// If received from a remote, the connection it was received on.
 	// nil if generated locally
 	Connection *MsgConnection `json:"-"`
 
-	// Extracted from To URL
-	Topic string `json:"-"`
+	//// Extracted from To URL
+	//Topic string `json:"-"`
 }
 
 // TODO: websocket to watch events
@@ -74,7 +79,7 @@ type Message struct {
 
 // NewMessage creates a new message, originated locally
 func NewMessage(cmdS string, meta map[string]string) *Message {
-	ev := &Message{Meta: map[string]string{}}
+	ev := &Message{MessageData: MessageData{Meta: map[string]string{}}}
 	ev.To = cmdS
 	ev.Meta = meta
 
@@ -101,12 +106,6 @@ func ParseJSON(data []byte) *Message {
 }
 
 func (ev *Message) MarshalJSON() []byte {
-	if ev.Time == "" {
-		if ev.TS.IsZero() {
-			ev.TS = time.Now()
-		}
-		ev.Time = ev.TS.Format("01-02T15:04:05")
-	}
 	dataB, _ := json.Marshal(ev)
 	return dataB
 }

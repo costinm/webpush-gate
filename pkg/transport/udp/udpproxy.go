@@ -337,8 +337,10 @@ func (gw *UDPGate) HandleUdp(dstAddr net.IP, dstPort uint16,
 		conn = &UdpNat{
 			UDP: udpCon,
 		}
-		conn.DestIP = dstAddr
-		conn.DestPort = int(dstPort)
+		conn.DestAddr = &net.TCPAddr{
+			IP: dstAddr,
+			Port: int(dstPort),
+		}
 		dns, f := gw.DNS.NameByAddr(dstAddr.String())
 		if f {
 			conn.DestDNS = fmt.Sprintf("%s:%d", dns.Name, dstPort)
@@ -393,7 +395,7 @@ func FreeIdleSockets(gw *UDPGate) {
 	for client, remote := range gw.ActiveUdp {
 		if t0.Sub(remote.LastClientActivity) > gw.ConnTimeout {
 			log.Printf("UDPC: %s:%d rcv=%d/%d snd=%d/%d ac=%v ra=%v op=%v lr=%s:%d la=%s %s",
-				remote.DestIP, remote.DestPort,
+				remote.DestAddr.IP, remote.DestAddr.Port,
 				remote.RcvdPackets, remote.RcvdBytes,
 				remote.SentPackets, remote.SentBytes,
 				time.Since(remote.LastClientActivity), time.Since(remote.LastRemoteActivity), time.Since(remote.Open),

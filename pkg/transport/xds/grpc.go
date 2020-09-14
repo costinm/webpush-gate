@@ -30,6 +30,7 @@ import (
 // alt: --go_out=plugins=grpc:.
 
 type GrpcService struct {
+	UnimplementedAggregatedDiscoveryServiceServer
 	Mux *msgs.Mux
 	// mutex used to modify structs, non-blocking code only.
 	mutex sync.RWMutex
@@ -169,16 +170,15 @@ func (s *GrpcService) StreamAggregatedResources(stream AggregatedDiscoveryServic
 func (s *GrpcService) process(connection *Connection, request *Request) error {
 	for _, r := range request.Resources {
 		s.Mux.SendMessage(&msgs.Message{
-			Time:       "",
-			To:         request.TypeUrl,
-			Subject:    "",
+			MessageData: msgs.MessageData {
+				To:    request.TypeUrl,
+				Time:  time.Now().Unix(),
+				Meta:  map[string]string{},
+				Topic: "",
+			},
 			Path:       nil,
-			From:       "",
 			Data:       r,
-			TS:         time.Now(),
-			Meta:       map[string]string{},
 			Connection: nil,
-			Topic:      "",
 		})
 	}
 	return nil
@@ -190,14 +190,15 @@ func (fx *GrpcService) SendAll(r *Response) {
 
 		r.Nonce = fmt.Sprintf("%v", time.Now())
 		con.NonceSent[r.TypeUrl] = r.Nonce
-		con.SStream.Send(r)
+		con.resChannel <- r
+		// Not safe to call from 2 threads: con.SStream.Send(r)
 	}
 }
 
-func (fx *GrpcService) Send(con *Connection, r *Response) error {
+func (fx *GrpcService) Send(con *Connection, r *Response) {
 	r.Nonce = fmt.Sprintf("%v", time.Now())
 	con.NonceSent[r.TypeUrl] = r.Nonce
-	return con.SStream.Send(r)
+	con.resChannel <- r
 }
 
 func Connect(addr string, clientPem string) (*grpc.ClientConn, AggregatedDiscoveryServiceClient, error) {

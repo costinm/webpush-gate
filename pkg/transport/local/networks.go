@@ -159,7 +159,7 @@ func (gw *LLDiscovery) RefreshNetworks() {
 
 		}
 
-		log.Printf("MCDirect: unicast %s [%s]:%d %s:%d", a.iface.Name, a.IP6LL, a.Port, a.IP4, a.Port4)
+		//log.Printf("MCDirect: unicast %s [%s]:%d %s:%d", a.iface.Name, a.IP6LL, a.Port, a.IP4, a.Port4)
 
 		// Initiate the UDP socket used to send MC registration requests and receive local QUIC connections.
 		//if a.multicastUdpServer == nil {

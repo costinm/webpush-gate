@@ -54,7 +54,6 @@ func startLocalServer(t *testing.T) (*grpc.Server, string) {
 	return s, addr
 }
 
-
 func TestGRpc(t *testing.T) {
 	addr := *testAddr
 	if len(*testAddr) == 0 {
@@ -67,7 +66,7 @@ func TestGRpc(t *testing.T) {
 	conn, client, err := Connect(addr, CLIENT_PEM)
 	defer conn.Close()
 
-	res, err := StreamAggregatedResources(context.Background())
+	res, err := client.StreamAggregatedResources(context.Background())
 	if err != nil {
 		log.Fatal("Subscribe fail ", err)
 	}
@@ -75,7 +74,7 @@ func TestGRpc(t *testing.T) {
 
 	go func() {
 		for {
-			msg, err := Recv()
+			msg, err := res.Recv()
 			if err != nil {
 				t.Fatal("Error in receive", err)
 			}
@@ -83,9 +82,8 @@ func TestGRpc(t *testing.T) {
 		}
 	}()
 
-	Send(&Request{})
+	res.Send(&Request{})
 }
-
 
 const (
 	// This is a cert pool - copied from grpc tests.
@@ -146,6 +144,3 @@ F98XJ7tIFfJq
 
 	`
 )
-
-
-

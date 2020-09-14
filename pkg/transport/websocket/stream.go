@@ -4,27 +4,29 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"crypto/tls"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/ssh"
 	ws "golang.org/x/net/websocket"
 )
 
-// Client or server event-stream connection.
-// Useful for debugging and sending messages to old browsers.
-// This is one of the simplest protocols.
+// Client and server for messaging over websocket
+// Uses VAPID or TLS authentication for client, TLS auth for server
+// Both ends identify with their public key and/or cert.
 
 func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
 	ws := &ws.Server{
 		Config:    ws.Config{},
 		Handshake: nil,
 		Handler: func(conn *ws.Conn) {
-			wsEmbedded(gate, conn)
+			h2ctx := auth.AuthContext(conn.Request().Context())
+			websocketStream(gate, conn, h2ctx, "http-"+conn.Request().RemoteAddr)
 		},
 	}
 	mux.Handle("/ws", ws)
@@ -63,7 +65,7 @@ func WSTransportMsgs(gate *mesh.Gateway, sshg *ssh.SSHGate, mux *http.ServeMux) 
 // Currently using a special protocol - derived from 'disaster radio' - since
 // I'm testing LoRA and related IoT protocols.
 // Will eventually use protobufs (after I fix the firmware)
-func wsEmbedded(mux *msgs.Mux, conn *ws.Conn) {
+func websocketStream(mux *msgs.Mux, conn *ws.Conn, h2ctx *auth.ReqContext, id string) {
 	data := make([]byte, 4096)
 	fr, err := conn.NewFrameReader()
 	if err != nil {
@@ -125,4 +127,22 @@ func wsEmbedded(mux *msgs.Mux, conn *ws.Conn) {
 			log.Printf("WS: %X%X %s\n", data[0], data[1], msgb)
 		}
 	}
+}
+
+func WSClient(a *auth.Auth, mux *msgs.Mux, dest string) error {
+	wsc, err := ws.NewConfig(dest, dest)
+
+	wsc.Header.Add("Authorization", a.VAPIDToken(dest))
+	wsc.TlsConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
+
+	ws, err := ws.DialConfig(wsc)
+	if err != nil {
+		return err
+	}
+
+	websocketStream(mux, ws, nil, "")
+
+	return nil
 }

@@ -26,12 +26,7 @@ var (
 // Useful for debugging and sending messages to old browsers.
 // This is one of the simplest protocols, line based.
 
-type EventStreamConnection struct {
-	msgs.MsgConnection
-}
-
 // Used to receive (subscribe) to messages, using HTTP streaming protocol.
-//
 // TODO: pass the list of subscriptions, filter, 'start' message
 func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
@@ -47,62 +42,36 @@ func Handler(gate *msgs.Mux) func(w http.ResponseWriter, req *http.Request) {
 		// Need to send an empty message first ( for strange reasons ?)
 		fmt.Fprintf(w, "event: message\ndata: %s\n\n", "{}")
 
-		EventStream(req.Context(), req.RemoteAddr, func(ev *msgs.Message) error {
-			ba := ev.MarshalJSON()
+		id := "es-" + req.RemoteAddr
 
-			// TODO: id, set type in event: header ( or test if message is not required )
-			//
-			_, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(ba))
-			if err != nil {
+		mc := &msgs.MsgConnection{
+			SubscriptionsToSend: []string{"*"},
+			SendMessageToRemote: func(ev *msgs.Message) error {
+				ba := ev.MarshalJSON()
+				_, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(ba))
+				if err != nil {
+					return err
+				}
+				w.(http.Flusher).Flush()
 				return err
+			},
+		}
+
+		msgs.DefaultMux.AddConnection(id, mc)
+
+		log.Println("DM HTTP EVENT STREAM ", id)
+
+		defer func() {
+			msgs.DefaultMux.RemoveConnection(id, mc)
+			log.Println("DM HTTP EVENT STREAM CLOSE ", id)
+		}()
+
+		ctx := req.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
 			}
-			w.(http.Flusher).Flush()
-			return nil
-		})
-	}
-}
-
-// Used to receive (subscribe) to messages, as well as send messages.
-//
-// TODO: pass the list of subscriptions, filter, 'start' message
-func EventStream(reqContext context.Context, req string, sender func(ev *msgs.Message) error) {
-
-	ch := make(chan *msgs.Message, 10)
-
-	id := "http-" + req
-	mc := &msgs.MsgConnection{
-		SubscriptionsToSend: []string{"*"},
-		SendMessageToRemote: func(ev *msgs.Message) error {
-			ch <- ev
-			return nil
-		},
-	}
-
-	// All messages sent to the channel
-	msgs.DefaultMux.AddHandler("*", msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
-		ch <- msgs.NewMessage(cmdS, meta).SetDataJSON(data)
-	}))
-
-	msgs.DefaultMux.AddConnection(id, mc)
-
-	log.Println("DM HTTP EVENT STREAM ", req)
-
-	defer func() {
-		msgs.DefaultMux.RemoveConnection(id, mc)
-		log.Println("DM HTTP EVENT STREAM CLOSE ", req)
-	}()
-
-	// source.addEventListener('add', addHandler, false);
-	// event: add
-	// data: LINE
-	//
-	ctx := reqContext
-	for {
-		select {
-		case ev := <-ch:
-			sender(ev)
-		case <-ctx.Done():
-			return
 		}
 	}
 }
@@ -152,11 +121,8 @@ func MonitorNode(gate *msgs.Mux, hc *http.Client, idhex *net.IPAddr) error {
 
 		if strings.HasPrefix("data:", ls) {
 			ls = ls[5:]
-
 			log.Println(idhex, ls)
-
 		} else {
-
 			log.Println(idhex, ls)
 		}
 	}

@@ -1,0 +1,90 @@
+# Start a remote docker machine for debug/dev
+
+# Forward registry port to 5001
+# In-cluster registry runs on localhost:5001
+
+# Also forwards Istio ports for debug
+
+apiVersion: skaffold/v2beta4
+kind: Config
+metadata:
+  name:	ports
+
+portForward:
+  # deployment, pod, service
+
+  # Code
+  - resourceType: deployment
+    namespace: dev
+    resourceName: dev
+    address: 0.0.0.0
+    port: 8080
+    localPort: 8443
+
+  # Syncthing
+  - resourceType: deployment
+    namespace: dev
+    resourceName: dev
+    address: 0.0.0.0
+    port: 8384
+    localPort: 8384
+
+  # Registry, for skaffold
+  - resourceType: replicationcontroller
+    namespace: kube-registry
+    resourceName: kube-registry-v0
+    port: 5000
+    localPort: 5000
+
+  # Istio
+  - resourceType: service
+    namespace: istio-system
+    resourceName: istiod
+    port: 15010
+    localPort: 16010
+
+  - resourceType: deployment
+    namespace: istio-system
+    resourceName: istiod
+    port: 8080
+    localPort: 16080
+
+  - resourceType: deployment
+    namespace: istio-system
+    resourceName: istiod
+    port: 15012
+    localPort: 16012
+
+  # DIND
+  - resourceType: replicationcontroller
+    namespace: dind
+    resourceName: dind
+    port: 2375
+    localPort: 2375
+
+  #For debugging
+  - resourceType: service
+    namespace: mon
+    resourceName: prometheus-1-grafana
+    port: 80
+    localPort: 3000
+
+  - resourceType: service
+    namespace: mon
+    resourceName: prometheus-1-prometheus
+    port: 9090
+    localPort: 9090
+
+  - resourceType: deployment
+    namespace: fortio-asm
+    resourceName: fortio
+    address: 0.0.0.0
+    port: 15000
+    localPort: 15001
+
+  - resourceType: deployment
+    namespace: fortio-asm
+    resourceName: fortio-cli
+    address: 0.0.0.0
+    port: 15000
+    localPort: 15004

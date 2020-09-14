@@ -9,7 +9,7 @@ deploy:
       - charts/*.yaml
 portForward:
   - resourceType: daemonset
-    namespace: istio-gw-hotspot
+    namespace: istio-gw-hostport
     resourceName: gate
     port: 15000
     localPort: 12000

@@ -96,6 +96,8 @@ type Gateway struct {
 	// Client to VPN
 	SSHClient MuxSession
 
+	JumpHosts map[string]MuxSession
+
 	// Client to mesh expansion - not trusted, set when mesh expansion is in use.
 	// Used as a jump host to connect to the next destination.
 	// TODO: allow multiple addresses.
@@ -109,6 +111,12 @@ type Gateway struct {
 func (gw *Gateway) ActiveTCP() map[int]*streams.TcpProxy {
 	return gw.ActiveTcp
 }
+// GateCfg:
+//	// Proxy requests to hosts (external or mesh) using the VIP of another node.
+//	Via map[string]string `json:"Via,omitempty"`
+//
+//	// VIP of the default egress node, if no 'via' is set.
+//	Egress string
 
 func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 	if gcfg == nil {
@@ -121,6 +129,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		//AllUdpCon: make(map[string]*HostStats),
 		AllTcpCon: make(map[string]*HostStats),
 		Listeners: make(map[int]net.Listener),
+		JumpHosts: map[string]TunDialer{},
 		//upstreamMessageChannel: make(chan packet, 100),
 		Auth:           certs,
 		Config:         gcfg,
@@ -201,7 +210,7 @@ func (gw *Gateway) FreeIdleSockets() {
 		if t0.Sub(remote.LastClientActivity) > tcpClose &&
 			t0.Sub(remote.LastRemoteActivity) > tcpClose {
 			log.Printf("UDPC: %s:%d rcv=%d/%d snd=%d/%d ac=%v ra=%v op=%v la=%s",
-				remote.DestIP, remote.DestPort,
+				remote.DestAddr.IP, remote.DestAddr.Port,
 				remote.RcvdPackets, remote.RcvdBytes,
 				remote.SentPackets, remote.SentBytes,
 				time.Since(remote.LastClientActivity), time.Since(remote.LastRemoteActivity), time.Since(remote.Open),

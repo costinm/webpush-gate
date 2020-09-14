@@ -9,22 +9,23 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/costinm/wpgate/pkg/auth"
 )
 
-// One connection - incoming or outgoing. Can send messages to the remote end, which may in turn forward
-// messages for other nodes.
+// One connection - incoming or outgoing. Can send messages to the remote end, which may
+// in turn forward messages for other nodes.
 //
 // Incoming messages are dispatched to the mux, which may deliver locally or forward.
-//
 type MsgConnection struct {
 	gate *Mux
 
 	// Key used in mux to track this connection
 	Name string
 
-	// Vip associated with the connection. Messages will not be forwarded if the VIP is in Path or From of the
-	// message.
-	vip string
+	// Authenticated Vip associated with the connection. Messages will not be forwarded if
+	// the VIP is in Path or From of the message.
+	VIP string
 
 	// Broadcast subscriptions to forward to the remote. Will have a 'From' set to current node.
 	// VPN and upstream server use "*" to receive/pass up all events.
@@ -63,7 +64,7 @@ func (mux *Mux) AddConnection(id string, cp *MsgConnection) {
 	if h, f := mux.handlers["/open"]; f {
 		h.HandleMessage(context.Background(), "/open", map[string]string{"id": id}, nil)
 	}
-	log.Println("/mux/AddConnection", id, cp.SubscriptionsToSend)
+	log.Println("/mux/AddConnection", id, cp.VIP, cp.SubscriptionsToSend)
 }
 
 func (cp *MsgConnection) send(message *Message) {
@@ -77,15 +78,15 @@ func (cp *MsgConnection) send(message *Message) {
 	}
 }
 
-func (gate *Mux) RemoveConnection(id string, cp *MsgConnection) {
-	gate.mutex.Lock()
-	delete(gate.connections, id)
-	gate.mutex.Unlock()
+func (mux *Mux) RemoveConnection(id string, cp *MsgConnection) {
+	mux.mutex.Lock()
+	delete(mux.connections, id)
+	mux.mutex.Unlock()
 
-	if h, f := gate.handlers["/close"]; f {
+	if h, f := mux.handlers["/close"]; f {
 		h.HandleMessage(context.Background(), "/close", map[string]string{"id": id}, nil)
 	}
-	log.Println("/mux/RemoveConnection", id)
+	log.Println("/mux/RemoveConnection", id, cp.VIP)
 }
 
 func (mc *MsgConnection) Close() {
@@ -100,33 +101,46 @@ func (mux *Mux) Id() string {
 }
 
 // Message from a remote, will be forwarded to subscribed connections.
-func (mux *Mux) OnRemoteMessage(ev *Message, from, self string, connName string) error {
+func (mux *Mux) OnRemoteMessage(ev *Message, connName string) error {
 	// Local handlers first
+	if ev.Time == 0 {
+		ev.Time = time.Now().Unix()
+	}
 	if ev.Id == "" {
 		ev.Id = mux.Id()
 	}
 	parts := strings.Split(ev.To, "/")
+
 	if len(parts) < 2 {
 		return nil
 	}
-	if parts[0] == self {
+
+	to := parts[0]
+	if to == mux.Auth.Self() || to == "" {
 		mux.HandleMessageForNode(ev)
 		log.Println("/mux/OnRemoteMessageLocal", ev.To)
 		return nil
 	}
 
+	ev.Path = append(ev.Path, mux.Auth.VIP6.String())
 	for k, ms := range mux.connections {
 		if k == ev.From || k == connName {
 			continue
 		}
+		for _, a := range ev.Path {
+			if a == ms.VIP {
+				log.Println("/mux/OnRemoteMessageFWD - LOOP ", ev.To, ms.VIP, ms.Name)
+				continue
+			}
+		}
 		ms.maybeSend(parts, ev, k)
-		log.Println("/mux/OnRemoteMessageFWD", ev.To, k)
+		log.Println("/mux/OnRemoteMessageFWD", parts[0], ev.To, ms.VIP, ms.Name)
 	}
 	return nil
 }
 
 // Send a message to one or more connections.
-func (gate *Mux) SendMsg(ev *Message) error {
+func (mux *Mux) SendMsg(ev *Message) error {
 	parts := strings.Split(ev.To, "/")
 
 	if parts[0] == "." {
@@ -136,7 +150,7 @@ func (gate *Mux) SendMsg(ev *Message) error {
 		return nil
 	}
 
-	for k, ms := range gate.connections {
+	for k, ms := range mux.connections {
 		if k == ev.From { // Exclude the connection where this was received on.
 			continue
 		}
@@ -176,17 +190,61 @@ func (ms *MsgConnection) maybeSend(parts []string, ev *Message, k string) {
 	log.Println("/mux/Remote", ev.To, ms.Name)
 }
 
-// Messages received from remote, over SSH.
+// ProcessMessage parses an incoming message, from a remote connection.
+// Message is further processed using one of the methods.
+func (mux *Mux) ProcessMessage(line []byte, ctx *auth.ReqContext) *Message {
+	if len(line) == 0 {
+		return nil
+	}
+	var ev *Message
+	var from string
+	if ctx != nil {
+		from = ctx.ID()
+	}
+
+	if line[0] == '{' {
+		ev = ParseJSON(line)
+
+		ev.From = from
+
+		parts := strings.Split(ev.To, "/")
+		if len(parts) < 2 {
+			log.Println("Invalid To", parts)
+			return nil
+		}
+		top := parts[1]
+		ev.Topic = top
+
+		ev.Path = append(ev.Path, from)
+	} else {
+		parts := strings.Split(string(line), " ")
+		meta := map[string]string{}
+		if len(parts) > 1 {
+			for _, kv := range parts[1:] {
+				kvp := strings.SplitN(kv, "=", 2)
+				if len(kvp) == 2 {
+					meta[kvp[0]] = kvp[1]
+				} else {
+					meta[kvp[0]] = ""
+				}
+			}
+		}
+		ev = NewMessage(parts[0], meta)
+	}
+
+	return ev
+}
+
+// Messages received from remote.
 //
 // from is the authenticated VIP of the sender.
 // self is my own VIP
 //
-//
-func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *bufio.Reader, from string, self string) {
-	//defer channel.Close()
+func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *bufio.Reader, from string) {
 	for {
 		line, _, err := br.ReadLine()
 		if err != nil {
+			log.Println("Error reading stream ", mconn.VIP, err)
 			break
 		}
 		//if role == ROLE_GUEST {
@@ -197,8 +255,8 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *b
 
 			// TODO: if a JWT is present and encrypted or signed binary - use the original from.
 
-			if ev.Time == "" {
-				ev.Time = time.Now().Format("01-02T15:04:05")
+			if ev.Time == 0 {
+				ev.Time = time.Now().Unix()
 			}
 			if ev.From == "" {
 				ev.From = from
@@ -218,17 +276,13 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *b
 
 			// TODO: forwarded 'endpoint' messages, for children and peers
 
-			if cb != nil {
-				cb(ev)
-			}
-
 			loop := false
 			for _, s := range ev.Path {
-				if s == self {
+				if s == mconn.gate.Auth.Self() {
 					loop = true
 					break
 				}
-				if s == from {
+				if s == ev.From {
 					loop = true
 					break
 				}
@@ -236,10 +290,15 @@ func (mconn *MsgConnection) HandleMessageStream(cb func(message *Message), br *b
 			if loop {
 				continue
 			}
-			ev.Path = append(ev.Path, from)
+			ev.Path = append(ev.Path, ev.From)
 			ev.Connection = mconn
 
-			mconn.gate.OnRemoteMessage(ev, from, self, mconn.Name)
+			// For each message
+			if cb != nil {
+				cb(ev)
+			}
+			mconn.gate.OnRemoteMessage(ev, mconn.Name)
 		}
 	}
+
 }

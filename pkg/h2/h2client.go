@@ -38,6 +38,17 @@ func SocksHttp(socksAddr string) *http.Client {
 	}
 }
 
+func InsecureHttp() *http.Client {
+	return &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+}
+
 // NewSocksHttpClient returns a new client using SOCKS5 server.
 func NewSocksHttpClient(socksAddr string) *http.Client {
 	if socksAddr == "" {

@@ -10,12 +10,47 @@ import (
 	"log"
 	"math/big"
 	"testing"
+	"time"
 )
 
 const (
 	testpriv = "bSaKOws92sj2DdULvWSRN3O03a5vIkYW72dDJ_TIFyo"
 	testpub  = "BALVohWt4pyr2L9iAKpJig2mJ1RAC1qs5CGLx4Qydq0rfwNblZ5IJ5hAC6-JiCZtwZHhBlQyNrvmV065lSxaCOc"
 )
+
+func TestVapid(t *testing.T) {
+	rfcEx := "vapid t=eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJhdWQiOiJodHRwczovL3B1c2guZXhhbXBsZS5uZXQiLCJleHAiOjE0NTM1MjM3NjgsInN1YiI6Im1haWx0bzpwdXNoQGV4YW1wbGUuY29tIn0.i3CYb7t4xfxCDquptFOepC9GAu_HLGkMlMuCGSK2rpiUfnK9ojFwDXb1JrErtmysazNjjvW2L9OkSSHzvoD1oA, " +
+		"k=BA1Hxzyi1RUM1b5wjxsn7nGxAszw2u61m164i3MrAIxHF6YK5h4SDYic-dRuU_RCPCfA5aq9ojSwk5Y2EmClBPs"
+
+	rfcT, rfcP, err := CheckVAPID(rfcEx, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rfcT.Aud != "https://push.example.net" {
+		t.Fatal("Aud got ", rfcT.Aud)
+	}
+	log.Println(len(rfcP), rfcT)
+
+	alice := NewAuth(nil, "", "test.sender")
+	bobToken := alice.VAPIDToken("bob")
+	log.Println("Authorization: " + bobToken)
+
+	tok, pub, err := CheckVAPID(bobToken, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	log.Println(len(pub), tok)
+
+	btb := []byte(bobToken)
+	btb[50]++
+	bobToken = string(btb)
+	_, _, err = CheckVAPID(bobToken, time.Now())
+	if err == nil {
+		t.Fatal("Expecting error")
+	}
+
+}
 
 func TestSigFail(t *testing.T) {
 	payload := `{"UA":"22-palman-LG-V510-","IP4":"10.1.10.223"}`

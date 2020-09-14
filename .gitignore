@@ -2,3 +2,5 @@ var/run/*
 var/lib/istio/proxy/*
 tmp/
 /go.sum
+cmd/wps/.config/dlv/config.yml
+cmd/wps/__debug_bin

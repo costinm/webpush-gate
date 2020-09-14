@@ -156,17 +156,20 @@ func (ce *CloudEvents) receive(ctx context.Context, event cloudevents.Event) { /
 	if evb, ok := event.Data.([]byte); ok {
 		log.Println("MUX EVENT DATA: ", string(evb))
 	}
+	to := "/" + event.Type()
+	if event.Subject() != "" {
+		to = to + "/" + event.Subject()
+	}
 	// TODO: allow sending back a response ?
 	m := &msgs.Message{
-		Time:       event.Time().String(),
-		Id:         event.ID(),
-		To:         "/" + event.Type(),
-		Subject:    event.Subject(),
-		Path:       nil,
-		From:       event.Source(),
+		MessageData: msgs.MessageData{
+			Time: event.Time().Unix(),
+			Id:   event.ID(),
+			To:   to,
+			From: event.Source(),
+			Meta:       map[string]string{},
+		},
 		Data:       event.Data,
-		TS:         event.Time(),
-		Meta:       map[string]string{},
 		Connection: ce.mc,
 	}
 	for k, v := range event.Extensions() {
