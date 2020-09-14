@@ -11,7 +11,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/cmd/wps",
-            "env": {},
+            "env": {"BASE_PORT": "14000"},
             "cwd": "../..",
             //"trace": "verbose",
             "args": []

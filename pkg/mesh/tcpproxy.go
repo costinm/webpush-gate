@@ -104,7 +104,6 @@ func (tp *TcpProxy) Close() error {
 	return nil
 }
 
-
 func (tp *TcpProxy) SetDeadline(t time.Time) error {
 	return nil
 }
@@ -159,7 +158,7 @@ func (gw *Gateway) NewTcpProxy(src net.Addr,
 			Origin:     src.String(),
 			OriginIP:   origIP,
 			OriginPort: origPort,
-			SrcAddr:   src,
+			SrcAddr:    src,
 		},
 		gw:        gw,
 		Initial:   initialData,
@@ -312,6 +311,14 @@ func (tp *TcpProxy) Dial(dest string, addr *net.TCPAddr) error {
 		}
 	}
 
+	// dest can be an IP:port or hostname:port or MESHID/[....]
+	// TODO: support literal form of MESH hosts
+	//if g.Vpn != "" {
+	//	tp.Type = tp.Type + "-IH2"
+	//	log.Println("DIAL: NET HTTP VPN ", g.Vpn, dest, addr, host, port)
+	//	return tp.DialViaHTTP(g.Vpn, dest)
+	//}
+
 	if g.SSHClientUp != nil {
 		// We have an active connection to SSHVpn - use it instead of H2.
 		// TODO: reconnect
@@ -324,13 +331,6 @@ func (tp *TcpProxy) Dial(dest string, addr *net.TCPAddr) error {
 		}
 	}
 
-	// dest can be an IP:port or hostname:port or MESHID/[....]
-	// TODO: support literal form of MESH hosts
-	//if g.Vpn != "" {
-	//	tp.Type = tp.Type + "-IH2"
-	//	log.Println("DIAL: NET HTTP VPN ", g.Vpn, dest, addr, host, port)
-	//	return tp.DialViaHTTP(g.Vpn, dest)
-	//}
 	via := tp.gw.Config.Via[dest]
 	if via == "" {
 		dot := strings.Index(dest, ".")
@@ -384,7 +384,7 @@ func (tp *TcpProxy) DialMesh() error {
 		// TODO: port may be forwarded to a specific destination (configured by the control plane/node)
 		tp.Type = tp.Type + "-MD"
 		log.Println("DIAL: TARGET REACHED", tp.DestDNS, tp.DestPort)
-		return tp.dialDirect("", &net.TCPAddr{IP:[]byte{127, 0, 0, 1}, Port: tp.DestPort})
+		return tp.dialDirect("", &net.TCPAddr{IP: []byte{127, 0, 0, 1}, Port: tp.DestPort})
 	}
 
 	node, f := tp.gw.GetNodeByID(key)
@@ -407,6 +407,13 @@ func (tp *TcpProxy) DialMesh() error {
 		}
 	}
 
+	// if g.Vpn != "" {
+	// 	log.Println("DIAL: HTTP VPN ", g.Vpn, tp.Dest)
+	// 	tp.Type = tp.Type + "-MH2VPN"
+
+	// 	return tp.DialViaHTTP(g.Vpn, net.JoinHostPort(host, port))
+	// }
+
 	if g.SSHClientUp != nil {
 		// We have an active connection to SSHVpn - use it instead of H2.
 		// TODO: reconnect
@@ -420,12 +427,6 @@ func (tp *TcpProxy) DialMesh() error {
 		}
 	}
 
-	//if g.Vpn != "" {
-	//	log.Println("DIAL: HTTP VPN ", dest, addr, host, port)
-	//	tp.Type = tp.Type + "-MH2VPN"
-	//
-	//	return tp.DialViaHTTP(g.Vpn, net.JoinHostPort(host, port))
-	//}
 	log.Println("PORT: node not found ", tp.Dest)
 	return fmt.Errorf("No valid Gateway")
 }

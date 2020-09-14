@@ -6,7 +6,7 @@
 #fi
 
 # Local: use local docker, faster
-export KO_DOCKER_REPO=localhost:5000
+export KO_DOCKER_REPO=${HUB:-localhost:5000}
 
 # Would produce costinm/wps - but skaffold is mangling differently,
 # to costinm_wps
@@ -19,8 +19,10 @@ export KO_DOCKER_REPO=localhost:5000
 
 # -B - use last component of the name
 
-TAG=$(echo $IMAGE | cut -d: -f 3)
+T=$(echo $IMAGE | cut -d: -f 3)
+TAG=${T:-latest}
 echo TAG $TAG
+
 output=$(ko publish ./cmd/wps --insecure-registry -t $TAG --disable-optimizations -B | tee)
 
 

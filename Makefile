@@ -85,14 +85,15 @@ deps/esc:
 	go get -u github.com/mjibson/esc
 
 # Generate static files
-pkg/ui/html_static.go: ${GOPATH}/bin/esc  pkg/ui/www/status.html \
-        pkg/ui/www/active.html \
-        pkg/ui/www/peers.html \
-        pkg/ui/www/wifi.html \
-		pkg/ui/www/events.html \
-        pkg/ui/www/base.html \
-        pkg/ui/www/js/index.js \
-		pkg/ui/www/info.html
+pkg/ui/html_static.go: \ 
+	pkg/ui/www/status.html \
+    pkg/ui/www/active.html \
+    pkg/ui/www/peers.html \
+    pkg/ui/www/wifi.html \
+	pkg/ui/www/events.html \
+    pkg/ui/www/base.html \
+    pkg/ui/www/js/index.js \
+	pkg/ui/www/info.html
 	@echo "REGENERAGE"
 	${GOPATH}/bin/esc -include '.*\.html|.*\.js|.*\.css' -prefix pkg/ui/www -o pkg/ui/html_static.go -pkg ui pkg/ui/www/
 
