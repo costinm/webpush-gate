@@ -49,7 +49,7 @@ func StartIstioCapture(p *mesh.Gateway, addr string) error {
 // https://github.com/ryanchapman/go-any-proxy/blob/master/any_proxy.go,
 // and other examples.
 // Based on REDIRECT.
-func iptablesServeConn(p *mesh.Gateway, conn net.Conn) error {
+func iptablesServeConn(gw *mesh.Gateway, conn net.Conn) error {
 	addr, port, conn1, err := getOriginalDst(conn.(*net.TCPConn))
 	if err != nil {
 		conn.Close()
@@ -58,10 +58,10 @@ func iptablesServeConn(p *mesh.Gateway, conn net.Conn) error {
 
 	iaddr := net.IP(addr)
 
-	proxy := p.NewTcpProxy(conn1.RemoteAddr(), "IPT", nil, conn1, conn1)
+	proxy := gw.NewTcpProxy(conn1.RemoteAddr(), "IPT", nil, conn1, conn1)
 	defer proxy.Close()
 
-	err = proxy.Dial("", &net.TCPAddr{IP: iaddr, Port: int(port)})
+	err = gw.Dial(proxy, "", &net.TCPAddr{IP: iaddr, Port: int(port)})
 	if err != nil {
 		return err
 	}

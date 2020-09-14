@@ -23,14 +23,17 @@
 package udp
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
 	dmdns "github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/streams"
 	"github.com/miekg/dns"
 	"golang.org/x/net/ipv4"
 )
@@ -115,16 +118,32 @@ var (
 	}}
 )
 
+// Represents on UDP 'nat' connection.
+// Currently full cone, i.e. one local port per NAT.
+type UdpNat struct {
+	streams.Stream
+	// bound to a local port (on the real network).
+	UDP *net.UDPConn
+
+	Closed    bool
+	LocalPort int
+
+	LastRemoteIP    net.IP
+	LastsRemotePort uint16
+}
+
+
 type UDPGate struct {
 	gw *mesh.Gateway
 
 	// NAT
 	udpLock   sync.RWMutex
-	ActiveUdp map[string]*mesh.UdpNat
+	ActiveUdp map[string]*UdpNat
 	AllUdpCon map[string]*mesh.HostStats
 
 	// UDP
 	// Capture return - sends packets back to client app.
+	// This is typically a netstack or TProxy
 	UDPWriter mesh.UdpWriter
 
 	DNS dmdns.DmDns
@@ -133,13 +152,35 @@ type UDPGate struct {
 	ConnTimeout time.Duration
 }
 
-func NewUDPGate() *UDPGate {
+func NewUDPGate(gw *mesh.Gateway) *UDPGate {
 	return &UDPGate{
+		gw: gw,
 		ConnTimeout: 60 * time.Second,
-		ActiveUdp:   map[string]*mesh.UdpNat{},
+		ActiveUdp:   map[string]*UdpNat{},
 		AllUdpCon:   map[string]*mesh.HostStats{},
 	}
 }
+// http debug/ui
+
+func (gw *UDPGate) InitMux(mux *http.ServeMux) {
+	mux.HandleFunc("/dmesh/udpa", gw.HttpUDPNat)
+	mux.HandleFunc("/dmesh/udp", gw.HttpAllUDP)
+}
+
+func (gw *UDPGate) HttpAllUDP(w http.ResponseWriter, r *http.Request) {
+	gw.udpLock.RLock()
+	defer gw.udpLock.RUnlock()
+	json.NewEncoder(w).Encode(gw.AllUdpCon)
+}
+
+func (gw *UDPGate) HttpUDPNat(w http.ResponseWriter, r *http.Request) {
+	gw.udpLock.RLock()
+	defer gw.udpLock.RUnlock()
+	json.NewEncoder(w).Encode(gw.ActiveUdp)
+}
+
+
+
 
 //// Server side of 'UDP-over-H2+QUIC'.
 //// 3 modes:
@@ -154,7 +195,7 @@ func NewUDPGate() *UDPGate {
 
 // NAT will open one port per clientIP+port, and forward back to the local app.
 // This is the forward loop.ud
-func remoteConnectionReadLoop(gw *UDPGate, localAddr *net.UDPAddr, upstreamConn *net.UDPConn, udpN *mesh.UdpNat) {
+func remoteConnectionReadLoop(gw *UDPGate, localAddr *net.UDPAddr, upstreamConn *net.UDPConn, udpN *UdpNat) {
 	if DumpUdp {
 		log.Println("Starting read loop for ", localAddr)
 	}
@@ -248,7 +289,8 @@ func (gw *UDPGate) HandleDNS(dstAddr net.IP, dstPort uint16, src *net.UDPAddr, d
 
 // HandleUDP is processing a captured UDP packet. It can be captured by iptables TPROXY or
 // netstack TUN.
-func (gw *UDPGate) HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte) {
+func (gw *UDPGate) HandleUdp(dstAddr net.IP, dstPort uint16,
+		localAddr net.IP, localPort uint16, data []byte) {
 	if dstPort == 1900 {
 		return
 	}
@@ -261,6 +303,7 @@ func (gw *UDPGate) HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, l
 	if dstAddr[0] == 230 {
 		return
 	}
+
 	src := &net.UDPAddr{Port: int(localPort), IP: localAddr}
 	if dstPort == 53 {
 		gw.HandleDNS(dstAddr, dstPort, src, data)
@@ -291,7 +334,7 @@ func (gw *UDPGate) HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, l
 			return
 		}
 
-		conn = &mesh.UdpNat{
+		conn = &UdpNat{
 			UDP: udpCon,
 		}
 		conn.DestIP = dstAddr

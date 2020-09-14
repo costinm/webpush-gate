@@ -209,7 +209,7 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 	// Direct connect to the internet (not clear why...)
 
 	remote.Initial = buf[0:off]
-	err = remote.Dial(destAddr, nil)
+	err = gw.Dial(remote, destAddr, nil)
 	if err != nil {
 		local.Close()
 		return err

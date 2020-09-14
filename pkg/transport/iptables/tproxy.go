@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/transport/udp"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 )
@@ -17,19 +18,15 @@ import (
 // WIP: requires root, UDP proxy using orig dest.
 // Only useful for inbound - where we already know the dest.
 
-func StartTproxy(p *mesh.Gateway, addr string) error {
+func StartTproxy(p *mesh.Gateway, udpNat *udp.UDPGate, addr string) error {
 	var f *os.File
 	var err error
-	if p.UDPListener == nil {
-		// Requires root, not starting UDP proxy
-		//return nil
-		f, err = StartUDPTProxyListener(15006)
-		if err != nil {
-			log.Println("Error starting TPROXY", err)
-			return err
-		}
-	} else {
-		f = p.UDPListener
+	// Requires root, not starting UDP proxy
+	//return nil
+	f, err = StartUDPTProxyListener(15006)
+	if err != nil {
+		log.Println("Error starting TPROXY", err)
+		return err
 	}
 	c, err := net.FileConn(f)
 	if err != nil {
@@ -41,7 +38,7 @@ func StartTproxy(p *mesh.Gateway, addr string) error {
 		return errors.New("failed to cast")
 	}
 
-	p.UDPWriter = &transparentUdp{con: lu}
+	udpNat.UDPWriter = &transparentUdp{con: lu}
 
 	//lu, err := net.ListenUDP("udp", &net.UDPAddr{
 	//	Port: 15000,
@@ -90,7 +87,7 @@ func StartTproxy(p *mesh.Gateway, addr string) error {
 			//	dstaddr.sin_family = AF_INET;
 			//}
 
-			go p.UDPGate.HandleUdp(origIP, origPort, addr.IP, uint16(addr.Port), data[0:n])
+			go udpNat.HandleUdp(origIP, origPort, addr.IP, uint16(addr.Port), data[0:n])
 		}
 	}()
 

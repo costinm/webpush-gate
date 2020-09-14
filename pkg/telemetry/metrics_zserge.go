@@ -1,4 +1,4 @@
-package h2
+package telemetry
 
 import (
 	"expvar"
@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/streams"
 	"github.com/zserge/metric"
 )
 
@@ -50,25 +50,25 @@ func init() {
 		}
 	}()
 
-	mesh.Metrics = &zsergeProvider{}
+	streams.Metrics = &zsergeProvider{}
 }
 
 type zsergeProvider struct {
 }
 
-func (*zsergeProvider) NewCounter(name, descr string, frames ...string) mesh.Metric {
+func (*zsergeProvider) NewCounter(name, descr string, frames ...string) streams.Metric {
 	g := metric.NewCounter(frames...)
 	expvar.Publish(name, g)
 	return g
 }
 
-func (*zsergeProvider) NewGauge(name, descr string, frames ...string) mesh.Metric {
+func (*zsergeProvider) NewGauge(name, descr string, frames ...string) streams.Metric {
 	g := metric.NewGauge(frames...)
 	expvar.Publish(name, g)
 	return g
 }
 
-func (*zsergeProvider) NewHistogram(name, descr string, frames ...string) mesh.Metric {
+func (*zsergeProvider) NewHistogram(name, descr string, frames ...string) streams.Metric {
 	g := metric.NewHistogram(frames...)
 	expvar.Publish(name, g)
 	return g

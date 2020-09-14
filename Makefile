@@ -85,12 +85,15 @@ arm:
 mips:
 	GOARCH=mips GOOS=linux GOMIPS=softfloat  ${GO} build -ldflags="-s -w" -o ${OUT}/bin/mips/wps ./cmd/wps
 
-androidAll:
-	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=amd64 ${GO} build -ldflags="-s -w" -o ${DM_X8664} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=386 ${GO} build -ldflags="-s -w" -o ${DM_X86} ${PKG}/cmd/libDM
+genproto:
+	#(cd proto; protoc --gogo_out=plugins=grpc:./ l2.proto)
+	(cd pkg/l2api; PATH=${GOPATH}/bin:${PATH} protoc --gogo_out=./ l2.proto)
 
-android:
-	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
+gogo:
+	go get github.com/gogo/protobuf/proto
+	go get github.com/gogo/protobuf/jsonpb
+	go get github.com/gogo/protobuf/gogoproto
+	go get github.com/gogo/protobuf/protoc-gen-gogo
+	go get github.com/gogo/protobuf/protoc-gen-gogofast
+	go get github.com/gogo/protobuf/protoc-gen-gogoslick
+

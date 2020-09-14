@@ -23,6 +23,7 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
+	"github.com/costinm/wpgate/pkg/transport/udp"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 	"github.com/costinm/wpgate/pkg/ui"
@@ -98,7 +99,8 @@ type ServerAll struct {
 	H2     *h2.H2
 
 	// UI interface Handler for localhost:5227
-	UI *ui.DMUI
+	UI     *ui.DMUI
+	UDPNat *udp.UDPGate
 }
 
 func (sa *ServerAll) Close() {
@@ -228,10 +230,14 @@ func (a *ServerAll) StartExtra() {
 	a.hgw.HttpProxyCapture(a.laddr(HTTP_PROXY))
 
 	// Local DNS resolver. Can forward up.
-	dns, err := dns.NewDmDns(a.BasePort + DNS)
-	go dns.Serve()
-	a.GW.DNS = dns
+	dnss, err := dns.NewDmDns(a.BasePort + DNS)
+	go dnss.Serve()
+	a.GW.DNS = dnss
+	net.DefaultResolver.PreferGo = true
+	net.DefaultResolver.Dial = dns.DNSDialer(a.BasePort + DNS)
 
+
+	// Explicit TCP forwarders.
 	for _, t := range a.GW.Config.Listeners {
 		accept.NewForwarder(a.GW, t)
 	}
@@ -239,4 +245,7 @@ func (a *ServerAll) StartExtra() {
 	// TODO: also on h2s
 	websocket.WSTransport(msgs.DefaultMux, http.DefaultServeMux)
 
+	udpNat  := udp.NewUDPGate(a.GW)
+	a.UDPNat = udpNat
 }
+

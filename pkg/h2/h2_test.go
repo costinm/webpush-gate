@@ -6,15 +6,11 @@ import (
 	"testing"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/bootstrap/tests"
 	"github.com/costinm/wpgate/pkg/h2"
 )
 
 // Verify mutual cert authentication
 func TestCerts(t *testing.T) {
-	gw := tests.TestGateway(16000)
-	defer gw.Close()
-
 	bCerts := auth.NewAuth(nil, "bob", "m.webinf.info")
 	bH2, _ := h2.NewTransport(bCerts)
 

@@ -1,7 +1,9 @@
 package dns
 
 import (
+	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -142,7 +144,7 @@ func NewDmDns(port int) (*DmDns, error) {
 			ReadTimeout:  15 * time.Minute}
 
 		dns.HandleFunc(".", func(w dns.ResponseWriter, req *dns.Msg) {
-			m := d.Process(req)
+				m := d.Process(req)
 			writeMsg(w, m)
 		})
 
@@ -533,4 +535,12 @@ func (s *DmDns) localQuery(m *dns.Msg) bool {
 		}
 	}
 	return needsFwd
+}
+
+func DNSDialer(port int) func(ctx context.Context, network, address string) (net.Conn, error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		d := net.Dialer{}
+		//return d.DialContext(ctx, "udp", "1.1.1.1:53")
+		return d.DialContext(ctx, "udp", fmt.Sprintf("127.0.0.1:%d", port))
+	}
 }

@@ -156,9 +156,18 @@ func (ll *Listener) SetAcceptForwarder(con AcceptForwarder, bindKey string, bind
 	return ll
 }
 
-func (ll *Listener) Close() {
+func (ll *Listener) Close() error {
 	ll.Listener.Close()
 	delete(ll.GW.Listeners, ll.cfg.Port)
+	return nil
+}
+
+func (ll Listener) Accept() (net.Conn, error) {
+	return ll.Listener.Accept()
+}
+
+func (ll Listener) Addr() (net.Addr) {
+	return ll.Listener.Addr()
 }
 
 // For -R, runs on the remote ssh server to accept connections and forward back to client, which in turn
@@ -192,13 +201,13 @@ func (ll *Listener) handleAcceptedConn(c net.Conn) error {
 	// Ingress mode, forward to an IP
 	if ll.cfg.Remote != "" {
 		proxy := ll.GW.NewTcpProxy(c.RemoteAddr(), "ACC-"+strconv.Itoa(ll.cfg.Port), nil, c, c)
-		err := proxy.Dial(ll.cfg.Remote, nil)
+		err := ll.GW.Dial(proxy, ll.cfg.Remote, nil)
 		if err != nil {
 			log.Println("Failed to connect ", ll.cfg.Remote, err)
 			return err
 		}
 
-		return proxy.ProxyConn(c)
+		return proxy.Proxy()
 	}
 
 	return nil

@@ -2,17 +2,19 @@ package tests
 
 import "C"
 import (
+	"crypto/tls"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"strconv"
 
+	_ "net/http/pprof"
+
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/transport/accept"
-
-	_ "net/http/pprof"
 )
 
 var (
@@ -28,6 +30,19 @@ var (
 	HSVpnGW *http.Client
 	HPVpnGW *http.Client
 )
+
+// Used by a H2 server to 'fake' a secure connection.
+type FakeTLSConn struct {
+	net.Conn
+}
+
+func (c *FakeTLSConn) ConnectionState() tls.ConnectionState {
+	return tls.ConnectionState{
+		Version:     tls.VersionTLS12,
+		CipherSuite: 0xC02F,
+	}
+}
+
 
 // Init a Gateway, with a new set of private keys:
 // - basePort - H2/QUIC MTLS DMesh port
@@ -129,7 +144,7 @@ func InitEchoUdp(port int) error {
 	return nil
 }
 
-// TCP Echo server
+// TCP Echo server on port
 func InitEchoServer(port string) {
 	nl, err := net.Listen("tcp", port)
 	if err != nil {
@@ -138,17 +153,18 @@ func InitEchoServer(port string) {
 	}
 
 	go func() {
-		ba := make([]byte, 2000)
 		for {
 			conn, _ := nl.Accept()
-
-			go func() {
-				n, _ := conn.Read(ba)
-				conn.Write(ba[0:n])
-				conn.Close()
-			}()
+			go EchoHandler(conn, conn)
 		}
 	}()
+}
+
+func EchoHandler(r io.Reader, w io.Writer) {
+	_, _ = io.Copy(w, r)
+	if c, ok := w.(io.Closer); ok {
+		c.Close()
+	}
 }
 
 // Start test servers

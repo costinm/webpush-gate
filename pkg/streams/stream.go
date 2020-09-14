@@ -1,4 +1,4 @@
-package mesh
+package streams
 
 import (
 	"io"
@@ -10,6 +10,8 @@ import (
 )
 
 // Common to TCP and UDP proxies
+// Represents an outgoing connection to a remote site, with stats.
+//
 type Stream struct {
 	Open time.Time
 
@@ -41,6 +43,10 @@ type Stream struct {
 	// If capture is based on IP, it'll be set in all hops.
 	// If set, this is the authoritiative destination, DestDNS will be a hint.
 	DestAddr *net.TCPAddr
+
+	// True if the destination is local, no VPN needed
+	// Used for VPN-accepted connections,
+	LocalDest bool
 
 	DestIP net.IP
 
@@ -105,6 +111,28 @@ var (
 		return make([]byte, 0, 32*1024)
 	}}
 )
+
+func (tp *Stream) Write(b []byte) (n int, err error) {
+	if tp.ServerOut == nil {
+		return
+	}
+	n, err = tp.ServerOut.Write(b)
+	tp.SentBytes += n
+	tp.SentPackets++
+	tp.LastClientActivity = time.Now()
+
+	return
+}
+
+func (tp *Stream) Read(out []byte) (int, error) {
+	n, err := tp.ServerIn.Read(out)
+	tp.RcvdBytes += n
+	tp.RcvdPackets++
+	tp.LastRemoteActivity = time.Now()
+	return n, err
+}
+
+
 
 // Copy src to dst, using a pooled intermediary buffer.
 //

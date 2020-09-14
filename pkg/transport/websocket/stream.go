@@ -1,14 +1,17 @@
 package websocket
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
+	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
+	"github.com/costinm/wpgate/pkg/transport/ssh"
 	ws "golang.org/x/net/websocket"
 )
 
@@ -21,17 +24,46 @@ func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
 		Config:    ws.Config{},
 		Handshake: nil,
 		Handler: func(conn *ws.Conn) {
-			websocketStream(gate, conn)
+			wsEmbedded(gate, conn)
 		},
 	}
 	mux.Handle("/ws", ws)
+}
+
+func WSTransportSSH(gate *mesh.Gateway, sshg *ssh.SSHGate, mux *http.ServeMux) {
+	ws := &ws.Server{
+		Config:    ws.Config{},
+		Handshake: nil,
+		Handler: func(conn *ws.Conn) {
+			sshg.HandleServerConn(conn)
+		},
+	}
+	mux.Handle("/ssh", ws)
+}
+
+func WSTransportMsgs(gate *mesh.Gateway, sshg *ssh.SSHGate, mux *http.ServeMux) {
+	ws := &ws.Server{
+		Config:    ws.Config{},
+		Handshake: nil,
+		Handler: func(conn *ws.Conn) {
+			// TODO: get auth !
+			mconn := &msgs.MsgConnection{
+				SubscriptionsToSend: nil, // Don't send all messages down - only if explicit subscription.
+				Conn: conn,
+			}
+			msgs.DefaultMux.AddConnection("", mconn)
+			br := bufio.NewReader(conn)
+			mconn.HandleMessageStream(nil, br, "", gate.Auth.VIP6.String())
+		},
+	}
+	mux.Handle("/wsmsg", ws)
 }
 
 // Websocket stream - each frame is a message.
 // Currently using a special protocol - derived from 'disaster radio' - since
 // I'm testing LoRA and related IoT protocols.
 // Will eventually use protobufs (after I fix the firmware)
-func websocketStream(mux *msgs.Mux, conn *ws.Conn) {
+func wsEmbedded(mux *msgs.Mux, conn *ws.Conn) {
 	data := make([]byte, 4096)
 	fr, err := conn.NewFrameReader()
 	if err != nil {

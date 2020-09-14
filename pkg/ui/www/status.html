@@ -8,14 +8,13 @@
         <div class="card-body">
             <ul>
                 <li>
-                    <b>VIP:</b> {{ .H2.VIP6 }}<br/>
+                    <b>VIP:</b> {{ .GW.Auth.VIP6 }}<br/>
                 </li>
                 <li>
                     UA: {{ .GW.UA}}
                 </li>
                 <li>
                     <b> VPN:</b> <a href="{{ .GW.Vpn}}/status">{{ .GW.Vpn}}</a><br/>
-                    <b> SSHGW:</b> <a href="{{ .GW.GWAddr}}/status">{{ .GW.Vpn}}</a><br/>
                 </li>
             </ul>
 
@@ -111,114 +110,6 @@
     </div>
 
 
-    <div class="card">
-        <div class="card-body">
-            {{ if .Local.ConnectedWifi }}
-                <h5 class="card-title">Wifi: {{ .GW.Wifi.Mesh.ConnectedWifi }} / {{ .Local.WifiFreq }}
-                    / {{ .Local.WifiLevel }} </h5>
-            {{ else }}
-                <h5 class="card-title">Wifi: -</h5>
-            {{ end }}
-            <h5 class="card-title">
-                <input type="checkbox" class="form-check-input" id="apcheck"
-                       {{ if .Local.APRunning}}checked="true"{{ end }}>
-                <label class="form-check-label" for="apcheck" id="aplabel">AP AP: {{ .Local.AP }} /
-                    {{ .Local.APFreq }} / {{ .Local.PSK }}</label>
-            </h5>
-
-
-            <div class="row">
-                <button type="button" class="btn btn-secondary" id="do_sync">Scan</button>
-                {{/*<button id="autocon" type="button" class="btn btn-primary">Auto Connect</button>*/}}
-
-                <table class="table table-striped table-bordered table-hover table-sm">
-                    <thead>
-                    <th>SSID</th>
-                    <th>L</th>
-                    <th>F</th>
-                    <th>Q</th>
-
-                    </thead>
-                    <tbody>
-
-                    {{range $index, $v := .GW.VisibleDevices}}
-                        <tr>
-                            <td><a href='dmesh/uds?q=con+{{ $index }}+{{ $v.PSK }}'>{{ $index }}</a></td>
-                            <td>{{ $v.Level }}</td>
-                            <td>{{ $v.Freq }}</td>
-                            <td>
-                                <a href='dmesh/uds?q=/wifi/con/peer/{{ $index }}/REFLECT&s={{ $index }}&p={{ $v.PSK }}'>Reflect</a>
-                                <a href='dmesh/uds?q=/wifi/con/start'>Start Discovery and P2P connect</a>
-                                <a href='dmesh/uds?q=/wifi/con/peer/{{ $index }}/Q'>Q</a>
-                                <a href='dmesh/uds?q=/wifi/con/peer/{{ $index }}/PBC'>PBC</a>
-                                <a href='dmesh/uds?q=/wifi/con/cancel'>Cancel</a>
-                                <a href='dmesh/uds?q=/wifi/con/stop'>Stop Discovery and P2P connect</a>
-                            </td>
-                        </tr>
-                    {{end}}
-                    </tbody>
-                </table>
-            </div>
-
-            {{/*            {{ if .Mesh.Registry.HasNAN }}*/}}
-            {{/*                <h6>NAN</h6>*/}}
-
-            {{/*                {{ if .Mesh.Registry.NanRunning }}*/}}
-
-            {{/*                    <button id="nanping" type="button" class="btn btn-primary">Ping</button>*/}}
-
-            {{/*                    <button id="nanon" type="button" class="btn btn-secondary">On</button>*/}}
-
-            {{/*                    <button id="nanoff" type="button" class="btn btn-primary">Off</button>*/}}
-            {{/*                {{ else }}*/}}
-            {{/*                    <button id="nanping" type="button" class="btn btn-secondary">Ping</button>*/}}
-
-            {{/*                    <button id="nanon" type="button" class="btn btn-primary">On</button>*/}}
-
-            {{/*                    <button id="nanoff" type="button" class="btn btn-secondary">Off</button>*/}}
-            {{/*                {{ end }}*/}}
-
-            {{/*                <table class="table table-striped table-bordered table-hover table-sm">*/}}
-            {{/*                    <thead>*/}}
-            {{/*                    <th>ID</th>*/}}
-            {{/*                    <th>Info</th>*/}}
-            {{/*                    </thead>*/}}
-            {{/*                    <tbody>*/}}
-            {{/*                    {{range $index, $v := .Mesh.Wifi.NAN}}*/}}
-            {{/*                        <tr>*/}}
-            {{/*                            <td><a href='dmesh/uds?q=nan+con+{{ $index }}'>{{ $index }}</a></td>*/}}
-            {{/*                            <td>{{ ToJson $v }}</td>*/}}
-            {{/*                        </tr>*/}}
-            {{/*                    {{end}}*/}}
-            {{/*                    </tbody>*/}}
-            {{/*                </table>*/}}
-
-            {{/*            {{ end }}*/}}
-
-            <a href="debug/p2p?s=1">P2P discovery</a>
-            <div class="row-fluid">
-                <a href="dmesh/uds?q=/ble/scan">BLE scan</a>
-                <a href="dmesh/uds?q=/ble/stop">BLE scan stop</a>
-
-                <a href="dmesh/uds?q=/ble/adv/DMDEVICE">BLE advertise</a>
-                <a href="dmesh/uds?q=/ble/adv">BLE advertise stop</a>
-
-                <a href="dmesh/uds?q=bt+scan">BT scan</a>
-                <br>
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/start">NANAttach</a>
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/stop">NANDetash</a>
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/adv">NANPub</a>
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/adv/act">NANPubAct</a>
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/adv/stop">NANPubStop</a>
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/sub/pass">NANSub</a>
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/sub">NANSubAct</a>
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/sub/stop">NANSubStop</a>
-
-                <a class="svc" href="dmesh/uds?q=/wifi/nan/ping">NANPingAll</a>
-
-            </div>
-        </div>
-    </div>
 
 
     <div class="row">

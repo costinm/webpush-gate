@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"time"
 )
@@ -38,6 +39,8 @@ type MsgConnection struct {
 	//
 	// Internal handlers may use the same interface.
 	SendMessageToRemote func(ev *Message) error
+
+	Conn net.Conn
 }
 
 // id - remote id. "uds" for the primary upstream uds connection to host (android app or wifi/root app)
@@ -61,6 +64,17 @@ func (mux *Mux) AddConnection(id string, cp *MsgConnection) {
 		h.HandleMessage(context.Background(), "/open", map[string]string{"id": id}, nil)
 	}
 	log.Println("/mux/AddConnection", id, cp.SubscriptionsToSend)
+}
+
+func (cp *MsgConnection) send(message *Message) {
+	if cp.SendMessageToRemote != nil {
+		cp.SendMessageToRemote(message)
+	}
+	if cp.Conn != nil {
+		ba := message.MarshalJSON()
+		cp.Conn.Write(ba)
+		cp.Conn.Write([]byte{'\n'})
+	}
 }
 
 func (gate *Mux) RemoveConnection(id string, cp *MsgConnection) {

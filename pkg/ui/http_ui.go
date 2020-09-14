@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/costinm/wpgate/pkg/conf"
+	"github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
@@ -31,8 +32,8 @@ type DMUI struct {
 	dm *mesh.Gateway
 	h2 *h2.H2
 
-	ws *websocket.Server
-	ld *local.LLDiscovery
+	ws  *websocket.Server
+	ld  *local.LLDiscovery
 }
 
 // Default handler - operating as main admin handlers.
@@ -68,9 +69,7 @@ func (dm *DMUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	dm.h2.LocalMux.ServeHTTP(w, r)
 }
 
-func NewUI(dm *mesh.Gateway, h2 *h2.H2,
-	hgate *httpproxy.HTTPGate,
-	ld *local.LLDiscovery) (*DMUI, error) {
+func NewUI(dm *mesh.Gateway, h2 *h2.H2, hgate *httpproxy.HTTPGate, ld *local.LLDiscovery) (*DMUI, error) {
 	dmui := &DMUI{
 		dm: dm,
 		h2: h2,
@@ -106,7 +105,9 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 		//		mux.HandleFunc("/wifi/con", dm.Wifi.HTTPCon)
 
 		mux.HandleFunc("/dmesh/uds/", msgs.DefaultMux.HTTPUDS)
-
+		if dmui.dm.DNS != nil {
+			mux.HandleFunc("/dmesh/dns", dmui.dm.DNS.(*dns.DmDns).HttpDebugDNS)
+		}
 		mux.HandleFunc("/debug/eventslog", msgs.DebugEventsHandler)
 		mux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
 
@@ -116,35 +117,20 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 		mux.HandleFunc("/dm/", hgate.HttpForwardPath)
 		mux.HandleFunc("/dm2/", hgate.HttpForwardPath2)
 
-		mux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
-		mux.HandleFunc("/dmesh/ip6", dmui.HttpGetNodes)
-		//mux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
-		mux.HandleFunc("/dmesh/ll/if", dmui.HttpGetLLIf)
+		mux.HandleFunc("/dmesh/tcpa", dmui.dm.HttpTCP)
+		mux.HandleFunc("/dmesh/tcp", dmui.dm.HttpAllTCP)
 
+		mux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
+		mux.HandleFunc("/dmesh/ip6", dmui.dm.HttpGetNodes)
+
+		//mux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
+		if dmui.ld != nil {
+			mux.HandleFunc("/dmesh/ll/if", dmui.ld.HttpGetLLIf)
+		}
 	}
 
 	h2.LocalMux.Handle("/", http.FileServer(fs))
 	return dmui, nil
-}
-
-func (lm *DMUI) HttpGetLLIf(w http.ResponseWriter, r *http.Request) {
-	lm.ld.RefreshNetworks()
-
-	lm.dm.MeshMutex.Lock()
-	defer lm.dm.MeshMutex.Unlock()
-	je := json.NewEncoder(w)
-	je.SetIndent(" ", " ")
-	je.Encode(lm.ld.DirectActiveInterfaces)
-}
-
-// HttpGetNodes (/dmesh/ip6) returns the list of known nodes, both direct and indirect.
-// This allows nodes to sync the mesh routing table.
-func (lm *DMUI) HttpGetNodes(w http.ResponseWriter, r *http.Request) {
-	lm.dm.MeshMutex.Lock()
-	defer lm.dm.MeshMutex.Unlock()
-	je := json.NewEncoder(w)
-	je.SetIndent(" ", " ")
-	je.Encode(lm.dm.Nodes)
 }
 
 // HttpRefreshAndRegister (/dmesh/rd) will initiate a multicast UDP, asking for local masters.
@@ -155,16 +141,7 @@ func (lm *DMUI) HttpRefreshAndRegister(w http.ResponseWriter, r *http.Request) {
 
 	time.Sleep(5000 * time.Millisecond)
 
-	t0 := time.Now()
-	rec := []*mesh.DMNode{}
-	for _, n := range lm.dm.Nodes {
-		if t0.Sub(n.LastSeen) < 6000*time.Millisecond {
-			rec = append(rec, n)
-		}
-	}
-	je := json.NewEncoder(w)
-	je.SetIndent(" ", " ")
-	je.Encode(rec)
+	lm.dm.HttpNodesFilter(w, r)
 }
 
 // TODO: authentication (random generated from java or local, auth=, cookie)
@@ -220,7 +197,7 @@ func (ui *DMUI) Merge(s string) func(http.ResponseWriter, *http.Request) {
 			xp = xp + "/"
 		}
 
-		conf := ui.dm.Conf.(*conf.Conf)
+		conf := ui.dm.Auth.Config.(*conf.Conf)
 
 		err = tmpl.ExecuteTemplate(writer, s, struct {
 			Local *local.LLDiscovery

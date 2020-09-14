@@ -1,9 +1,9 @@
 package socks
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
-	"io"
 	"log"
 	"net"
 	"strconv"
@@ -69,23 +69,19 @@ const (
       DST.PORT desired destination port in network octet order
 */
 
-type StreamProxy interface {
-	Dial(dest string, addr *net.TCPAddr) error
-	Proxy() error
-	Close() error
-}
-
 // Interface implemented by Gateway.
-type TcpGateway interface {
-	NewStream(addr net.IP, port uint16, ctype string, initialData []byte, clientIn io.ReadCloser, clientOut io.Writer) interface{}
+type ProxyGW interface {
+	DialProxy(ctx context.Context,
+			addr net.Addr, directClientAddr *net.TCPAddr,
+			ctype string, meta ...string) (net.Conn, func(client net.Conn) error, error)
 }
 
 type Socks5 struct {
-	gw       TcpGateway
+	gw       ProxyGW
 	Listener net.Listener
 }
 
-func Socks5Capture(addr string, mgw TcpGateway) (*Socks5, error) {
+func Socks5Capture(addr string, mgw ProxyGW) (*Socks5, error) {
 	gw := &Socks5{
 		gw: mgw,
 	}
@@ -109,11 +105,11 @@ func Socks5Capture(addr string, mgw TcpGateway) (*Socks5, error) {
 }
 
 // ServeConn is used to serve a single UdpNat. Blocking.
-func (gw *Socks5) serveSOCKSConn(local net.Conn) error {
+func (gw *Socks5) serveSOCKSConn(acceptedCon net.Conn) error {
 	head := make([]byte, 512)
-	n, err := local.Read(head)
+	n, err := acceptedCon.Read(head)
 	if err != nil {
-		local.Close()
+		acceptedCon.Close()
 		log.Println("Failed to read head")
 		return err
 	}
@@ -124,7 +120,7 @@ func (gw *Socks5) serveSOCKSConn(local net.Conn) error {
 
 	if head[0] != 5 {
 		log.Print("Unexpected version ", head[0:n])
-		local.Close()
+		acceptedCon.Close()
 		return errors.New("Invalid head")
 	}
 
@@ -134,18 +130,18 @@ func (gw *Socks5) serveSOCKSConn(local net.Conn) error {
 	//	return errors.New("Invalid auth")
 	//}
 
-	local.Write([]byte{5, 0})
+	acceptedCon.Write([]byte{5, 0})
 
-	return gw.serveSOCKSConnH(local, head)
+	return gw.serveSOCKSConnH(acceptedCon, head)
 }
 
-func (gw *Socks5) serveSOCKSConnH(local net.Conn, head []byte) error {
+func (gw *Socks5) serveSOCKSConnH(acceptedConn net.Conn, head []byte) error {
 	off := 0
 
 	for {
-		n, err := local.Read(head[off:])
+		n, err := acceptedConn.Read(head[off:])
 		if err != nil {
-			local.Close()
+			acceptedConn.Close()
 			return err
 		}
 		off += n
@@ -186,7 +182,7 @@ func (gw *Socks5) serveSOCKSConnH(local net.Conn, head []byte) error {
 	cmd := head[1]
 	if cmd != 1 {
 		log.Println("Only connect is supported")
-		local.Close()
+		acceptedConn.Close()
 		return nil
 	}
 
@@ -212,30 +208,33 @@ func (gw *Socks5) serveSOCKSConnH(local net.Conn, head []byte) error {
 		destAddr = string(head[5 : 5+len])
 		port = binary.BigEndian.Uint16(head[5+len:])
 	default:
-		local.Close()
+		acceptedConn.Close()
 		return errors.New("Unknown address")
 	}
 
-	var remote StreamProxy
-	var err error
 
-	localAddr := local.LocalAddr()
+	localAddr := acceptedConn.LocalAddr()
 	tcpAddr := localAddr.(*net.TCPAddr)
 
-	ra := local.RemoteAddr().(*net.TCPAddr)
+	var destNetAddr net.Addr
+	ctype := "SOCKS"
 	if isString {
-		remote = gw.gw.NewStream(ra.IP, uint16(ra.Port), "SOCKS", nil, local, local).(StreamProxy)
-		err = remote.Dial(net.JoinHostPort(destAddr, strconv.Itoa(int(port))), nil)
+		destNetAddr = stringAddr(net.JoinHostPort(destAddr, strconv.Itoa(int(port))))
 	} else {
-		remote = gw.gw.NewStream(ra.IP, uint16(ra.Port), "SOCKSIP", nil, local, local).(StreamProxy)
-		err = remote.Dial("", &net.TCPAddr{IP: dest, Port: int(port)})
+		destNetAddr = &net.TCPAddr{IP: dest, Port: int(port)}
+		ctype = "SOCKSIP"
 	}
+
+	ra := acceptedConn.RemoteAddr().(*net.TCPAddr)
+
+	_, proxyF, err := gw.gw.DialProxy(context.Background(),
+		destNetAddr, ra, ctype)
 
 	if err != nil {
 		// TODO: write error code
 		head[1] = 1
-		local.Write(head[0:2])
-		local.Close()
+		acceptedConn.Write(head[0:2])
+		acceptedConn.Close()
 		return nil
 	}
 
@@ -250,9 +249,17 @@ func (gw *Socks5) serveSOCKSConnH(local net.Conn, head []byte) error {
 	copy(r[4:8], []byte(tcpAddr.IP))
 	// 2 bytes local port
 	binary.BigEndian.PutUint16(r[8:], uint16(tcpAddr.Port))
-	local.Write(r[0:10])
+	acceptedConn.Write(r[0:10])
 
-	remote.Proxy()
+	proxyF(acceptedConn)
 
 	return nil
+}
+
+type stringAddr string
+func(s stringAddr) Network() string {
+	return "addr"
+}
+func(s stringAddr) String() string {
+	return string(s)
 }

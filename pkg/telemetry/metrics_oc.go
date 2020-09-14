@@ -1,13 +1,14 @@
 // +build OC_ENABLE !OC_DISABLE
 
-package h2
+package telemetry
 
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/streams"
 	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
@@ -38,12 +39,25 @@ import (
 //	}
 
 //	stats.Record(ctx, openConns.M(124))
+func traceMap(r *http.Request) string {
+	p := r.URL.Path
+	// TODO: move to main
+	if strings.HasPrefix(p, "/tcp/") {
+		return "/tcp"
+	}
+	if strings.HasPrefix(p, "/dm/") {
+		return "/dm"
+	}
+
+	return r.URL.Path
+}
+
 
 func init() {
-	mesh.MetricsHandlerWrapper = func(handler http.Handler) http.Handler {
+	streams.MetricsHandlerWrapper = func(handler http.Handler) http.Handler {
 		return &ochttp.Handler{Handler: handler}
 	}
-	mesh.MetricsClientTransportWrapper = func(t http.RoundTripper) http.RoundTripper {
+	streams.MetricsClientTransportWrapper = func(t http.RoundTripper) http.RoundTripper {
 		return &ochttp.Transport{Base: t, FormatSpanName: traceMap}
 	}
 

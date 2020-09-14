@@ -1,15 +1,35 @@
-package h2
+package h2push
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 
 	"github.com/costinm/wpgate/pkg/msgs"
 )
 
-// Used for monitoring, will send push promise messages.
+// Using standard H2 library to implement push, server only
+// H2 client currently doesn't support push.
+
+type H2Push struct {
+	ch chan string
+
+}
+
+func InitPush(mux http.ServeMux) {
+	mux.HandleFunc("/push/*", HTTPHandlerPush)
+	mux.HandleFunc("/pushmon/*", HTTPHandlerPushPromise)
+}
+
+func HTTPHandlerPush(w http.ResponseWriter, req *http.Request) {
+	w.WriteHeader(200)
+	w.Write([]byte{1})
+	io.Copy(w, req.Body)
+}
+
+	// Used for monitoring, will send push promise messages.
 // Messages will need to be held in a map, to be retrieved by the handler.
 func HTTPHandlerPushPromise(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(200)
@@ -31,8 +51,6 @@ func HTTPHandlerPushPromise(w http.ResponseWriter, req *http.Request) {
 	}))
 
 	msgs.DefaultMux.AddConnection(id, mc)
-
-	log.Println("DM HTTP EVENT STREAM ", req.RemoteAddr)
 
 	defer func() {
 		mc.Close()
