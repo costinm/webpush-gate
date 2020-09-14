@@ -1,10 +1,6 @@
 package h2
 
 import (
-	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -21,7 +17,6 @@ import (
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/streams"
-	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/soheilhy/cmux"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -83,7 +78,6 @@ func NewTransport(authz *auth.Auth) (*H2, error) {
 	h2 := &H2{
 		MTLSMux:     &http.ServeMux{},
 		LocalMux:    &http.ServeMux{},
-		quicClients: map[string]*http.Client{},
 		GRPC:        grpc.NewServer(),
 	}
 
@@ -161,9 +155,7 @@ func (h2 *H2) InitH2ServerListener(tcpConn *net.TCPListener, handler http.Handle
 		//tlsServerConfig.ClientAuth = tls.RequireAnyClientCert
 		tlsServerConfig.ClientAuth = tls.RequestClientCert
 	}
-	hw := h2.handlerWrapper(handler)
 	hw := h2.HandlerAuthWrapper(handler)
-	hw.mtls = mtls
 	// Self-signed cert
 	s := &http.Server{
 		TLSConfig: tlsServerConfig,
@@ -175,6 +167,41 @@ func (h2 *H2) InitH2ServerListener(tcpConn *net.TCPListener, handler http.Handle
 	go s.Serve(tlsConn)
 
 	return nil
+}
+
+func (h2 *H2) InitPlaintext(port string) {
+       l, err := net.Listen("tcp", port)
+       if err != nil {
+               log.Fatal(err)
+       }
+       m := cmux.New(l)
+
+       grpcL := m.Match(cmux.HTTP2HeaderField("contenttype", "application/grpc"))
+       // TODO: MTLS should probably be disabled in this case, but it's using Handle so may be ok
+       go h2.GRPC.Serve(grpcL)
+
+       httpL := m.Match(cmux.HTTP1Fast())
+       hs := &http.Server{
+               Handler: h2.HandlerAuthWrapper(h2.MTLSMux),
+       }
+       go hs.Serve(httpL)
+
+       h2L := m.Match(cmux.HTTP2())
+
+       go func() {
+               conn, err := h2L.Accept()
+               if err != nil {
+                       return
+               }
+
+               h2Server := &http2.Server{}
+               h2Server.ServeConn(
+                       conn,
+                       &http2.ServeConnOpts{
+                               Handler: h2.HandlerAuthWrapper(h2.MTLSMux)})
+       }()
+
+       go m.Serve()
 }
 
 // Verify a server
@@ -206,21 +233,8 @@ func verify(pub string) func(der [][]byte, verifiedChains [][]*x509.Certificate)
 	}
 }
 
-func traceMap(r *http.Request) string {
-	p := r.URL.Path
-	// TODO: move to main
-	if strings.HasPrefix(p, "/tcp/") {
-		return "/tcp"
-	}
-	if strings.HasPrefix(p, "/dm/") {
-		return "/dm"
-	}
-
-	return r.URL.Path
-}
-
 // handler wrapper wraps a Handler, adding MTLS checking, recovery, metrics.
-type handlerWrapper struct {
+type HandlerAuthWrapper struct {
 	handler http.Handler
 	h2      *H2
 }
@@ -275,7 +289,7 @@ func (hw *HandlerAuthWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		pk1 := r.TLS.PeerCertificates[0].PublicKey
 		h2c.Pub = auth.KeyBytes(pk1)
 		// TODO: Istio-style, signed by a trusted CA. This is also for SSH-with-cert
-		h2c.SAN, _ = GetSAN(r.TLS.PeerCertificates[0])
+		h2c.SAN, _ = auth.GetSAN(r.TLS.PeerCertificates[0])
 	}
 	if h2c.Pub == nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -314,123 +328,4 @@ var (
 	accessLogs = true
 )
 
-func GetPeerCertBytes(r *http.Request) []byte {
-	if r.TLS != nil {
-		if len(r.TLS.PeerCertificates) > 0 {
-			pke, ok := r.TLS.PeerCertificates[0].PublicKey.(*ecdsa.PublicKey)
-			if ok {
-				return elliptic.Marshal(auth.Curve256, pke.X, pke.Y)
-			}
-			rsap, ok := r.TLS.PeerCertificates[0].PublicKey.(*rsa.PublicKey)
-			if ok {
-				return x509.MarshalPKCS1PublicKey(rsap)
-			}
-		}
-	}
-	return nil
-}
-
-func GetResponseCertBytes(r *http.Response) []byte {
-	if r.TLS != nil {
-		if len(r.TLS.PeerCertificates) > 0 {
-			pke, ok := r.TLS.PeerCertificates[0].PublicKey.(*ecdsa.PublicKey)
-			if ok {
-				return elliptic.Marshal(auth.Curve256, pke.X, pke.Y)
-			}
-			rsap, ok := r.TLS.PeerCertificates[0].PublicKey.(*rsa.PublicKey)
-			if ok {
-				return x509.MarshalPKCS1PublicKey(rsap)
-			}
-		}
-	}
-	return nil
-}
-
-var (
-	oidExtensionSubjectAltName = []int{2, 5, 29, 17}
-)
-
-const (
-	nameTypeEmail = 1
-	nameTypeDNS   = 2
-	nameTypeURI   = 6
-	nameTypeIP    = 7
-)
-
-func getSANExtension(c *x509.Certificate) []byte {
-	for _, e := range c.Extensions {
-		if e.Id.Equal(oidExtensionSubjectAltName) {
-			return e.Value
-		}
-	}
-	return nil
-}
-
-func GetSAN(c *x509.Certificate) ([]string, error) {
-	extension := getSANExtension(c)
-	dns := []string{}
-	// RFC 5280, 4.2.1.6
-
-	// SubjectAltName ::= GeneralNames
-	//
-	// GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
-	//
-	// GeneralName ::= CHOICE {
-	//      otherName                       [0]     OtherName,
-	//      rfc822Name                      [1]     IA5String,
-	//      dNSName                         [2]     IA5String,
-	//      x400Address                     [3]     ORAddress,
-	//      directoryName                   [4]     Name,
-	//      ediPartyName                    [5]     EDIPartyName,
-	//      uniformResourceIdentifier       [6]     IA5String,
-	//      iPAddress                       [7]     OCTET STRING,
-	//      registeredID                    [8]     OBJECT IDENTIFIER }
-	var seq asn1.RawValue
-	rest, err := asn1.Unmarshal(extension, &seq)
-	if err != nil {
-		return dns, err
-	} else if len(rest) != 0 {
-		return dns, errors.New("x509: trailing data after X.509 extension")
-	}
-	if !seq.IsCompound || seq.Tag != 16 || seq.Class != 0 {
-		return dns, asn1.StructuralError{Msg: "bad SAN sequence"}
-	}
-
-	rest = seq.Bytes
-	for len(rest) > 0 {
-		var v asn1.RawValue
-		rest, err = asn1.Unmarshal(rest, &v)
-		if err != nil {
-			return dns, err
-		}
-
-		if v.Tag == nameTypeDNS {
-			dns = append(dns, string(v.Bytes))
-		}
-	}
-
-	return dns, nil
-}
-
-// NewSocksHttpClient returns a new client using SOCKS5 server.
-func NewSocksHttpClient(socksAddr string) *http.Client {
-	if socksAddr == "" {
-		socksAddr = "127.0.0.1:15004"
-	}
-	//os.Setenv("HTTP_PROXY", "socks5://"+socks5Addr)
-	// Localhost is not accepted by environment.
-	//hc := &http.Client{Transport: &http.Transport{Gateway: http.ProxyFromEnvironment}}
-
-	// Configure a hcSocks http client using localhost SOCKS
-	socksProxy, _ := url.Parse("socks5://" + socksAddr)
-	return &http.Client{
-		Timeout: 15 * time.Minute,
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(socksProxy),
-			//TLSClientConfig: &tls.Config{
-			//	InsecureSkipVerify: true,
-			//},
-		},
-	}
-}
 

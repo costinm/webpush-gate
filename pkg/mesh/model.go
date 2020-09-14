@@ -373,6 +373,13 @@ type GateCfg struct {
 	// The cert is expected in CertDir/HOSTNAME.[key,crt]
 	// The server will terminate TLS and HTTP, forward to the host as plain text.
 	Hosts map[string]*Host `json:"Hosts,omitempty"`
+
+	// Proxy requests to hosts (external or mesh) using the VIP of another node.
+	Via map[string]string `json:"Via,omitempty"`
+
+	// VIP of the default egress node, if no 'via' is set.
+	Egress string
+
 }
 
 

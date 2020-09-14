@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -111,12 +112,6 @@ type Gateway struct {
 func (gw *Gateway) ActiveTCP() map[int]*streams.TcpProxy {
 	return gw.ActiveTcp
 }
-// GateCfg:
-//	// Proxy requests to hosts (external or mesh) using the VIP of another node.
-//	Via map[string]string `json:"Via,omitempty"`
-//
-//	// VIP of the default egress node, if no 'via' is set.
-//	Egress string
 
 func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 	if gcfg == nil {
@@ -129,7 +124,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		//AllUdpCon: make(map[string]*HostStats),
 		AllTcpCon: make(map[string]*HostStats),
 		Listeners: make(map[int]net.Listener),
-		JumpHosts: map[string]TunDialer{},
+		JumpHosts: map[string]MuxSession{},
 		//upstreamMessageChannel: make(chan packet, 100),
 		Auth:           certs,
 		Config:         gcfg,
@@ -450,7 +445,7 @@ func (gw *Gateway) Dial(tp *streams.TcpProxy, dest string, addr *net.TCPAddr) er
 		return gw.DialMesh(tp)
 	}
 
-	if tp.LocalDest || host == "localhost" || host == "" || host == "127.0.0.1" ||
+	if tp.DestDirectNoVPN || host == "localhost" || host == "" || host == "127.0.0.1" ||
 			(tp.DestIP != nil && IsRFC1918(tp.DestIP)) {
 		// Direct connection to destination, should be a public address
 		//log.Println("DIAL: DIRECT LOCAL ", dest, addr, host, port)
@@ -479,6 +474,22 @@ func (gw *Gateway) Dial(tp *streams.TcpProxy, dest string, addr *net.TCPAddr) er
 		if err == nil {
 			return nil
 		}
+	}
+
+	via := gw.Config.Via[dest]
+	if via == "" {
+		dot := strings.Index(dest, ".")
+		dd := dest[dot+1:]
+		via = gw.Config.Via[dd]
+	}
+	if via != "" {
+		// TODO
+		tcpMux := gw.JumpHosts[via]
+		if tcpMux == nil {
+			return errors.New("Not found " + via)
+		}
+		log.Println("VIA: ", dest, via)
+		return tcpMux.DialProxy(&tp.Stream)
 	}
 
 	// dest can be an IP:port or hostname:port or MESHID/[....]

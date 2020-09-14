@@ -1,6 +1,7 @@
 package streams
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -259,22 +260,3 @@ func (tp *Stream) RemoteAddr() net.Addr {
 	//return tp.SrcAddr
 }
 
-func (tp *Stream) Write(b []byte) (n int, err error) {
-	if tp.ServerOut == nil {
-		return
-	}
-	n, err = tp.ServerOut.Write(b)
-	tp.SentBytes += n
-	tp.SentPackets++
-	tp.LastClientActivity = time.Now()
-
-	return
-}
-
-func (tp *Stream) Read(out []byte) (int, error) {
-	n, err := tp.ServerIn.Read(out)
-	tp.RcvdBytes += n
-	tp.RcvdPackets++
-	tp.LastRemoteActivity = time.Now()
-	return n, err
-}

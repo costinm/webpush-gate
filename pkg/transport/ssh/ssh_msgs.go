@@ -41,7 +41,7 @@ func (sshS *SSHServerConn) handleServerSessionChannel(node *mesh.DMNode, newChan
 	}
 
 	//if role != ROLE_GUEST {
-	id := "sshs-"+node.VIP6.String()
+	id := "sshs-"+node.VIP.String()
 	msgs.DefaultMux.AddConnection(id, mconn)
 	//}
 

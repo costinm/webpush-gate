@@ -199,7 +199,7 @@ func (sshGate *SSHGate) ConnectStream(node *mesh.DMNode,
 		node.VIP = sshC.VIP6
 	}
 
-	sshGate.onConnect(sshC, client)
+	sshGate.onConnect(sshC, client, addr)
 
 	if addr != "" {
 		sshGate.mutex.Lock()
@@ -248,7 +248,7 @@ func (sshGate *SSHGate) DialMUX(addr string,
 
 	client := ssh.NewClient(c, chans, reqs)
 
-	sshGate.onConnect(sshC, client)
+	sshGate.onConnect(sshC, client, addr)
 
 	sshGate.mutex.Lock()
 	sshGate.SshClients[addr] = sshC
@@ -262,7 +262,7 @@ type dmeshChannelData struct {
 	RemoteAddr string
 }
 
-func (sshGate *SSHGate)	onConnect(sshC *SSHClientConn, client *ssh.Client) {
+func (sshGate *SSHGate)	onConnect(sshC *SSHConn, client *ssh.Client, addr string) {
 	sshGate.cmetrics.Active.Add(1)
 
 	// After handshake, ssc.VIP6 and ssc.vip are set based on the
@@ -455,7 +455,7 @@ func (sshC *SSHConn) AcceptDialLegacy() error {
 	// Serve HTTP with your SSHClientConn server acting as a reverse proxy.
 	return nil
 }
-func (sshC *SSHClientConn) onDmeshReverseCon(c net.Conn) {
+func (sshC *SSHConn) onDmeshReverseCon(c net.Conn) {
 	// TODO: get server role, if guess only allow in-mesh proxy
 	dest := extractAddress(c)
 	p := sshC.gate.gw.NewTcpProxy(c.RemoteAddr(), "SSHRSOCKS", nil, c, c)
@@ -591,7 +591,7 @@ func MaintainVPNConnection(gw *mesh.Gateway) {
 // with proper variant.
 const version = "SSH-2.0-dmesh"
 
-func (sshGate *SSHGate) clientConfig(sshC *SSHClientConn, pub []byte) *ssh.ClientConfig {
+func (sshGate *SSHGate) clientConfig(sshC *SSHConn, pub []byte) *ssh.ClientConfig {
 	signer, _ := ssh.NewSignerFromKey(sshGate.certs.EC256PrivateKey) // ssh.Signer
 	user := "dmesh"
 	sshGate.cmetrics.Total.Add(1)
