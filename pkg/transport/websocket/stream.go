@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/ssh"
 	ws "golang.org/x/net/websocket"
@@ -16,8 +15,8 @@ import (
 // Uses VAPID or TLS authentication for client, TLS auth for server
 // Both ends identify with their public key and/or cert.
 
-func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
-	ws := &ws.Server{
+func WSTransport(gate *msgs.Mux, sshg *ssh.SSHGate, mux *http.ServeMux) {
+	wsmsg := &ws.Server{
 		Config:    ws.Config{},
 		Handshake: nil,
 		Handler: func(conn *ws.Conn) {
@@ -25,18 +24,17 @@ func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
 			websocketStream(gate, conn, h2ctx, "http-"+conn.Request().RemoteAddr)
 		},
 	}
-	mux.Handle("/ws", ws)
-}
-
-func WSTransportSSH(gate *mesh.Gateway, sshg *ssh.SSHGate, mux *http.ServeMux) {
-	ws := &ws.Server{
-		Config:    ws.Config{},
-		Handshake: nil,
-		Handler: func(conn *ws.Conn) {
-			sshg.HandleServerConn(conn)
-		},
+	mux.Handle("/ws", wsmsg)
+	if sshg != nil {
+		wsssh := &ws.Server{
+			Config:    ws.Config{},
+			Handshake: nil,
+			Handler: func(conn *ws.Conn) {
+				sshg.HandleServerConn(conn)
+			},
+		}
+		mux.Handle("/ssh", wsssh)
 	}
-	mux.Handle("/ssh", ws)
 }
 
 func websocketStream(gate *msgs.Mux, conn *ws.Conn, ctx *auth.ReqContext, s string) {

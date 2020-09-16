@@ -19,7 +19,6 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/iptables"
 	"github.com/costinm/wpgate/pkg/transport/local"
-	"github.com/costinm/wpgate/pkg/transport/noise"
 	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
@@ -106,8 +105,9 @@ type ServerAll struct {
 	// UI interface Handler for localhost:5227
 	UI     *ui.DMUI
 	UDPNat *udp.UDPGate
-	Local *local.LLDiscovery
-	Conf  *conf.Conf
+	Local  *local.LLDiscovery
+	Conf   *conf.Conf
+	sshg   *sshgate.SSHGate
 }
 
 func (sa *ServerAll) Close() {
@@ -154,6 +154,7 @@ func StartAll(a *ServerAll) {
 
 	// SSH transport + reverse streams.
 	sshg := sshgate.NewSSHGate(a.GW, authz)
+	a.sshg = sshg
 	a.GW.SSHGate = sshg
 	sshg.InitServer()
 	sshg.ListenSSH(a.addr(SSH))
@@ -202,7 +203,7 @@ func (a *ServerAll) StartMsg() {
 	a.H2.LocalMux.HandleFunc("/s/", msgs.HTTPHandlerSend)
 
 	// /ws - registered on the HTTPS server
-	websocket.WSTransport(msgs.DefaultMux, a.H2.MTLSMux)
+	websocket.WSTransport(msgs.DefaultMux, a.sshg, a.H2.MTLSMux)
 
 	msgs.DefaultMux.AddHandler(mesh.TopicConnectUP, msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
 		log.Println(cmdS, meta, data)
@@ -240,7 +241,7 @@ func (a *ServerAll) StartExtra() {
 	dnss, err := dns.NewDmDns(a.BasePort + DNS)
 	go dnss.Serve()
 	a.GW.DNS = dnss
-	a.H2.MTLSMux.Handle("/dns/", dns)
+	a.H2.MTLSMux.Handle("/dns/", dnss)
 	net.DefaultResolver.PreferGo = true
 	net.DefaultResolver.Dial = dns.DNSDialer(a.BasePort + DNS)
 
@@ -249,9 +250,6 @@ func (a *ServerAll) StartExtra() {
 	for _, t := range a.GW.Config.Listeners {
 		accept.NewForwarder(a.GW, t)
 	}
-
-	// TODO: also on h2s
-	websocket.WSTransport(msgs.DefaultMux, http.DefaultServeMux)
 
 	udpNat  := udp.NewUDPGate(a.GW)
 	a.UDPNat = udpNat

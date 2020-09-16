@@ -89,6 +89,8 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2, hgate *httpproxy.HTTPGate, ld *local.LLD
 	//dm.Registry.InitHttp(dm.H2.MTLSMux)
 	//dm.Registry.InitHttpAdm(dm.H2.LocalMux)
 
+	mux := h2.LocalMux
+
 	h2.LocalMux.HandleFunc("/xtcp/", dmui.Merge("tcpall.html"))
 	h2.LocalMux.HandleFunc("/peers", dmui.Merge("peers.html"))
 	h2.LocalMux.HandleFunc("/events", dmui.Merge("events.html"))
@@ -130,10 +132,7 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2, hgate *httpproxy.HTTPGate, ld *local.LLD
 		h2.LocalMux.HandleFunc("/dm2/", hgate.HttpForwardPath2)
 	}
 
-	h2.LocalMux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
-	h2.LocalMux.HandleFunc("/dmesh/ip6", dmui.HttpGetNodes)
 	//h2.LocalMux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
-	h2.LocalMux.HandleFunc("/dmesh/ll/if", dmui.HttpGetLLIf)
 	h2.LocalMux.Handle("/", http.FileServer(fs))
 
 	msgs.DefaultMux.OnMessageForNode = append(msgs.DefaultMux.OnMessageForNode, dmui.onmessage)
@@ -174,28 +173,6 @@ func (lm *DMUI) DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("{}]"))
 }
 
-func (lm *DMUI) HttpGetLLIf(w http.ResponseWriter, r *http.Request) {
-	if lm.ld == nil {
-		return
-	}
-	lm.ld.RefreshNetworks()
-
-	lm.dm.MeshMutex.Lock()
-	defer lm.dm.MeshMutex.Unlock()
-	je := json.NewEncoder(w)
-	je.SetIndent(" ", " ")
-	je.Encode(lm.ld.DirectActiveInterfaces)
-}
-
-// HttpGetNodes (/dmesh/ip6) returns the list of known nodes, both direct and indirect.
-// This allows nodes to sync the mesh routing table.
-func (lm *DMUI) HttpGetNodes(w http.ResponseWriter, r *http.Request) {
-	lm.dm.MeshMutex.Lock()
-	defer lm.dm.MeshMutex.Unlock()
-	je := json.NewEncoder(w)
-	je.SetIndent(" ", " ")
-	je.Encode(lm.dm.Nodes)
-}
 
 // HttpRefreshAndRegister (/dmesh/rd) will initiate a multicast UDP, asking for local masters.
 // After a small wait it'll return the list of peers. Debugging only.

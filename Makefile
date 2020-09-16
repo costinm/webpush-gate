@@ -109,16 +109,6 @@ arm:
 mips:
 	GOARCH=mips GOOS=linux GOMIPS=softfloat  ${GO} build -ldflags="-s -w" -o ${OUT}/mips/wps ./cmd/wps
 
-androidAll:
-	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=amd64 ${GO} build -ldflags="-s -w" -o ${DM_X8664} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=386 ${GO} build -ldflags="-s -w" -o ${DM_X86} ${PKG}/cmd/libDM
-
-android:
-	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
-
 
 gen-proto:
 #	(cd pkg/msgs; PATH=${GOPATH}/bin:${PATH} protoc  --gogo_out=paths=source_relative:. webpush.proto)

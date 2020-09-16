@@ -91,7 +91,7 @@ func main() {
 	h2s.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
 
 	// Messages and streams over websocket - HTTP/1.1 compatible
-	websocket.WSTransport(msgs.DefaultMux, h2s.MTLSMux)
+	websocket.WSTransport(msgs.DefaultMux, sshg, h2s.MTLSMux)
 
 	// Egress - SOCKS, HTTP and
 	s5, err := socks.Socks5Capture(laddr(bp, 24), GW)

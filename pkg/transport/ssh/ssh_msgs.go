@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
@@ -68,14 +69,16 @@ func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
 	return nil
 }
 
-// Messages received from remote, over SSH.
+// Messages received from remote, over SSH, WS, etc
 //
 // from is the authenticated VIP of the sender.
 // self is my own VIP
 //
 //
-func handleMessageStream(mux *msgs.Mux, id string, node *mesh.DMNode, br *bufio.Reader, from string, self string, mconn *msgs.MsgConnection, isServer bool) {
-
+func handleMessageStream(mux *msgs.Mux, id string, node *mesh.DMNode,
+			br *bufio.Reader, from string, self string,
+			mconn *msgs.MsgConnection, isServer bool) {
+	t0 := time.Now()
 	mconn.HandleMessageStream(func(ev *msgs.Message) {
 		// Direct message from the client, with its own info
 		if ev.Topic == "endpoint" {
@@ -90,8 +93,7 @@ func handleMessageStream(mux *msgs.Mux, id string, node *mesh.DMNode, br *bufio.
 	}, br, from)
 
 	mux.RemoveConnection(id, mconn)
-
-	log.Println("Message mux closed")
+	log.Println("Message con close", id, time.Since(t0))
 }
 
 func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []string) (mesh.MuxSession, error) {
@@ -175,7 +177,8 @@ func (sshC *SSHConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Chann
 
 	br := bufio.NewReader(channel)
 
-	handleMessageStream(msgs.DefaultMux, id, node, br, sshC.VIP6.String(), sshC.gate.certs.VIP6.String(), mconn, false)
+	handleMessageStream(msgs.DefaultMux, id, node, br, sshC.VIP6.String(),
+		sshC.gate.certs.VIP6.String(), mconn, false)
 
 	// Disconnected
 	node.TunClient = nil
