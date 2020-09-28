@@ -225,6 +225,16 @@ func (sshGate *SSHGate) DialMUX(addr string,
 	// TODO: return DMNode, close channel
 	// TODO: take param a DMNode instead ?
 
+	conn, err := net.DialTimeout("tcp", addr, sshGate.ConnectTimeout)
+	if err != nil {
+		sshGate.cmetrics.Errors.Add(1)
+		return nil, err
+	}
+	return sshGate.DialCon(conn, addr, pub)
+}
+
+func (sshGate *SSHGate) DialCon(conn net.Conn, addr string,
+			pub []byte) (mesh.MuxSession, error) {
 	sshC := &SSHConn{
 			Addr:                addr,
 			gate:                sshGate,
@@ -235,11 +245,6 @@ func (sshGate *SSHGate) DialMUX(addr string,
 
 	config := sshGate.clientConfig(sshC, pub)
 
-	conn, err := net.DialTimeout("tcp", addr, sshGate.ConnectTimeout)
-	if err != nil {
-		sshGate.cmetrics.Errors.Add(1)
-		return nil, err
-	}
 
 	c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {

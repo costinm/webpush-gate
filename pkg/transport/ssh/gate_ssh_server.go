@@ -124,6 +124,9 @@ func (sshGate *SSHGate) InitServer() error {
 // Start listening. Typically address is :0, and the default port is 5222
 // A single server is usually sufficient for a node.
 func (sshGate *SSHGate) ListenSSH(address string) error {
+	if sshGate.serverConfig == nil {
+		sshGate.InitServer()
+	}
 	if address == "" {
 		address = ":5222"
 	}

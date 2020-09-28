@@ -11,6 +11,7 @@ import (
 
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/streams"
 )
 
 // K8S:
@@ -81,7 +82,7 @@ func (toh *TcpOverH2) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
 		tcpProxy.PrevPath = strings.Split(oldPath, "/")
 	}
 
-	err = tcpProxy.Dial(addr, nil)
+	err = toh.gw.Dial(tcpProxy, addr, nil)
 	if err != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		return
@@ -108,7 +109,7 @@ func (toh *TcpOverH2) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
 
 const HEADER_PREV_PATH = "x-dm-p"
 
-func (toh *TcpOverH2) httpEgressProxy(proxy *mesh.TcpProxy, clientWriter http.ResponseWriter) {
+func (toh *TcpOverH2) httpEgressProxy(proxy *streams.TcpProxy, clientWriter http.ResponseWriter) {
 	// like in socks, need to write some header to start the process.
 }
 
@@ -117,7 +118,7 @@ func (toh *TcpOverH2) httpEgressProxy(proxy *mesh.TcpProxy, clientWriter http.Re
 // "Remote" is a node that handles the forwarding.
 // It will return bytes normally, using a CopyBuffered method. Called from http2.clientStream.writeRequestBody
 type BodyReader struct {
-	Proxy *mesh.TcpProxy
+	Proxy *streams.TcpProxy
 }
 
 // This is a read from the client, used by the Http request to push bytes to remote.
@@ -246,7 +247,7 @@ func (toh *TcpOverH2) DialContext(ctx context.Context, network, destAddr string)
 // - IP4:port
 // - [fd00:MESHID]:port -> route to the MESHID, then use it to connect to the given dest addr
 // The proxy MUST have localIn and initialData already set, because the http connection will start streaming it.
-func (toh *TcpOverH2) DialViaHTTP(h2 *h2.H2, tp *mesh.TcpProxy, via, destAddr string) error {
+func (toh *TcpOverH2) DialViaHTTP(h2 *h2.H2, tp *streams.TcpProxy, via, destAddr string) error {
 
 	t0 := time.Now()
 

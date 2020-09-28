@@ -21,9 +21,11 @@ export KO_DOCKER_REPO=${HUB:-localhost:5000}
 
 T=$(echo $IMAGE | cut -d: -f 3)
 TAG=${T:-latest}
+
 echo TAG $TAG
 
-output=$(ko publish ./cmd/wps --insecure-registry -t $TAG --disable-optimizations -B | tee)
+output=$(ko publish ./cmd/wps --insecure-registry \
+ -t $TAG --disable-optimizations -B | tee)
 
 
 ref=$(echo $output | tail -n1)

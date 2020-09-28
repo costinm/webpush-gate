@@ -239,12 +239,8 @@ func (a *ServerAll) StartExtra() {
 
 	// Local DNS resolver. Can forward up.
 	dnss, err := dns.NewDmDns(a.BasePort + DNS)
-	go dnss.Serve()
+	dnss.Start(a.H2.MTLSMux)
 	a.GW.DNS = dnss
-	a.H2.MTLSMux.Handle("/dns/", dnss)
-	net.DefaultResolver.PreferGo = true
-	net.DefaultResolver.Dial = dns.DNSDialer(a.BasePort + DNS)
-
 
 	// Explicit TCP forwarders.
 	for _, t := range a.GW.Config.Listeners {

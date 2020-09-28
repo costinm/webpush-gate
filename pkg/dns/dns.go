@@ -70,6 +70,7 @@ type DmDns struct {
 	// Nameservers to use for direct calls, without a VPN.
 	// Overriden from "DNS" env variable.
 	nameservers []string
+	Port        int
 }
 
 // Info and stats about a DNS entry.
@@ -91,8 +92,18 @@ type DnsEntry struct {
 	Lat time.Duration
 }
 
+// Blocking
 func (s *DmDns) Serve() {
 	s.dnsServer.ActivateAndServe()
+}
+
+func (s *DmDns) Start(mux *http.ServeMux) {
+	if mux != nil {
+		mux.Handle("/dns/", s)
+	}
+	net.DefaultResolver.PreferGo = true
+	net.DefaultResolver.Dial = DNSDialer(s.Port)
+	go s.Serve()
 }
 
 // Given an IPv4 or IPv6 address, return the name if DNS was used.
@@ -117,6 +128,7 @@ func (s *DmDns) IPResolve(ip string) string {
 // New DNS server, listening on port.
 func NewDmDns(port int) (*DmDns, error) {
 	d := &DmDns{
+		Port: port,
 		dnsUDPclient: &dns.Client{},
 		dnsEntries:   map[string]map[uint16]dns.RR{},
 		dnsByAddr:    make(map[string]*DnsEntry),

@@ -49,10 +49,30 @@ func websocketStream(gate *msgs.Mux, conn *ws.Conn, ctx *auth.ReqContext, s stri
 
 }
 
+func WSGateClient(a *auth.Auth,sshg *ssh.SSHGate, dest string) error {
+	wsc, err := ws.NewConfig(dest, dest)
+
+	wsc.Header.Add("Authorization", a.VAPIDToken(dest))
+
+	wsc.TlsConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
+
+	ws, err := ws.DialConfig(wsc)
+	if err != nil {
+		return err
+	}
+
+	sshg.DialCon(ws, dest, nil)
+
+	return nil
+}
+
 func WSClient(a *auth.Auth, mux *msgs.Mux, dest string) error {
 	wsc, err := ws.NewConfig(dest, dest)
 
 	wsc.Header.Add("Authorization", a.VAPIDToken(dest))
+
 	wsc.TlsConfig = &tls.Config{
 		InsecureSkipVerify: true,
 	}
