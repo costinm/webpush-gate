@@ -5,18 +5,29 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
 	"github.com/costinm/wpgate/pkg/h2"
+	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/wpgate/pkg/transport/eventstream"
 )
 
 var (
@@ -34,13 +45,30 @@ var (
 	aud  = flag.String("aud", "", "Generate a VAPID key with the given domain. Defaults to https://fcm.googleapis.com")
 	curl = flag.Bool("curl", false, "Show curl request")
 
+	watch      = flag.Bool("watch", false, "Watch")
 	dump      = flag.Bool("dump", false, "Dump id and authz")
 	dumpKnown = flag.Bool("k", false, "Dump known hosts and keys")
 
 	sendVerbose = flag.Bool("v", false, "Show request and response body")
 
-	pushService = flag.String("server", "", "Base URL for the push service")
+	pushService = flag.String("server", "", "Base URL for the dmesh service")
 )
+
+var (
+	port = flag.Int("p", -1, "Port for http interface. Will run as daemon")
+
+	watchRecurse   = flag.Bool("r", false, "Connect recursively to all nodes")
+	verbose = flag.Bool("v", false, "Verbose messages")
+
+	dev = flag.String("d", "", "Single device to watch")
+
+	post  = flag.String("m", "", "Message to send")
+	topic = flag.String("t", "", "Message to send")
+)
+
+var hc *http.Client
+
+
 
 const (
 	Subscription = "TO"
@@ -173,6 +201,10 @@ func main() {
 
 	authz := auth.NewAuth(config, hn, "m.webinf.info")
 
+	if *watch {
+		watchNodes()
+		return
+	}
 	if *dump {
 		authz.Dump()
 		return
@@ -183,4 +215,222 @@ func main() {
 	}
 
 	sendMessage(*to, authz, *curl, flag.Args()[0])
+}
+
+// Known nodes and watchers
+var watchers = map[uint64]*watcher{}
+
+type watcher struct {
+	Node *mesh.DMNode
+	Path []string
+
+	dirty bool
+
+	base string
+	ip6  *net.IPAddr
+
+	idhex    string
+	New      bool
+	watching bool
+}
+
+
+func watchNodes() {
+	var hc *http.Client
+	if *pushService != "" {
+		hc = h2.InsecureHttp()
+	} else {
+		hc = h2.SocksHttp("127.0.0.1:5224")
+	}
+	hc.Timeout = 1 * time.Hour
+
+	mux := msgs.DefaultMux
+
+	// Recursive list of all devices in the mesh.
+	for {
+		listOnce()
+		if !*watch {
+			return
+		} else {
+			//if *dev == "*" || *dev == "" {
+			//	go msgs.DefaultMux.MonitorNode(hc, nil, nil)
+			//}
+			for _, w := range watchers {
+				//if w.idhex == *dev || *dev == "*" {
+				if !w.watching {
+					w.watching = true
+					go func() {
+						log.Println("Watch: ", w.ip6)
+
+						eventstream.MonitorNode(mux, hc, w.ip6)
+						w.watching = false
+						log.Println("Watch close: ", w.ip6)
+					}()
+				}
+
+				//}
+			}
+		}
+		time.Sleep(10 * time.Second)
+		//select {}
+	}
+
+}
+
+// Get neighbors from a node. Side effect: updates the watchers table.
+func neighbors(url string, path []string) map[uint64]*mesh.DMNode {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		log.Print("HTTP_ERROR1", url, err)
+		return nil
+	}
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	req = req.WithContext(ctx)
+
+	hcc := hc
+	if strings.HasPrefix(url, "http://127") {
+		hcc = http.DefaultClient
+	}
+	res, err := hcc.Do(req)
+	if err != nil || res.StatusCode != 200 {
+		log.Println("HTTP_ERROR2", url, err)
+		return nil
+	}
+
+	cnodes, _ := ioutil.ReadAll(res.Body)
+	cnodemap := map[uint64]*mesh.DMNode{}
+	err = json.Unmarshal(cnodes, &cnodemap)
+	if err != nil {
+		log.Println("HTTP_ERROR_RES", url, err, string(cnodes))
+		return nil
+	}
+
+	peers := []string{}
+
+	newdemap := map[uint64]*watcher{}
+	oldmap := map[uint64]*watcher{}
+	for k, v := range cnodemap {
+		w, f := watchers[k]
+		if !f {
+			ip6 := toIP6(k)
+			w = &watcher{Node: v, dirty: true, ip6: ip6,
+				idhex: fmt.Sprintf("%x", k),
+				Path:  path}
+			w.New = true
+			watchers[k] = w
+			newdemap[k] = w
+		} else {
+			oldmap[k] = w
+		}
+		peers = append(peers, w.idhex)
+	}
+	if *verbose {
+		log.Println("GET", url, len(cnodemap), peers)
+	}
+	return cnodemap
+}
+
+// Scan all nodes for neighbors. Watch them if not watched already.
+func listOnce() {
+	for _, v := range watchers {
+		v.dirty = true
+		v.New = false
+	}
+
+	// Will update watchers
+	neighbors("http://127.0.0.1:5227/dmesh/ip6", nil)
+
+	more := true
+
+	for more {
+		more = false
+		for _, v := range watchers {
+			if !v.dirty {
+				continue
+			}
+			more = true
+			p := "/"
+			for _, pp := range v.Path {
+				p = p + pp + "/"
+			}
+			p = p + v.idhex + "/"
+
+			//neighbors("http://127.0.0.1:5227/dm"+p+"/c/dmesh/ip6", append(v.Path, v.idhex))
+			neighbors("http://"+net.JoinHostPort(v.ip6.String(), "5227")+"/dmesh/ip6", append(v.Path, v.idhex))
+			v.dirty = false
+		}
+	}
+
+	for _, v := range watchers {
+		if v.New {
+			log.Println("Node", v.idhex, v.Path, v.Node.NodeAnnounce.UA, v.Node.GWs())
+		}
+	}
+}
+
+func stdinClient(mux *msgs.Mux) {
+	stdin := &msgs.MsgConnection{
+		Name:                "",
+		SubscriptionsToSend: []string{"*"},
+		SendMessageToRemote: func(ev *msgs.Message) error {
+			ba := ev.MarshalJSON()
+			os.Stdout.Write(ba)
+			os.Stdout.Write([]byte{'\n'})
+			return nil
+		},
+	}
+	mux.AddConnection("stdin", stdin)
+
+	go func() {
+		br := bufio.NewReader(os.Stdin)
+		for {
+			line, _, err := br.ReadLine()
+			if err != nil {
+				break
+			}
+			if len(line) > 0 && line[0] == '{' {
+				ev := msgs.ParseJSON(line)
+				mux.SendMessage(ev)
+			}
+		}
+	}()
+
+
+}
+
+func toIP6(k uint64) *net.IPAddr {
+	ip6, _ := net.ResolveIPAddr("ip6", "fd00::")
+	binary.BigEndian.PutUint64(ip6.IP[8:], k)
+	return ip6
+}
+
+func (w *watcher) monitor(addr *net.IPAddr) {
+
+	req, err := http.NewRequest("GET", "http://["+addr.String()+"]:5227/debug/events", nil)
+	if err != nil {
+		return
+	}
+	res, err := hc.Do(req)
+	if err != nil {
+		println(addr, "HTTP_ERROR", err)
+		return
+	}
+	rd := bufio.NewReader(res.Body)
+
+	for {
+		l, _, err := rd.ReadLine()
+		if err != nil {
+			if err.Error() != "EOF" {
+				log.Println(addr, "READ ERR", err)
+			}
+			break
+		}
+		ls := string(l)
+		if ls == "" || ls == "event: message" {
+			continue
+		}
+
+		log.Println(addr, ls)
+	}
+
 }

@@ -1,6 +1,7 @@
 package httpproxy
 
 import (
+	"context"
 	"io"
 	"log"
 	"net"
@@ -111,9 +112,10 @@ func (gw *HTTPGate) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ra := proxyClient.RemoteAddr().(*net.TCPAddr)
-	c1 := gw.gw.NewStream(ra.IP, uint16(ra.Port), "CHP", nil, proxyClient, proxyClient).(mesh.StreamProxy)
 
-	err := c1.Dial(host, nil)
+	_, pf , err := gw.gw.DialProxy(context.Background(),
+		stringAddr(host), ra, "CHP")
+
 	if err != nil {
 		w.WriteHeader(503)
 		w.Write([]byte("Dial error" + err.Error()))
@@ -123,5 +125,14 @@ func (gw *HTTPGate) handleConnect(w http.ResponseWriter, r *http.Request) {
 	proxyClient.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
 
 	// Blocking.
-	c1.Proxy()
+	pf(proxyClient)
 }
+
+type stringAddr string
+func(s stringAddr) Network() string {
+	return "addr"
+}
+func(s stringAddr) String() string {
+	return string(s)
+}
+

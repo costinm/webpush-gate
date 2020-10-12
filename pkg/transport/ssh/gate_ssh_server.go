@@ -13,6 +13,7 @@ import (
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/wpgate/pkg/streams"
 	"github.com/costinm/wpgate/pkg/transport/accept"
 	"golang.org/x/crypto/ssh"
 )
@@ -100,6 +101,7 @@ func (sshGate *SSHGate) InitServer() error {
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 			return nil, fmt.Errorf("password rejected for %q", c.User())
 		},
+		ServerVersion: version,
 		PublicKeyCallback: sshGate.authPub,
 		Config: ssh.Config{
 			MACs: []string{"none", "hmac-sha2-256-etm@openssh.com", "hmac-sha2-256", "hmac-sha1", "hmac-sha1-96"},
@@ -122,6 +124,9 @@ func (sshGate *SSHGate) InitServer() error {
 // Start listening. Typically address is :0, and the default port is 5222
 // A single server is usually sufficient for a node.
 func (sshGate *SSHGate) ListenSSH(address string) error {
+	if sshGate.serverConfig == nil {
+		sshGate.InitServer()
+	}
 	if address == "" {
 		address = ":5222"
 	}
@@ -212,6 +217,10 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 	scon.Node = n
 	// n.SSHTunSrv = scon - will be set when 5222 is received
 
+	if string(conn.ClientVersion()) == version {
+		n.TunSrv = scon
+	}
+
 	defer func() {
 
 		sshGate.metrics.Active.Add(-1)
@@ -289,6 +298,17 @@ type SSHServerConn struct {
 	SSHConn
 }
 
+func (sc *SSHServerConn) RemoteVIP() net.IP {
+	return sc.VIP6
+}
+
+func (sc *SSHServerConn) Wait() error {
+	return nil
+}
+
+func (sc *SSHServerConn) RemoteAccept(r, f string) error {
+	return nil
+}
 func (sshS *SSHServerConn) Close() error {
 	log.Println("SSHD: Close", sshS.VIP6, sshS.sshConn.RemoteAddr())
 	return sshS.sshConn.Close()
@@ -365,7 +385,7 @@ func (scon *SSHServerConn) handleMeshNodeForward(req tcpipForwardRequest,
 }
 
 // -R handling - create accepting socket to forward over this conn.
-func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Request) mesh.Listener {
+func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Request) net.Listener {
 	// Requested port
 	forPort := req.BindPort
 
@@ -458,11 +478,61 @@ func (sshS *SSHServerConn) AcceptForward(in io.ReadCloser, out io.Writer,
 	proxy.Proxy()
 }
 
-// DialReverse uses an existing server connection (this node accepted the request) to create
+// DialProxy uses an existing server connection (this node accepted the request) to create
 // a virtual tunnel where this node is the client.
+//
 // For SSH it relies on "forwarded-tcpip", which is typically used for -R/accept channels, with
-// a custom header at the beginning (TODO: use CONNECT, and make it consistent for all channels)
-func (sshS *SSHServerConn) DialProxy(tp *mesh.Stream) error {
+// a custom header at the beginning
+// (TODO: use CONNECT, and make it consistent for all channels)
+//
+// This only works if the clients are compatible with this extension
+func (sshS *SSHServerConn) DialProxy(tp *streams.Stream) error {
+	if string(sshS.sshConn.ClientVersion()) != version {
+		return sshS.DialProxyLegacy(tp)
+	}
+	log.Println("SSHClientConn SOCKS Reverse Connection ", tp.Dest)
+
+	sshS.gate.rMesh.Total.Add(1)
+
+	req := dmeshChannelData {
+		Dest: tp.Dest,
+		RemoteAddr: tp.Origin,
+	}
+
+	channel, reqs, err := sshS.sshConn.OpenChannel("dmesh",
+		ssh.Marshal(req))
+	if err != nil {
+		log.Println("Failed for forward-tcpip", err)
+		sshS.gate.rMesh.Errors.Add(1)
+		return err
+	}
+	sshS.gate.rMesh.Active.Add(1)
+
+	go func() {
+		for r := range reqs {
+			log.Println("forwarded-tcpip remote request ", r)
+			r.Reply(false, nil)
+		}
+	}()
+
+	t0 := time.Now()
+	tp.Closer = func() {
+		sshS.gate.rMesh.Active.Add(-1)
+		sshS.gate.rMesh.Latency.Add(time.Since(t0).Seconds())
+		channel.Close()
+	}
+	tp.ServerOut = channel
+	tp.ServerIn = channel
+
+	return nil
+}
+
+// Attemtping to use std forward - it requires the other side
+// to understand the header. This may work if remote is doing a
+// -R 0:localSocks or localConnect.
+//
+// For now legacy is not a priority.
+func (sshS *SSHServerConn) DialProxyLegacy(tp *streams.Stream) error {
 	log.Println("SSHClientConn SOCKS Reverse Connection ", tp.Dest)
 
 	sshS.gate.rMesh.Total.Add(1)
@@ -547,7 +617,7 @@ func (sshS *SSHServerConn) handleDirectTcpip(newChannel ssh.NewChannel, host str
 	addr, _ := net.ResolveIPAddr("ip", localAddr)
 
 	proxy := sshS.gate.gw.NewTcpProxy(&net.TCPAddr{IP: addr.IP, Port: int(localPort)}, "SSHL", nil, channel, channel)
-	err = proxy.Dial(net.JoinHostPort(host, strconv.Itoa(int(port))), nil)
+	err = sshS.gate.gw.Dial(proxy, net.JoinHostPort(host, strconv.Itoa(int(port))), nil)
 	if err != nil {
 		channel.Close()
 		sshS.gate.localFwdS.Active.Add(-1)

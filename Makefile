@@ -85,14 +85,15 @@ deps/esc:
 	go get -u github.com/mjibson/esc
 
 # Generate static files
-pkg/ui/html_static.go: ${GOPATH}/bin/esc  pkg/ui/www/status.html \
-        pkg/ui/www/active.html \
-        pkg/ui/www/peers.html \
-        pkg/ui/www/wifi.html \
-		pkg/ui/www/events.html \
-        pkg/ui/www/base.html \
-        pkg/ui/www/js/index.js \
-		pkg/ui/www/info.html
+pkg/ui/html_static.go: \
+	pkg/ui/www/status.html \
+    pkg/ui/www/active.html \
+    pkg/ui/www/peers.html \
+    pkg/ui/www/wifi.html \
+	pkg/ui/www/events.html \
+    pkg/ui/www/base.html \
+    pkg/ui/www/js/index.js \
+	pkg/ui/www/info.html
 	@echo "REGENERAGE"
 	${GOPATH}/bin/esc -include '.*\.html|.*\.js|.*\.css' -prefix pkg/ui/www -o pkg/ui/html_static.go -pkg ui pkg/ui/www/
 
@@ -107,16 +108,6 @@ arm:
 
 mips:
 	GOARCH=mips GOOS=linux GOMIPS=softfloat  ${GO} build -ldflags="-s -w" -o ${OUT}/mips/wps ./cmd/wps
-
-androidAll:
-	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=amd64 ${GO} build -ldflags="-s -w" -o ${DM_X8664} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=386 ${GO} build -ldflags="-s -w" -o ${DM_X86} ${PKG}/cmd/libDM
-
-android:
-	time OUT=${TOP} GOOS=linux GOARCH=arm GOARM=7 ${GO} build -ldflags="-s -w" -o ${DM_ARM} ${PKG}/cmd/libDM
-	time OUT=${TOP} GOOS=linux GOARCH=arm64 ${GO} build -ldflags="-s -w" -o ${DM_ARM64} ${PKG}/cmd/libDM
 
 
 gen-proto:

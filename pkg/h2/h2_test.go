@@ -17,9 +17,6 @@ import (
 
 // Verify mutual cert authentication
 func TestCerts(t *testing.T) {
-	gw := tests.TestGateway(16000)
-	defer gw.Close()
-
 	bCerts := auth.NewAuth(nil, "bob", "m.webinf.info")
 	bH2, _ := h2.NewTransport(bCerts)
 

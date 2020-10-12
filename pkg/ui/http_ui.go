@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/costinm/wpgate/pkg/conf"
+	"github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
@@ -66,9 +67,7 @@ func (dm *DMUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Println("LMHTTP: ", pattern, r.Method, r.Host, r.RemoteAddr, r.URL)
 }
 
-func NewUI(dm *mesh.Gateway, h2 *h2.H2,
-	hgate *httpproxy.HTTPGate,
-	ld *local.LLDiscovery) (*DMUI, error) {
+func NewUI(dm *mesh.Gateway, h2 *h2.H2, hgate *httpproxy.HTTPGate, ld *local.LLDiscovery) (*DMUI, error) {
 	dmui := &DMUI{
 		dm:     dm,
 		h2:     h2,
@@ -90,6 +89,8 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 	//dm.Registry.InitHttp(dm.H2.MTLSMux)
 	//dm.Registry.InitHttpAdm(dm.H2.LocalMux)
 
+	mux := h2.LocalMux
+
 	h2.LocalMux.HandleFunc("/xtcp/", dmui.Merge("tcpall.html"))
 	h2.LocalMux.HandleFunc("/peers", dmui.Merge("peers.html"))
 	h2.LocalMux.HandleFunc("/events", dmui.Merge("events.html"))
@@ -101,6 +102,9 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 	// Streaming message using 'eventstream' - mostly for UI
 	// SSH, gRPC and websocket are better options
 	h2.LocalMux.HandleFunc("/debug/eventss", eventstream.Handler(msgs.DefaultMux))
+	if dmui.dm.DNS != nil {
+		h2.LocalMux.HandleFunc("/dmesh/dns", dmui.dm.DNS.(*dns.DmDns).HttpDebugDNS)
+	}
 
 	h2.LocalMux.HandleFunc("/quitquitquit", QuitHandler)
 
@@ -111,16 +115,24 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2,
 
 	h2.LocalMux.Handle("/static/", http.FileServer(http.Dir("pkg/ui/www/")))
 
+	mux.HandleFunc("/dmesh/tcpa", dmui.dm.HttpTCP)
+	mux.HandleFunc("/dmesh/tcp", dmui.dm.HttpAllTCP)
+
+	mux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
+	mux.HandleFunc("/dmesh/ip6", dmui.dm.HttpGetNodes)
+
+	//mux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
+	if dmui.ld != nil {
+		mux.HandleFunc("/dmesh/ll/if", dmui.ld.HttpGetLLIf)
+	}
+
 	h2.LocalMux.Handle("/debug/", http.DefaultServeMux)
 	if hgate != nil {
 		h2.LocalMux.HandleFunc("/dm/", hgate.HttpForwardPath)
 		h2.LocalMux.HandleFunc("/dm2/", hgate.HttpForwardPath2)
 	}
 
-	h2.LocalMux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
-	h2.LocalMux.HandleFunc("/dmesh/ip6", dmui.HttpGetNodes)
 	//h2.LocalMux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
-	h2.LocalMux.HandleFunc("/dmesh/ll/if", dmui.HttpGetLLIf)
 	h2.LocalMux.Handle("/", http.FileServer(fs))
 
 	msgs.DefaultMux.OnMessageForNode = append(msgs.DefaultMux.OnMessageForNode, dmui.onmessage)
@@ -161,28 +173,6 @@ func (lm *DMUI) DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("{}]"))
 }
 
-func (lm *DMUI) HttpGetLLIf(w http.ResponseWriter, r *http.Request) {
-	if lm.ld == nil {
-		return
-	}
-	lm.ld.RefreshNetworks()
-
-	lm.dm.MeshMutex.Lock()
-	defer lm.dm.MeshMutex.Unlock()
-	je := json.NewEncoder(w)
-	je.SetIndent(" ", " ")
-	je.Encode(lm.ld.DirectActiveInterfaces)
-}
-
-// HttpGetNodes (/dmesh/ip6) returns the list of known nodes, both direct and indirect.
-// This allows nodes to sync the mesh routing table.
-func (lm *DMUI) HttpGetNodes(w http.ResponseWriter, r *http.Request) {
-	lm.dm.MeshMutex.Lock()
-	defer lm.dm.MeshMutex.Unlock()
-	je := json.NewEncoder(w)
-	je.SetIndent(" ", " ")
-	je.Encode(lm.dm.Nodes)
-}
 
 // HttpRefreshAndRegister (/dmesh/rd) will initiate a multicast UDP, asking for local masters.
 // After a small wait it'll return the list of peers. Debugging only.
@@ -195,16 +185,7 @@ func (lm *DMUI) HttpRefreshAndRegister(w http.ResponseWriter, r *http.Request) {
 
 	time.Sleep(5000 * time.Millisecond)
 
-	t0 := time.Now()
-	rec := []*mesh.DMNode{}
-	for _, n := range lm.dm.Nodes {
-		if t0.Sub(n.LastSeen) < 6000*time.Millisecond {
-			rec = append(rec, n)
-		}
-	}
-	je := json.NewEncoder(w)
-	je.SetIndent(" ", " ")
-	je.Encode(rec)
+	lm.dm.HttpNodesFilter(w, r)
 }
 
 // TODO: authentication (random generated from java or local, auth=, cookie)
@@ -260,7 +241,7 @@ func (ui *DMUI) Merge(s string) func(http.ResponseWriter, *http.Request) {
 			xp = xp + "/"
 		}
 
-		conf := ui.dm.Conf.(*conf.Conf)
+		conf := ui.dm.Auth.Config.(*conf.Conf)
 
 		err = tmpl.ExecuteTemplate(writer, s, struct {
 			Local *local.LLDiscovery

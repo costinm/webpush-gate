@@ -221,7 +221,8 @@ func serveConnSni(gw *mesh.Gateway, local net.Conn) error {
 
 	remote := gw.NewTcpProxy(local.RemoteAddr(), "SNI", buf[0:end], local, local)
 
-	err = remote.Dial(destAddr, nil)
+	remote.Initial = buf[0:off]
+	err = gw.Dial(remote, destAddr, nil)
 	if err != nil {
 		local.Close()
 		return err

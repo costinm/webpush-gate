@@ -3,9 +3,11 @@ package mesh
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
+	"net/http"
 	"time"
+
+	"github.com/costinm/wpgate/pkg/streams"
 )
 
 const (
@@ -38,7 +40,7 @@ type NodeAnnounce struct {
 }
 
 // Node information, based on registration info or discovery.
-// Map of nodes, keyed by interface address is stored in Gateway.Nodes.
+// Map of nodes, keyed by interface address is stored in Gateway.nodes.
 type DMNode struct {
 	// VIP is the mesh specific IP6 address. The 'network' identifies the master node, the
 	// link part is the sha of the public key. This is a byte[16].
@@ -66,10 +68,10 @@ type DMNode struct {
 	// node, with the node acting as client.
 	// Streams will be forwarded to the node using special 'accept' mode.
 	// This is similar with PUSH in H2.
-	TunSrv TunDialer `json:"-"`
+	TunSrv MuxSession `json:"-"`
 
 	// Existing tun to the remote node, previously dialed.
-	TunClient TunDialer `json:"-"`
+	TunClient MuxSession `json:"-"`
 
 	// IP4 address of last announce
 	Last4 *net.UDPAddr `json:"-"`
@@ -111,66 +113,49 @@ func NewDMNode() *DMNode {
 	}
 }
 
-// Glue to TUN, to avoid direct deps.
-// Used to avoid a direct dependency - for example in netstack.
-// TcpProxy implements this interface.
-type StreamProxy interface {
-	Dial(destHost string, destAddr *net.TCPAddr) error
-	Proxy() error
-	Close() error
-}
-
-// Interface implemented by Gateway.
-type TcpGateway interface {
-	NewStream(addr net.IP, port uint16, ctype string, initialData []byte, clientIn io.ReadCloser, clientOut io.Writer) interface{}
-}
-
-// Interface implemented by the L3 capturing Gateway.
-type UDPGate interface {
-	// Handle an intercepted UDP packet.
-	HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte)
-}
-
-func (gw *Gateway) HandleUdp(dstAddr net.IP, dstPort uint16, localAddr net.IP, localPort uint16, data []byte) {
-
-}
-
-// Egress Dial a stream over a multiplexed connection.
-type TunDialer interface {
+// Dial a stream over a multiplexed connection.
+//
+// A node connects to a VPN or an intermediary node.
+// The connectcan can multiplex multiple streams.
+// This function connects a Stream object, using a multiplexed
+// stream.
+//
+// In addition to the VPN, the node may have sessions (direct
+// or proxied) to specific nodes.
+//
+// For example SSHClient, SSHServer, Quic can support this.
+type MuxSession interface {
 	// DialProxy will use the remote gateway to jump to
 	// a different destination, indicated by stream.
 	// On return, the stream ServerOut and ServerIn will be
 	// populated, and connected to stream Dest.
-	DialProxy(tp *Stream) error
-}
+	DialProxy(tp *streams.Stream) error
 
-// JumpHost is implemented by streams like SSH client, that allow jumping to new destinations.
-// Example SSHClientConn.
-type JumpHost interface {
-	// Main interface - forward a Stream to a random destination (egress)
-	TunDialer
-
-	// AcceptDial opens a virtual port on the gateway which will dynamically
-	// connect to local destinations. It works like RemoteAccept, but with a prefix
-	// similar with SOCKS, indicating the destination.
-	// For untrusted servers only the mesh port is allowed in dialed addresses.
-	AcceptDial() error
-
-	// RemoteAccept uses the gateway to forward 'remote' on the
-	// gateway to a local port.
-	// Equivalent with -R
-	RemoteAccept(remoteListenAddr, forwardDest string) error
-
-	Close() error
-
-	// The VIP of the remote host.
+	// The VIP of the remote host, after authentication.
 	RemoteVIP() net.IP
+
+	// Wait for the stream to finish.
+	Wait() error
+
+	// RemoteAccept requests the other end to forward 'remote port' on the
+	// gateway to a local port (forwardDest). This is primarily used
+	// to create a 'plain TCP' listener on the other end.
+	//
+	// It is also useful with legacy SSH servers.
+	//
+	// SNI/HTTP/connect/etc do not use this mechanism.
+	//
+	// Equivalent with -R
+	//
+	// Using ":0" as remoteListener will open any port.
+	//
+	//RemoteAccept(remoteListenAddr, forwardDest string) error
 }
 
-// MUXDialer is implemented by a transport that can be used for egress and ingress.
+// MUXDialer is implemented by a transport that can be
+// used for egress for streams. SSHGate creating SSHClients is an example.
 //
-//
-// SSHGate creating SSHClients is an example.
+// On the server side, MuxSession are created when a client connects
 type MUXDialer interface {
 	// Dial one TCP/mux connection to the IP:port.
 	// The destination is a mesh node - port typically 5222, or 22 for 'regular' SSH serves.
@@ -181,7 +166,7 @@ type MUXDialer interface {
 	// or a child. The subsriptions are used to indicate what messages will be forwarded to the server.
 	// Typically VPN will receive all events, AP will receive subset of events related to topology while
 	// child/peer only receive directed messages.
-	DialMUX(addr string, pub []byte, subs []string) (JumpHost, error)
+	DialMUX(addr string, pub []byte, subs []string) (MuxSession, error)
 }
 
 // IPResolver uses DNS cache or lookups to return the name
@@ -332,3 +317,75 @@ type MeshDevice struct {
 }
 
 func (md *MeshDevice) String() string { return fmt.Sprintf("%s/%d", md.SSID, md.Level) }
+
+// Keyed by Hostname:port (if found in dns tables) or IP:port
+type HostStats struct {
+	// First open
+	Open time.Time
+
+	// Last usage
+	Last time.Time
+
+	SentBytes   int
+	RcvdBytes   int
+	SentPackets int
+	RcvdPackets int
+	Count       int
+
+	LastLatency time.Duration
+	LastBPS     int
+}
+
+type ListenerConf struct {
+	// Local address (ex :8080). This is the requested address - if busy :0 will be used instead, and Port
+	// will be the actual port
+	// TODO: UDS
+	// TODO: indicate TLS SNI binding.
+	Local string
+
+	// Real port the listener is listening on, or 0 if the listener is not bound to a port (virtual, using mesh).
+	Port int
+
+	// Remote where to forward the proxied connections
+	// IP:port format, where IP can be a mesh VIP
+	Remote string `json:"Remote,omitempty"`
+}
+
+
+type Host struct {
+	// Address and port of a HTTP server to forward the domain.
+	Addr string
+
+	// Directory to serve static files. Used if Addr not set.
+	Dir string
+	Mux http.Handler `json:"-"`
+}
+
+// Configuration for the Gateway.
+//
+type GateCfg struct {
+
+	// Port proxies: will register a listener for each port, forwarding to the
+	// given address.
+	Listeners []*ListenerConf `json:"TcpProxy,omitempty"`
+
+	// Set of hosts with certs to configure in the h2 server.
+	// The cert is expected in CertDir/HOSTNAME.[key,crt]
+	// The server will terminate TLS and HTTP, forward to the host as plain text.
+	Hosts map[string]*Host `json:"Hosts,omitempty"`
+
+	// Proxy requests to hosts (external or mesh) using the VIP of another node.
+	Via map[string]string `json:"Via,omitempty"`
+
+	// VIP of the default egress node, if no 'via' is set.
+	Egress string
+
+}
+
+
+// UdpWriter is implemented by capture, provides a way to send back packets to
+// the captured app.
+type UdpWriter interface {
+	WriteTo(data []byte, dstAddr *net.UDPAddr, srcAddr *net.UDPAddr) (int, error)
+}
+

@@ -13,6 +13,7 @@ import (
 
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/streams"
 )
 
 // Reverse proxy for HTTP requests.
@@ -441,7 +442,7 @@ func SendBackResponse(w http.ResponseWriter, r *http.Request,
 	CopyHeaders(w.Header(), res.Header)
 	w.WriteHeader(res.StatusCode)
 
-	stats := &mesh.Stream{}
+	stats := &streams.Stream{}
 	n, err := stats.CopyBuffered(w, res.Body, true)
 
 	log.Println("Done: ", r.URL, res.StatusCode, n, err)

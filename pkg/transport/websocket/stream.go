@@ -1,12 +1,13 @@
 package websocket
 
 import (
+	"bufio"
 	"crypto/tls"
-	"log"
 	"net/http"
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/wpgate/pkg/transport/ssh"
 	ws "golang.org/x/net/websocket"
 )
 
@@ -14,8 +15,8 @@ import (
 // Uses VAPID or TLS authentication for client, TLS auth for server
 // Both ends identify with their public key and/or cert.
 
-func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
-	ws := &ws.Server{
+func WSTransport(gate *msgs.Mux, sshg *ssh.SSHGate, mux *http.ServeMux) {
+	wsmsg := &ws.Server{
 		Config:    ws.Config{},
 		Handshake: nil,
 		Handler: func(conn *ws.Conn) {
@@ -23,54 +24,55 @@ func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
 			websocketStream(gate, conn, h2ctx, "http-"+conn.Request().RemoteAddr)
 		},
 	}
-	mux.Handle("/ws", ws)
-	mux.Handle("/tcpws/", ws)
+	mux.Handle("/ws", wsmsg)
+	if sshg != nil {
+		wsssh := &ws.Server{
+			Config:    ws.Config{},
+			Handshake: nil,
+			Handler: func(conn *ws.Conn) {
+				sshg.HandleServerConn(conn)
+			},
+		}
+		mux.Handle("/ssh", wsssh)
+	}
 }
 
-func websocketStream(mux *msgs.Mux, conn *ws.Conn, h2ctx *auth.ReqContext, id string) {
-	data := make([]byte, 4096)
-	fw, _ := conn.NewFrameWriter(conn.PayloadType)
+func websocketStream(gate *msgs.Mux, conn *ws.Conn, ctx *auth.ReqContext, s string) {
+	// TODO: get auth !
+	mconn := &msgs.MsgConnection{
+		SubscriptionsToSend: nil, // Don't send all messages down - only if explicit subscription.
+		Conn: conn,
+	}
+	msgs.DefaultMux.AddConnection("", mconn)
+	br := bufio.NewReader(conn)
+	mconn.HandleMessageStream(nil, br, "")
 
-	mc := &msgs.MsgConnection{
-		SubscriptionsToSend: []string{"*"},
-		SendMessageToRemote: func(ev *msgs.Message) error {
-			_, err := fw.Write(ev.MarshalJSON())
-			return err
-		},
+}
+
+func WSGateClient(a *auth.Auth,sshg *ssh.SSHGate, dest string) error {
+	wsc, err := ws.NewConfig(dest, dest)
+
+	wsc.Header.Add("Authorization", a.VAPIDToken(dest))
+
+	wsc.TlsConfig = &tls.Config{
+		InsecureSkipVerify: true,
 	}
 
-	msgs.DefaultMux.AddConnection(id, mc)
-
-	mc.SendMessageToRemote(msgs.NewMessage("test", nil))
-
-	log.Println("DM HTTP EVENT STREAM ", id)
-
-	defer func() {
-		msgs.DefaultMux.RemoveConnection(id, mc)
-		log.Println("DM HTTP EVENT STREAM CLOSE ", id)
-	}()
-
-	fr, err := conn.NewFrameReader()
+	ws, err := ws.DialConfig(wsc)
 	if err != nil {
-		log.Println("Websocket ", err)
-		return
+		return err
 	}
-	for {
-		n, err := fr.Read(data)
-		if err != nil {
-			log.Println("Websocket ", err)
-			return
-		}
-		m := mux.ProcessMessage(data[0:n], h2ctx)
 
-		mux.SendMessage(m)
-	}
+	sshg.DialCon(ws, dest, nil)
+
+	return nil
 }
 
 func WSClient(a *auth.Auth, mux *msgs.Mux, dest string) error {
 	wsc, err := ws.NewConfig(dest, dest)
 
 	wsc.Header.Add("Authorization", a.VAPIDToken(dest))
+
 	wsc.TlsConfig = &tls.Config{
 		InsecureSkipVerify: true,
 	}

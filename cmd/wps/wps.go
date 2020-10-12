@@ -12,16 +12,14 @@ import (
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
-	"github.com/costinm/wpgate/pkg/transport/accept"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
-	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 )
 
-// Basic server, with core features:
+// Basic server, with only minimal core features:
 // Ingress:
 // - H2+GRPC server on 5228
 // - SSH gateway (until equivalent H2 is available) on 5222
@@ -29,6 +27,7 @@ import (
 // Messages:
 // - webpush
 // - SSH transport
+// - WSS transport
 //
 // For egress:
 // - socks
@@ -50,18 +49,11 @@ func main() {
 
 	authz := auth.NewAuth(config, "", "m.webinf.info")
 	authz.Dump()
+
 	// Init Auth on the DefaultMux, for messaging
 	msgs.DefaultMux.Auth = authz
 
-	// Create the gate
-	gcfg := &mesh.GateCfg{}
-	err := conf.Get(config, "gate.json", gcfg)
-	if err != nil {
-		log.Println("Use default config ", err)
-	} else {
-		log.Println("Cfg: ", gcfg)
-	}
-	GW := mesh.New(authz, gcfg)
+	GW := mesh.New(authz, nil)
 
 	// Create the H2
 	h2s, err := h2.NewTransport(authz)
@@ -70,9 +62,11 @@ func main() {
 	}
 
 	sshg := sshgate.NewSSHGate(GW, authz)
-	GW.SSHGate = sshg
-	sshg.InitServer()
 	sshg.ListenSSH(addr(bp, 22))
+	// Set the ssh gate as default egress protocol
+	// This will be used to maintain connections with VPN
+	// and upstream servers.
+	GW.SSHGate = sshg
 
 	// Connect to a mesh node
 	// - will accept reverse connections
@@ -87,13 +81,14 @@ func main() {
 	// HTTPS server - grpc, messaging.
 	wp := &xds.GrpcService{}
 	xds.RegisterAggregatedDiscoveryServiceServer(h2s.GRPC, wp)
+
 	h2s.MTLSMux.HandleFunc("/push/", msgs.DefaultMux.HTTPHandlerWebpush)
 	h2s.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
 
 	// Messages and streams over websocket - HTTP/1.1 compatible
-	websocket.WSTransport(msgs.DefaultMux, h2s.MTLSMux)
+	websocket.WSTransport(msgs.DefaultMux, sshg, h2s.MTLSMux)
 
-	// Egress - SOCKS, HTTP and
+	// Egress - SOCKS, HTTP
 	s5, err := socks.Socks5Capture(laddr(bp, 24), GW)
 	if err != nil {
 		log.Print("Error: ", err)
@@ -103,28 +98,12 @@ func main() {
 	hgw := httpproxy.NewHTTPGate(GW, h2s)
 	hgw.HttpProxyCapture(laddr(bp, 3))
 
-	//// Local DNS resolver. Can forward up.
+	// Local DNS resolver. Can forward up, tracks requests
 	dns, _ := dns.NewDmDns(bp + 23)
-	go dns.Serve()
-
+	dns.Start(h2s.MTLSMux)
 	GW.DNS = dns
 
 	if knativePort == "" {
-		//UI, _ := ui.NewUI(GW, h2s, nil, nil)
-		//http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", bp+27), UI)
-
-
-		// Ingress with SNI sniffing. Anyone can connect to reach mesh nodes
-		// or explicit configured destinations. Typically exposed on 443.
-		sniAddr := os.Getenv("SNI_ADDR")
-		if sniAddr != "" {
-			go sni.SniProxy(GW, sniAddr)
-		}
-		// TODO: same, on port 80
-
-		for _, t := range GW.Config.Listeners {
-			accept.NewForwarder(GW, t)
-		}
 		h2s.InitMTLSServer(bp+28, h2s.MTLSMux)
 	} else {
 		h2s.InitPlaintext(":" + knativePort)

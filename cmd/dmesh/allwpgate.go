@@ -19,10 +19,10 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/iptables"
 	"github.com/costinm/wpgate/pkg/transport/local"
-	"github.com/costinm/wpgate/pkg/transport/noise"
 	"github.com/costinm/wpgate/pkg/transport/sni"
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
+	"github.com/costinm/wpgate/pkg/transport/udp"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 	"github.com/costinm/wpgate/pkg/ui"
@@ -103,9 +103,11 @@ type ServerAll struct {
 	H2     *h2.H2
 
 	// UI interface Handler for localhost:5227
-	UI    *ui.DMUI
-	Local *local.LLDiscovery
-	Conf  *conf.Conf
+	UI     *ui.DMUI
+	UDPNat *udp.UDPGate
+	Local  *local.LLDiscovery
+	Conf   *conf.Conf
+	sshg   *sshgate.SSHGate
 }
 
 func (sa *ServerAll) Close() {
@@ -148,10 +150,11 @@ func StartAll(a *ServerAll) {
 
 	// Experimental: noise transport
 	// bring dep no compiling on arm
-	go noise.New(uint16(a.BasePort + NOISE))
+	//go noise.New(uint16(addrN + NOISE))
 
 	// SSH transport + reverse streams.
 	sshg := sshgate.NewSSHGate(a.GW, authz)
+	a.sshg = sshg
 	a.GW.SSHGate = sshg
 	sshg.InitServer()
 	sshg.ListenSSH(a.addr(SSH))
@@ -200,7 +203,7 @@ func (a *ServerAll) StartMsg() {
 	a.H2.LocalMux.HandleFunc("/s/", msgs.HTTPHandlerSend)
 
 	// /ws - registered on the HTTPS server
-	websocket.WSTransport(msgs.DefaultMux, a.H2.MTLSMux)
+	websocket.WSTransport(msgs.DefaultMux, a.sshg, a.H2.MTLSMux)
 
 	msgs.DefaultMux.AddHandler(mesh.TopicConnectUP, msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
 		log.Println(cmdS, meta, data)
@@ -235,12 +238,15 @@ func (a *ServerAll) StartExtra() {
 	a.hgw.HttpProxyCapture(a.laddr(HTTP_PROXY))
 
 	// Local DNS resolver. Can forward up.
-	dns, err := dns.NewDmDns(a.BasePort + DNS)
-	go dns.Serve()
-	a.H2.MTLSMux.Handle("/dns/", dns)
-	a.GW.DNS = dns
+	dnss, err := dns.NewDmDns(a.BasePort + DNS)
+	dnss.Start(a.H2.MTLSMux)
+	a.GW.DNS = dnss
 
+	// Explicit TCP forwarders.
 	for _, t := range a.GW.Config.Listeners {
 		accept.NewForwarder(a.GW, t)
 	}
+
+	udpNat  := udp.NewUDPGate(a.GW)
+	a.UDPNat = udpNat
 }

@@ -7,13 +7,13 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/wpgate/pkg/streams"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -70,13 +70,15 @@ type SSHGate struct {
 
 	serverConfig *ssh.ServerConfig
 
-	metrics   *mesh.ServiceMetrics
-	cmetrics  *mesh.ServiceMetrics
-	localFwdS *mesh.ServiceMetrics
-	rAccept   mesh.Metric
-	rMesh     *mesh.ServiceMetrics
+	metrics   *streams.ServiceMetrics
+	cmetrics  *streams.ServiceMetrics
+	localFwdS *streams.ServiceMetrics
+	rAccept   streams.Metric
+	rMesh     *streams.ServiceMetrics
 
 	certs *auth.Auth
+
+	ConnectTimeout time.Duration
 }
 
 const SSH_MESH_PORT = 5222
@@ -133,11 +135,12 @@ func NewSSHGate(gw *mesh.Gateway, certs *auth.Auth) *SSHGate {
 		SshConn:    map[uint64]*SSHServerConn{},
 		gw:         gw,
 		certs:      certs,
-		metrics:    mesh.NewServiceMetrics("sshd", "ssh server"),
-		cmetrics:   mesh.NewServiceMetrics("sshc", "ssh client"),
-		localFwdS:  mesh.NewServiceMetrics("sshdL", "ssh server port forwards"),
-		rAccept:    mesh.Metrics.NewCounter("sshdRA", "ssh server reverse accept"),
-		rMesh:      mesh.NewServiceMetrics("sshdRM", "ssh server reverse mesh"),
+		ConnectTimeout: 10 * time.Second,
+		metrics:    streams.NewServiceMetrics("sshd", "ssh server"),
+		cmetrics:   streams.NewServiceMetrics("sshc", "ssh client"),
+		localFwdS:  streams.NewServiceMetrics("sshdL", "ssh server port forwards"),
+		rAccept:    streams.Metrics.NewCounter("sshdRA", "ssh server reverse accept"),
+		rMesh:      streams.NewServiceMetrics("sshdRM", "ssh server reverse mesh"),
 	}
 
 	//msgs.DefaultMux.AddHandler("endpoint", sg)
@@ -148,78 +151,123 @@ func NewSSHGate(gw *mesh.Gateway, certs *auth.Auth) *SSHGate {
 
 const SSH_MSG = true
 
-func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.JumpHost, error) {
-	signer, err := ssh.NewSignerFromKey(sshGate.certs.EC256PrivateKey) // ssh.Signer
+func (sshGate *SSHGate) DirectConnect(node *mesh.DMNode) (chan error, error) {
+	return nil, nil
+}
 
-	user := "dmesh"
-
-	sshGate.cmetrics.Total.Add(1)
+// ConnectStream creates a MuxSession over an established conn
+// addr may be empty.
+//
+// If node has a VIP or public key it will be checked.
+// The resulting MuxSession will be set a node.TunClient
+func (sshGate *SSHGate) ConnectStream(node *mesh.DMNode,
+	addr string,
+	conn net.Conn) (func() error, error) {
 
 	sshC := &SSHConn{
-		Addr:                addr,
-		gate:                sshGate,
-		Connect:             time.Now(),
-		SubscriptionsToSend: subs,
-		open:                true,
+			gate:                sshGate,
+			Connect:             time.Now(),
+			SubscriptionsToSend: []string{"*"},
+			open:                true,
 	}
 
-	authm := []ssh.AuthMethod{}
-
-	authm = append(authm, ssh.PublicKeys(signer))
-
-	if sshGate.certs.RSAPrivate != nil {
-		signer1, err := ssh.NewSignerFromKey(sshGate.certs.RSAPrivate)
-		if err == nil {
-			authm = append(authm, ssh.PublicKeys(signer1))
-		}
-	}
-	if sshGate.certs.EDPrivate != nil {
-		signer1, err := ssh.NewSignerFromKey(sshGate.certs.EDPrivate)
-		if err == nil {
-			authm = append(authm, ssh.PublicKeys(signer1))
-		}
-	}
-
-	// An SSHClientConn client is represented with a ClientConn.
-	// TODO: save and verify public key of server
-	config := &ssh.ClientConfig{
-		User:    user,
-		Auth:    authm,
-		Timeout: 3 * time.Second,
-		//Config: ssh.Config {
-		//	MACs: []string{},
-		//},
-		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			if cpk, ok := key.(ssh.CryptoPublicKey); ok {
-				pubk := cpk.CryptoPublicKey()
-
-				kbytes := auth.KeyBytes(pubk)
-
-				sshC.pubKey = kbytes
-
-				if pub != nil && bytes.Compare(kbytes, pub) != 0 {
-					log.Println("SSHC: Unexpected pub", pub, kbytes)
-				}
-				var role string
-				if role = sshGate.certs.Auth(kbytes, ""); role == "" {
-					role = ROLE_GUEST
-				}
-				sshC.role = role
-
-				sshC.VIP6 = auth.Pub2VIP(kbytes)
-				sshC.vip = auth.Pub2ID(kbytes)
-			}
-			return nil
-		},
-	}
+	config := sshGate.clientConfig(sshC, node.PublicKey)
 
 	// TODO: split TCP/conn and ssh handshake, use other transports
-	client, err := ssh.Dial("tcp", addr, config)
+
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
 		sshGate.cmetrics.Errors.Add(1)
 		return nil, err
 	}
 
+
+	// c: SendRequest (blocking, one at a time), OpenChannel
+	// chans: incoming channels, for client it's -R (typical)
+	// reqs: global requests.
+
+	client := ssh.NewClient(c, chans, reqs)
+	// client: look on chans/reqs, dispatch on client.HandleChannelOpen
+	// client: ListenTcp(tcpip-forward global req) -> forwarded-tcpip handler
+
+	// Verify the VIP from the handshake
+	if node.VIP != nil {
+		if !bytes.Equal(sshC.VIP6, node.VIP) {
+			return nil, errors.New("Missmatched VIP " + node.VIP.String() + " " + sshC.VIP6.String())
+		}
+	} else {
+		node.VIP = sshC.VIP6
+	}
+
+	sshGate.onConnect(sshC, client, addr)
+
+	if addr != "" {
+		sshGate.mutex.Lock()
+		sshGate.SshClients[addr] = sshC
+		sshGate.mutex.Unlock()
+	}
+
+	if node.TunClient != nil {
+		node.TunClient.(io.Closer).Close()
+	}
+	node.TunClient = sshC
+
+	return c.Wait, nil
+}
+
+
+func (sshGate *SSHGate) DialMUX(addr string,
+	pub []byte, subs []string) (mesh.MuxSession, error) {
+
+	// TODO: remove subs, separate topic
+	// TODO: pub should be set for 'trusted' nodes.
+	// TODO: indicate if the VIP is a trusted peer
+	// TODO: return DMNode, close channel
+	// TODO: take param a DMNode instead ?
+
+	conn, err := net.DialTimeout("tcp", addr, sshGate.ConnectTimeout)
+	if err != nil {
+		sshGate.cmetrics.Errors.Add(1)
+		return nil, err
+	}
+	return sshGate.DialCon(conn, addr, pub)
+}
+
+func (sshGate *SSHGate) DialCon(conn net.Conn, addr string,
+			pub []byte) (mesh.MuxSession, error) {
+	sshC := &SSHConn{
+			Addr:                addr,
+			gate:                sshGate,
+			Connect:             time.Now(),
+			SubscriptionsToSend: []string{"*"},
+			open:                true,
+	}
+
+	config := sshGate.clientConfig(sshC, pub)
+
+
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		return nil, err
+	}
+
+	client := ssh.NewClient(c, chans, reqs)
+
+	sshGate.onConnect(sshC, client, addr)
+
+	sshGate.mutex.Lock()
+	sshGate.SshClients[addr] = sshC
+	sshGate.mutex.Unlock()
+
+	return sshC, nil
+}
+
+type dmeshChannelData struct {
+	Dest string
+	RemoteAddr string
+}
+
+func (sshGate *SSHGate)	onConnect(sshC *SSHConn, client *ssh.Client, addr string) {
 	sshGate.cmetrics.Active.Add(1)
 
 	// After handshake, ssc.VIP6 and ssc.vip are set based on the
@@ -231,6 +279,29 @@ func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.Ju
 	sshGate.gw.JumpHosts[sshC.VIP6.String()] = sshC
 	sshGate.mutex.Unlock()
 
+	if string(client.ServerVersion()) == version {
+		dmCh := client.HandleChannelOpen("dmesh")
+		go func() {
+			for ch := range dmCh {
+				extra := ch.ExtraData()
+				dmeshCh := dmeshChannelData{}
+				ssh.Unmarshal(extra, &dmeshCh)
+				cha, _, _ := ch.Accept()
+
+				ra, _ := net.ResolveTCPAddr("tcp", dmeshCh.RemoteAddr)
+				p := sshC.gate.gw.NewTcpProxy(ra, "SSHRSOCKS", nil, cha, cha)
+
+				err := sshC.gate.gw.Dial(p, dmeshCh.Dest, nil)
+				if err != nil {
+					log.Println("SSH error: ", sshC.VIP6, dmeshCh.Dest)
+					p.Close()
+					return
+				}
+				p.Proxy()
+			}
+		}()
+	}
+
 	// Find the Node associated with the client.
 	// Update the Node with the outbound channel.
 	n := sshGate.gw.Node(sshC.pubKey)
@@ -239,15 +310,16 @@ func (sshGate *SSHGate) DialMUX(addr string, pub []byte, subs []string) (mesh.Ju
 
 	go sshGate.keepalive(client, n)()
 
-	if SSH_MSG {
-		host, err2 := sshClientMsgs(client, sshC, n, subs)
-		if err2 != nil {
-			return host, err2
-		}
+	// Attempt to open a session to execute /usr/local/bin/dmeshc
+	// This is a plain 'json over stream' channel for messages.
+	// Legacy SSH servers can use a binary/shell.
+	// If the legacy SSH server lacks the binary, no messages can be
+	// exchanged with the node.
+	host, err2 := sshClientMsgs(client, sshC, n, []string{"*"})
+	if err2 != nil {
+		log.Println("/sshc/msgerr LegacySSHServer, no msg", host, err2, sshC.Addr)
 	}
 	log.Println("/sshc/connect", sshC.Addr)
-
-	return sshC, nil
 }
 
 func (sshGate *SSHGate) keepalive(client *ssh.Client, n *mesh.DMNode) func() {
@@ -304,12 +376,12 @@ func (sshC *SSHConn) Close() error {
 }
 
 // DialProxy will use a SSH client connection MUX to reach a remote server.
-// Part of TunDialer interface used to connect to a destination
+// Part of MuxSession interface used to connect to a destination
 // over this connection.
 // On success, tp.Server[In|Out] will be set with a connection to
 //  tp.Dest:tp.DestPort
 // Uses the equivalent of "-L".
-func (sshC *SSHConn) DialProxy(tp *mesh.Stream) error {
+func (sshC *SSHConn) DialProxy(tp *streams.Stream) error {
 	// Parse the address into host and numeric port.
 	h, _, _ := net.SplitHostPort(tp.Dest)
 
@@ -343,20 +415,8 @@ func (sshC *SSHConn) DialProxy(tp *mesh.Stream) error {
 	}
 	go ssh.DiscardRequests(in)
 
-	// Use a zero address for local and remote address.
-	zeroAddr := &net.TCPAddr{
-		IP:   net.IPv4zero,
-		Port: 0,
-	}
-
-	conn := &chanConn{
-		Channel: ch,
-		laddr:   zeroAddr,
-		raddr:   zeroAddr,
-	}
-
-	tp.ServerOut = conn
-	tp.ServerIn = conn
+	tp.ServerOut = ch
+	tp.ServerIn = ch
 	return nil
 }
 
@@ -365,7 +425,11 @@ func (sshC *SSHConn) DialProxy(tp *mesh.Stream) error {
 // to this client.
 // TODO: make it work with standard ssh servers - for example
 // get a dynamic port, and bounce it as an incoming ssh connection.
-func (sshC *SSHConn) AcceptDial() error {
+func (sshC *SSHConn) Wait() error {
+	return sshC.sshclient.Wait()
+}
+
+func (sshC *SSHConn) AcceptDialLegacy() error {
 	// Options:
 	// 1. Expose a SSH listener - will expose this node as ssh server
 	// 2. Expose the H2 port (ideal)
@@ -391,22 +455,23 @@ func (sshC *SSHConn) AcceptDial() error {
 			return nil
 		}
 
-		go func() {
-			// TODO: get server role, if guess only allow in-mesh proxy
-			dest := extractAddress(c)
-			p := sshC.gate.gw.NewTcpProxy(c.RemoteAddr(), "SSHRSOCKS", nil, c, c)
-
-			err = p.Dial(dest, nil)
-			if err != nil {
-				log.Println("SSH error: ", c.RemoteAddr(), dest)
-				p.Close()
-				return
-			}
-			p.Proxy()
-		}()
+		go sshC.onDmeshReverseCon(c)
 	}
 	// Serve HTTP with your SSHClientConn server acting as a reverse proxy.
 	return nil
+}
+func (sshC *SSHConn) onDmeshReverseCon(c net.Conn) {
+	// TODO: get server role, if guess only allow in-mesh proxy
+	dest := extractAddress(c)
+	p := sshC.gate.gw.NewTcpProxy(c.RemoteAddr(), "SSHRSOCKS", nil, c, c)
+
+	err := sshC.gate.gw.Dial(p, dest, nil)
+	if err != nil {
+		log.Println("SSH error: ", c.RemoteAddr(), dest)
+		p.Close()
+		return
+	}
+	p.Proxy()
 }
 
 // Use the connection to a remote SSHClientConn server to listen to a port.
@@ -450,14 +515,14 @@ func (sshC *SSHConn) handleRConnection(dest string, c net.Conn) error {
 	proxy := sshC.gate.gw.NewTcpProxy(c.RemoteAddr(), "SSHC-ACCEPT", nil, c, c)
 	proxy.DestDirectNoVPN = true
 
-	err := proxy.Dial(dest, nil)
+	err := sshC.gate.gw.Dial(proxy, dest, nil)
 	if err != nil {
 		log.Println("Failed to connect ", dest, err)
 		c.Close()
 		return err
 	}
 
-	return proxy.ProxyConn(c)
+	return proxy.Proxy()
 }
 
 //func PubKeyString(key ssh.PublicKey) string {
@@ -506,19 +571,15 @@ func MaintainVPNConnection(gw *mesh.Gateway) {
 			log.Println("SSH VPN OPEN")
 			gw.SSHClient = sshVpn
 
-			for _, v := range gw.Config.Listeners {
-				go sshVpn.RemoteAccept(v.Local, v.Remote)
-			}
-
-			// Will not create a real listener, just SNI-based forward for the H2 port
-			if os.Getenv("ANDROID_ROOT") != "" {
-				go sshVpn.RemoteAccept("0.0.0.0:5555", "localhost:5555")
-			} else {
-				go sshVpn.RemoteAccept("0.0.0.0:2222", "localhost:22")
-			}
+			//// Will not create a real listener, just SNI-based forward for the H2 port
+			//if os.Getenv("ANDROID_ROOT") != "" {
+			//	go sshVpn.RemoteAccept("0.0.0.0:5555", "localhost:5555")
+			//} else {
+			//	go sshVpn.RemoteAccept("0.0.0.0:2222", "localhost:22")
+			//}
 
 			// Blocking - will be closed when the ssh connection is closed.
-			sshVpn.AcceptDial()
+			sshVpn.Wait()
 			gw.SSHClient = nil
 			// TODO: shorter timeout with exponential backoff
 
@@ -531,53 +592,66 @@ func MaintainVPNConnection(gw *mesh.Gateway) {
 	}
 }
 
-// ======= Copied from SSHClientConn, to customize
+// Quick workaround for 'feature' negotiation. Will be replaced
+// with proper variant.
+const version = "SSH-2.0-dmesh"
 
-// Customized: allow passing the ports and addr.
-//
-// chanConn fulfills the net.Conn interface without
-// the tcpChan having to hold laddr or raddr directly.
-type chanConn struct {
-	ssh.Channel
-	laddr, raddr net.Addr
-}
+func (sshGate *SSHGate) clientConfig(sshC *SSHConn, pub []byte) *ssh.ClientConfig {
+	signer, _ := ssh.NewSignerFromKey(sshGate.certs.EC256PrivateKey) // ssh.Signer
+	user := "dmesh"
+	sshGate.cmetrics.Total.Add(1)
 
-// LocalAddr returns the local network address.
-func (t *chanConn) LocalAddr() net.Addr {
-	return t.laddr
-}
+	authm := []ssh.AuthMethod{}
 
-// RemoteAddr returns the remote network address.
-func (t *chanConn) RemoteAddr() net.Addr {
-	return t.raddr
-}
+	authm = append(authm, ssh.PublicKeys(signer))
 
-// SetDeadline sets the read and write deadlines associated
-// with the connection.
-func (t *chanConn) SetDeadline(deadline time.Time) error {
-	if err := t.SetReadDeadline(deadline); err != nil {
-		return err
+	if sshGate.certs.RSAPrivate != nil {
+		signer1, err := ssh.NewSignerFromKey(sshGate.certs.RSAPrivate)
+		if err == nil {
+			authm = append(authm, ssh.PublicKeys(signer1))
+		}
 	}
-	return t.SetWriteDeadline(deadline)
+	if sshGate.certs.EDPrivate != nil {
+		signer1, err := ssh.NewSignerFromKey(sshGate.certs.EDPrivate)
+		if err == nil {
+			authm = append(authm, ssh.PublicKeys(signer1))
+		}
+	}
+
+	// An SSHClientConn client is represented with a ClientConn.
+	// TODO: save and verify public key of server
+	config := &ssh.ClientConfig{
+		User:          user,
+		Auth:          authm,
+		Timeout:       3 * time.Second,
+		ClientVersion: version,
+		//Config: ssh.Config {
+		//	MACs: []string{},
+		//},
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			if cpk, ok := key.(ssh.CryptoPublicKey); ok {
+				pubk := cpk.CryptoPublicKey()
+
+				kbytes := auth.KeyBytes(pubk)
+
+				sshC.pubKey = kbytes
+
+				if pub != nil && bytes.Compare(kbytes, pub) != 0 {
+					log.Println("SSHC: Unexpected pub", pub, kbytes)
+				}
+				var role string
+				if role = sshGate.certs.Auth(kbytes, ""); role == "" {
+					role = ROLE_GUEST
+				}
+				sshC.role = role
+
+				sshC.VIP6 = auth.Pub2VIP(kbytes)
+				sshC.vip = auth.Pub2ID(kbytes)
+			}
+			return nil
+		},
+	}
+	return config
 }
 
-// SetReadDeadline sets the read deadline.
-// A zero value for t means Read will not time out.
-// After the deadline, the error from Read will implement net.Error
-// with Timeout() == true.
-func (t *chanConn) SetReadDeadline(deadline time.Time) error {
-	// for compatibility with previous version,
-	// the error message contains "tcpChan"
-	return errors.New("ssh: tcpChan: deadline not supported")
-}
 
-// SetWriteDeadline exists to satisfy the net.Conn interface
-// but is not implemented by this type.  It always returns an error.
-func (t *chanConn) SetWriteDeadline(deadline time.Time) error {
-	return errors.New("ssh: tcpChan: deadline not supported")
-}
-
-// RFC 4254 Section 6.5.
-type execMsg struct {
-	Command string
-}

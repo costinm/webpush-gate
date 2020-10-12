@@ -8,18 +8,9 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/costinm/wpgate/pkg/msgs"
-)
-
-var (
-	// createBuffer to get a buffer. Inspired from caddy.
-	// See PooledIOCopy for example
-	bufferPoolCopy = sync.Pool{New: func() interface{} {
-		return make([]byte, 0, 8*1024)
-	}}
 )
 
 // Client or server event-stream connection.

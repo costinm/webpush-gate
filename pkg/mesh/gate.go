@@ -11,14 +11,21 @@ package mesh
 // Applications without support for proxies can be captured transparently- but requires root or CAP_NET.
 
 import (
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/wpgate/pkg/streams"
 
 	"net"
-	"os"
 	"sync"
 	"time"
 )
@@ -26,219 +33,83 @@ import (
 var (
 
 	// Managed by 'NewTCPProxy' - before dial.
-	tcpConTotal = Metrics.NewCounter("gate:tcp:total", "TCP connections proxied", "15m10s")
+	tcpConTotal = streams.Metrics.NewCounter("gate:tcp:total", "TCP connections proxied", "15m10s")
 
 	// Managed by updateStatsOnClose - including error cases.
-	tcpConActive = Metrics.NewGauge("gate:tcp:active", "Active TCP proxies", "15m10s")
+	tcpConActive = streams.Metrics.NewGauge("gate:tcp:active", "Active TCP proxies", "15m10s")
 
-	udpConTotal  = Metrics.NewCounter("gate:udph2:total", "UDP connections", "15m10s")
-	udpConActive = Metrics.NewGauge("gate:udph2:active", "Active UDP", "15m10s")
+	udpConTotal  = streams.Metrics.NewCounter("gate:udph2:total", "UDP connections", "15m10s")
+	udpConActive = streams.Metrics.NewGauge("gate:udph2:active", "Active UDP", "15m10s")
 
 	// Gateway() operations started, of all types, after Dial.
-	remoteToLocal2 = Metrics.NewCounter("gate:tcpproxy:total", "TCP connections dialed and proxied", "15m10s")
+	remoteToLocal2 = streams.Metrics.NewCounter("gate:tcpproxy:total", "TCP connections dialed and proxied", "15m10s")
 
 	// closeWrite breakdown - numbers should add up to double remoteToLocal2 (i.e. each proxy has 2 close)
-	tcpCloseTotal = Metrics.NewCounter("gate:tcpclose:total", "Debug - out close using io.Closer()", "15m10s")
-	tcpCloseWrite = Metrics.NewCounter("gate:tcpcloseoutwrite:total", "Debug - out close using net.TCPConn", "15m10s")
-	tcpCloseFAIL  = Metrics.NewCounter("gate:tcpclosefail:total", "Invalid out stream, no close method", "15m10s")
+	tcpCloseTotal = streams.Metrics.NewCounter("gate:tcpclose:total", "Debug - out close using io.Closer()", "15m10s")
+	tcpCloseWrite = streams.Metrics.NewCounter("gate:tcpcloseoutwrite:total", "Debug - out close using net.TCPConn", "15m10s")
+	tcpCloseFAIL  = streams.Metrics.NewCounter("gate:tcpclosefail:total", "Invalid out stream, no close method", "15m10s")
 
-	tcpCloseIn   = Metrics.NewCounter("gate:tcpclosein:total", "Debug: reader close using TCPConn.CloseRead()", "15m10s")
-	tcpCloseRead = Metrics.NewCounter("gate:tcpcloseinread:total", "Debug: reader close using src.Close()", "15m10s")
+	tcpCloseIn   = streams.Metrics.NewCounter("gate:tcpclosein:total", "Debug: reader close using TCPConn.CloseRead()", "15m10s")
+	tcpCloseRead = streams.Metrics.NewCounter("gate:tcpcloseinread:total", "Debug: reader close using src.Close()", "15m10s")
 
 	// Gateway()  - with remouteOut/localIn are handled by http (client to server stream). This happens
 	// for proxies using h2 client only.
-	proxyOverHttpClient = Metrics.NewCounter("gate:hclientproxy:total", "TCP over HTTP Client (1-way proxy)", "15m10s")
+	proxyOverHttpClient = streams.Metrics.NewCounter("gate:hclientproxy:total", "TCP over HTTP Client (1-way proxy)", "15m10s")
 	// For HTTP client and server. The local2remote is handled by http stack.
 	// This tracks how many times we called Close() on the interception/socks/etc writer.
-	remoteToLocalClose = Metrics.NewCounter("gate:closeremotetolocal:total", "TCP over H2 Client - Close http client writer", "15m10s")
+	remoteToLocalClose = streams.Metrics.NewCounter("gate:closeremotetolocal:total", "TCP over H2 Client - Close http client writer", "15m10s")
 )
 
 // Gateway is the main capture API.
 type Gateway struct {
-	// TODO: add methods to mutate fields.
-	MeshMutex sync.RWMutex
+	m sync.RWMutex
 
-	// Direct nodes by interface address (which is derived from public key - last 8 bytes in
+	// Direct Nodes by interface address (which is derived from public key - last 8 bytes in
 	// initial prototype). This includes only directly connected notes - either Wifi on same segment, or VPNs and
 	// connected devices.
 	Nodes map[uint64]*DMNode
+
+	// Vpns contains trusted VPN servers, or exit points.
 
 	// Vpn is the currently active VPN server. Will be selected from the list of
 	// known VPN servers (in future - for now hardcoded to the test server)
 	Vpn string
 
-	// H2 has configured MTLS clients for QUIC or H2
-	// Used to forward the UdpNat to an upstream VPN server.
-	// H2 is the Http implementation backing the gate.
-	//H2 *transport.H2
-	Conf auth.ConfStore
+	// User agent - hostname or android build id or custom.
+	UA string
 
 	Config *GateCfg
 
-	//EgressVpn []string
-
-	// TODO: multi-level circuits (tor extends the path to ~3 - we may need more)
-	VpnCircuit []string
-
-	// UDP
-	// Capture return - sends packets back to client app.
-	UDPWriter UdpWriter
-
-	// Capture server. May be set in TPROXY mode.
-	UDPListener *os.File
-
-	// UDP address used for creating connections to remote hosts.
-	// Set on port 0, to avoid allocating it each time
-	client *net.UDPAddr
-
-	// NAT
-	udpLock   sync.RWMutex
-	ActiveUdp map[string]*UdpNat
-	AllUdpCon map[string]*HostStats
-
 	tcpLock   sync.RWMutex
-	ActiveTcp map[int]*TcpProxy
+	ActiveTcp map[int]*streams.TcpProxy
 	AllTcpCon map[string]*HostStats
-
-	// Set to true by Close, will result in the maintainance routines to exit
-	closed bool
 
 	// DNS forward DNS requests, may resolve local addresses
 	DNS IPResolver
 
-	Resolve func(uint64) []net.IP
+	// Key is the local port. Value has info about where it is forwarded,
+	// including the VIP associated with the client.
+	Listeners map[int]net.Listener
 
 	// SSHClientConn-based gateway
 	SSHGate MUXDialer
 
-	// Key is the local port. Value has info about where it is forwarded,
-	// including the VIP associated with the client.
-	Listeners map[int]Listener
-
 	// Client to VPN
-	SSHClient JumpHost
+	SSHClient MuxSession
 
-	JumpHosts map[string]TunDialer
+	JumpHosts map[string]MuxSession
 
 	// Client to mesh expansion - not trusted, set when mesh expansion is in use.
 	// Used as a jump host to connect to the next destination.
 	// TODO: allow multiple addresses.
 	// TODO: this can also be used as 'egressGateway'
-	SSHClientUp TunDialer
-
-	annMutex sync.RWMutex
-
-	// Indicate if this node will listen as master, using multicast
-	// Uses more battery, requires to respond and update clients.
-	Master bool
+	SSHClientUp MuxSession
 
 	Auth *auth.Auth
-
-	// Listening on * for signed messages
-	// Source for sent messages and multicasts
-	UDPMsgConn *net.UDPConn
-
-	// Handles UDP packets (if in TPROXY or TUN capture)
-	UDPGate UDPGate
-
-	// Mesh devices visible from this device.
-	VisibleDevices map[string]*MeshDevice
 }
 
-var UDPMsgPort = 5228
 
-// UdpWriter is implemented by capture, provides a way to send back packets to
-// the captured app.
-type UdpWriter interface {
-	WriteTo(data []byte, dstAddr *net.UDPAddr, srcAddr *net.UDPAddr) (int, error)
-}
-
-// Keyed by Hostname:port (if found in dns tables) or IP:port
-type HostStats struct {
-	// First open
-	Open time.Time
-
-	// Last usage
-	Last time.Time
-
-	SentBytes   int
-	RcvdBytes   int
-	SentPackets int
-	RcvdPackets int
-	Count       int
-
-	LastLatency time.Duration
-	LastBPS     int
-}
-
-// Represents on UDP 'nat' connection.
-// Currently full cone, i.e. one local port per NAT.
-type UdpNat struct {
-	Stream
-
-	// bound to a local port (on the real network).
-	UDP *net.UDPConn
-
-	Closed    bool
-	LocalPort int
-
-	LastRemoteIP    net.IP
-	LastsRemotePort uint16
-}
-
-type Listener interface {
-	Close()
-}
-
-type ListenerConf struct {
-	// Local address (ex :8080). This is the requested address - if busy :0 will be used instead, and Port
-	// will be the actual port
-	// TODO: UDS
-	// TODO: indicate TLS SNI binding.
-	Local string
-
-	// Real port the listener is listening on, or 0 if the listener is not bound to a port (virtual, using mesh).
-	Port int
-
-	// Remote where to forward the proxied connections
-	// IP:port format, where IP can be a mesh VIP
-	Remote string `json:"Remote,omitempty"`
-}
-
-type Host struct {
-	// Address and port of a HTTP server to forward the domain.
-	Addr string
-
-	// Directory to serve static files. Used if Addr not set.
-	Dir string
-	Mux http.Handler `json:"-"`
-}
-
-// Configuration for the Gateway.
-//
-type GateCfg struct {
-
-	// Port proxies: will register a listener for each port, forwarding to the
-	// given address.
-	Listeners []*ListenerConf `json:"TcpProxy,omitempty"`
-
-	// Set of hosts with certs to configure in the h2 server.
-	// The cert is expected in CertDir/HOSTNAME.[key,crt]
-	// The server will terminate TLS and HTTP, forward to the host as plain text.
-	Hosts map[string]*Host `json:"Hosts,omitempty"`
-
-	// Proxy requests to hosts (external or mesh) using the VIP of another node.
-	Via map[string]string `json:"Via,omitempty"`
-
-	// VIP of the default egress node, if no 'via' is set.
-	Egress string
-
-	// If set, all outbound requests will use the server as a proxy.
-	// Similar with Istio egress gateway.
-	Vpn string
-}
-
-func (gw *Gateway) ActiveTCP() map[int]*TcpProxy {
+func (gw *Gateway) ActiveTCP() map[int]*streams.TcpProxy {
 	return gw.ActiveTcp
 }
 
@@ -247,25 +118,17 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		gcfg = &GateCfg{}
 	}
 	gw := &Gateway{
-		closed:    false,
-		Nodes:     map[uint64]*DMNode{},
-		Conf:      certs.Config,
-		ActiveUdp: make(map[string]*UdpNat),
-		ActiveTcp: make(map[int]*TcpProxy),
-		AllUdpCon: make(map[string]*HostStats),
+		Nodes: map[uint64]*DMNode{},
+		//ActiveUdp: make(map[string]*UdpNat),
+		ActiveTcp: make(map[int]*streams.TcpProxy),
+		//AllUdpCon: make(map[string]*HostStats),
 		AllTcpCon: make(map[string]*HostStats),
-		Listeners: make(map[int]Listener),
-		JumpHosts: map[string]TunDialer{},
+		Listeners: make(map[int]net.Listener),
+		JumpHosts: map[string]MuxSession{},
 		//upstreamMessageChannel: make(chan packet, 100),
 		Auth:           certs,
 		Config:         gcfg,
-		VisibleDevices: map[string]*MeshDevice{},
 	}
-
-	gw.client = &net.UDPAddr{
-		Port: 0,
-	}
-	// TODO: add grpcserver, http mux
 
 	return gw
 }
@@ -278,16 +141,16 @@ func (gw *Gateway) Close() {
 
 // Used for debug/status in main app
 func (gw *Gateway) Status() (int, int, int, int) {
-	gw.udpLock.Lock()
-	udpA := len(gw.ActiveUdp)
-	udpT := len(gw.AllUdpCon)
-	gw.udpLock.Unlock()
+	//gw.udpLock.Lock()
+	//udpA := len(gw.ActiveUdp)
+	//udpT := len(gw.AllUdpCon)
+	//gw.udpLock.Unlock()
 	gw.tcpLock.Lock()
 	tcpA := len(gw.ActiveTcp)
 	tcpT := len(gw.AllTcpCon)
 	gw.tcpLock.Unlock()
 
-	return udpA, udpT, tcpA, tcpT
+	return 0, 0, tcpA, tcpT
 }
 
 func androidClientUnicast2MulticastAddress(ip6 net.IP) net.IP {
@@ -299,8 +162,8 @@ func androidClientUnicast2MulticastAddress(ip6 net.IP) net.IP {
 
 func (gw *Gateway) Node(pub []byte) *DMNode {
 	dmFrom := auth.Pub2ID(pub)
-	gw.MeshMutex.Lock()
-	defer gw.MeshMutex.Unlock()
+	gw.m.Lock()
+	defer gw.m.Unlock()
 
 	node, f := gw.Nodes[dmFrom]
 	if !f {
@@ -317,8 +180,8 @@ func (gw *Gateway) Node(pub []byte) *DMNode {
 
 // Used by the mesh router to find the GW address based on IP
 func (gw *Gateway) GetNodeByID(dmFrom uint64) (*DMNode, bool) {
-	gw.MeshMutex.Lock()
-	defer gw.MeshMutex.Unlock()
+	gw.m.Lock()
+	defer gw.m.Unlock()
 	node, f := gw.Nodes[dmFrom]
 	return node, f
 }
@@ -354,12 +217,7 @@ func (gw *Gateway) FreeIdleSockets() {
 	for _, client := range tcpClientsToTimeout {
 		tp := gw.ActiveTcp[client]
 
-		// Send FIN
-		closeWrite(tp.ServerOut, true)
-		closeWrite(tp.ClientOut, false)
-		// Close the reading side.
-		closeIn(tp.ServerIn)
-		closeIn(tp.ClientIn)
+		tp.Close()
 
 		if tp.RemoteCtx != nil {
 			tp.RemoteCtx()
@@ -370,4 +228,535 @@ func (gw *Gateway) FreeIdleSockets() {
 
 	gw.tcpLock.Unlock()
 
+}
+
+// DialMesh creates a circuit to a mesh host:
+// - if a local address is known, will be used directly
+// - if an IP address is known, will be used directly
+// - otherwise, will send up to the parent
+//
+// The circuit is currently NOT encrypted E2E - each host on the path can see the content,
+// similar with the ISP or a Wifi access point. After the circuit is created e2e encryption
+// should be added - typically this is used for HTTPS connections. Tor-like obfuscation is not
+// supported yet.
+//
+// dest - the destionation, in [IP6]:port format
+// addr - the address.
+// host - in this case will be an IPv6 - all mesh hosts are in this form
+// port - is the port to use on the mesh node. The real port used is the mesh port from registry
+//
+func (gw *Gateway) DialMesh(tp *streams.TcpProxy) error {
+	// TODO: host can also be XXXXXX.m.MESH_DOMAIN - with 16 byte hex interface address (we can also support 6)
+	ip6 := tp.DestIP
+	key := binary.BigEndian.Uint64(ip6[8:])
+
+	if key == gw.Auth.VIP64 {
+		// Destination is this host - forward to localhost.
+
+		// TODO: verify caller has permissions (authorized)
+		// TODO: port may be forwarded to a specific destination (configured by the control plane/node)
+		tp.Type = tp.Type + "-MD"
+		log.Println("DIAL: TARGET REACHED", tp.DestDNS, tp.DestPort)
+		return gw.dialDirect(tp, "", []byte{127, 0, 0, 1}, tp.DestPort)
+	}
+
+	node, f := gw.GetNodeByID(key)
+	if f {
+		ok := gw.DialMeshLocal(tp, node)
+		if ok {
+			log.Println("DIAL: MESH local ", node, tp.Dest)
+			return nil
+		}
+	}
+
+	if gw.SSHClient != nil {
+		// We have an active connection to SSHVpn - use it instead of H2.
+		// TODO: for testing H2 vs SSHClientConn perf disable SSHClient
+		err := gw.SSHClient.DialProxy(&tp.Stream)
+		if err == nil {
+			log.Println("DIAL: SSH VPN ", tp.Dest)
+			tp.Type = tp.Type + "-MSSHC"
+			return nil
+		}
+	}
+
+	if gw.SSHClientUp != nil {
+		// We have an active connection to SSHVpn - use it instead of H2.
+		// TODO: reconnect
+		// TODO: when net is lost, stop trying
+		tp.Type = tp.Type + "-ISSHC"
+		log.Println("DIAL: MESH SSHC Up OUT TO PARENT ", tp.Dest)
+		err := gw.SSHClientUp.DialProxy(&tp.Stream)
+		if err == nil {
+			log.Println("DIAL: SSH UP ", tp.Dest)
+			return nil
+		}
+	}
+
+	//if g.Vpn != "" {
+	//	log.Println("DIAL: HTTP VPN ", dest, addr, host, port)
+	//	tp.Type = tp.Type + "-MH2VPN"
+	//
+	//	return tp.DialViaHTTP(g.Vpn, net.JoinHostPort(host, port))
+	//}
+	log.Println("PORT: node not found ", tp.Dest)
+	return fmt.Errorf("No valid Gateway")
+}
+
+// DialMeshLocal will connect to a node that is locally known - has a MUX connection, local IP or
+// external IP.
+func (gw *Gateway) DialMeshLocal(tp *streams.TcpProxy, node *DMNode) bool {
+	if node.TunSrv != nil {
+		tp.Type = tp.Type + "-MSSHD"
+		err := node.TunSrv.DialProxy(&tp.Stream)
+		if err == nil {
+
+			log.Println("DIAL: SSH CON REVERSE ", tp.Dest)
+			return true
+		}
+	}
+
+	if node.TunClient != nil {
+		tp.Type = tp.Type + "-MSSHD"
+		err := node.TunClient.DialProxy(&tp.Stream)
+		// Err indicates failure to connect to the destination
+		// If the TUN is broken, it'll be closed, resulting in SSHTunClient=nil
+		if err == nil {
+			log.Println("DIAL: SSH CON LOCAL ", tp.Dest)
+			return true
+		}
+	}
+
+	// No connection, attempt the known IPs
+	if node.TunClient == nil {
+		for _, ip := range node.GWs() {
+			// Create a mux, as client. Will be reused as SSHTunClient
+			sshVpn, err := gw.SSHGate.DialMUX(net.JoinHostPort(ip.IP.String(), "5222"), node.PublicKey, nil)
+			if err == nil {
+				node.TunClient = sshVpn
+				go func() {
+
+					// Blocking - will be closed when the ssh connection is closed.
+					sshVpn.Wait()
+
+					node.TunClient = nil
+					log.Println("SSH PEER CLOSE ", tp.Dest)
+				}()
+			}
+		}
+	}
+
+	if node.TunClient != nil {
+		tp.Type = tp.Type + "-MSSHD"
+		err := node.TunClient.DialProxy(&tp.Stream)
+		// Err indicates failure to connect to the destination
+		// If the TUN is broken, it'll be closed, resulting in SSHTunClient=nil
+		if err == nil {
+			log.Println("DIAL: SSH CON LOCAL ", tp.Dest)
+			return true
+		}
+	}
+
+	return false
+
+}
+
+// Connect the proxy to a direct IP address. Remote will be set to the connected stream.
+// Note that part of the handshake the initialData may also be sent. Gateway method will handle any additional data.
+//
+// error returned if connection and handshake fail.
+func (gw *Gateway) dialDirect(tp *streams.TcpProxy, addr string, dstIP net.IP, dstPort int) error {
+	var err error
+
+	var dstAddr *net.TCPAddr
+	if dstIP == nil {
+		dstAddr, err = net.ResolveTCPAddr("tcp", addr)
+		if err != nil {
+			return err
+		}
+		tp.DestIP = dstAddr.IP
+	} else {
+		dstAddr = &net.TCPAddr{IP: dstIP, Port: dstPort}
+	}
+
+	c1, err := net.DialTCP("tcp", nil, dstAddr)
+	if err != nil {
+		log.Println("TCPO: ERR", dstAddr, err)
+		return err
+	}
+
+	tp.ServerIn = c1
+	tp.ServerOut = c1
+
+	return nil
+}
+
+// dest can be:
+// - hostname:port
+// - [IP]:port
+// - [MESHIP6]/dest
+//
+// "addr" is used for TUN, Iptables, SOCKS(with IP), when only destination IP is known.
+// Name may be available in dns cache.
+//
+// addr and dest can be mesh IP6 or regular external IP.
+//
+// Note that DialIP may already stream bytes from localIn if the call is successful - for HTTP proxy
+// it uses a Request, and the body starts getting read and streammed after headers.
+// The data from the remote will need to be proxied to localOut manually.
+//
+// Init a connection to the destination. Will attempt to find a route, may call 'DialXXX' several times to
+// find a path. Route discovery and other overhead expected.
+//
+// In case of error, caller should close local in/out streams
+func (gw *Gateway) Dial(tp *streams.TcpProxy, dest string, addr *net.TCPAddr) error {
+
+	// I have an IP resolved already. May be mesh or next hop.
+	// Happens for iptables, tun, SOCKS/IP.
+	if addr != nil {
+		tp.SetDestAddr(addr)
+		if gw.DNS != nil {
+			dns := gw.DNS.IPResolve(addr.IP.String())
+			if dns != "" {
+				tp.DestDNS = dns
+			} else {
+				tp.DestDNS = addr.IP.String()
+			}
+		}
+	} else {
+		if err := tp.SetDest(dest); err != nil {
+			return err
+		}
+		if tp.DestIP != nil {
+			// dest is in numeric format, attempt to find the real name
+			if gw.DNS != nil {
+				dns := gw.DNS.IPResolve(tp.DestIP.String())
+				if dns != "" {
+					tp.DestDNS = dns
+				}
+			}
+		}
+	}
+
+	host := tp.DestDNS // IP or DNS hostname from reverse lookup
+	// [fd00::] addresses.
+	// TODO: also support XXXX.mesh.suffix DNS format.
+	if gw.IsMeshHost(host) {
+		return gw.DialMesh(tp)
+	}
+
+	if tp.DestDirectNoVPN || host == "localhost" || host == "" || host == "127.0.0.1" ||
+			(tp.DestIP != nil && IsRFC1918(tp.DestIP)) {
+		// Direct connection to destination, should be a public address
+		//log.Println("DIAL: DIRECT LOCAL ", dest, addr, host, port)
+		return gw.dialDirect(tp, dest, tp.DestIP, tp.DestPort)
+	}
+
+	c, _ := gw.Auth.Config.Get("vpn_ext")
+	if gw.SSHClient != nil && c != nil && (string(c) == "true") {
+		// We have an active connection to SSHVpn - use it instead of H2.
+		// TODO: for testing H2 vs SSHClientConn perf disable SSHClient
+		tp.Type = tp.Type + "-ISSHP"
+		//log.Println("DIAL: NET SSHC OUT TO PARENT ", dest, addr, host, port)
+		err := gw.SSHClient.DialProxy(&tp.Stream)
+		if err == nil {
+			return nil
+		}
+	}
+
+	if gw.SSHClientUp != nil {
+		// We have an active connection to SSHVpn - use it instead of H2.
+		// TODO: reconnect
+		// TODO: when net is lost, stop trying
+		tp.Type = tp.Type + "-ISSHU"
+		//log.Println("DIAL: NET SSHC Up OUT TO PARENT ", dest, addr, host, port)
+		err := gw.SSHClientUp.DialProxy(&tp.Stream)
+		if err == nil {
+			return nil
+		}
+	}
+
+	via := gw.Config.Via[dest]
+	if via == "" {
+		dot := strings.Index(dest, ".")
+		dd := dest[dot+1:]
+		via = gw.Config.Via[dd]
+	}
+	if via != "" {
+		// TODO
+		tcpMux := gw.JumpHosts[via]
+		if tcpMux == nil {
+			return errors.New("Not found " + via)
+		}
+		log.Println("VIA: ", dest, via)
+		return tcpMux.DialProxy(&tp.Stream)
+	}
+
+	// dest can be an IP:port or hostname:port or MESHID/[....]
+	// TODO: support literal form of MESH hosts
+	//if g.Vpn != "" {
+	//	tp.Type = tp.Type + "-IH2"
+	//	log.Println("DIAL: NET HTTP VPN ", g.Vpn, dest, addr, host, port)
+	//	return tp.DialViaHTTP(g.Vpn, dest)
+	//}
+
+	// Direct connection to destination, should be a public address
+	//log.Println("DIAL: DIRECT ", dest, addr, host, port)
+	return gw.dialDirect(tp, dest, tp.DestIP, tp.DestPort)
+}
+
+
+// Implements the http.Transport.DialContext function - used for dialing requests using
+// custom net.Conn.
+//
+// Also implements x.net.proxy.ContextDialer - socks also implements it.
+func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn net.Conn, e error) {
+	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6,
+		Port: nextProxyId()}, "DIAL", nil, nil, nil)
+	err := gw.Dial(tp, addr, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return tp, nil
+}
+
+var (
+	tcpProxyId    = 0
+	tcpProxyIdMux = sync.Mutex{}
+)
+
+func nextProxyId() int {
+	tcpProxyIdMux.Lock()
+	x := tcpProxyId
+	tcpProxyId++
+	tcpProxyIdMux.Unlock()
+	return x
+}
+
+
+
+// Glue for interface type. Called when a new captured TCP connection
+// is accepted and src/dst meta decoded.
+func (gw *Gateway) NewStream(acceptClientAddr net.IP, remotePort uint16,
+	ctype string,
+	initialData []byte,
+	clientIn io.ReadCloser, clientOut io.Writer) interface{} {
+	return gw.NewTcpProxy(&net.TCPAddr{IP: acceptClientAddr, Port: int(remotePort)}, ctype, initialData, clientIn, clientOut)
+}
+
+// Glue for interface type. Called when a new captured TCP connection
+// is accepted and src/dst meta decoded.
+func (gw *Gateway) DialProxy(ctx context.Context,
+		addr net.Addr, directClientAddr *net.TCPAddr,
+		ctype string, meta ...string) (net.Conn, func(client net.Conn) error, error) {
+	var addrTCP *net.TCPAddr
+	dest := ""
+	if ta, ok := addr.(*net.TCPAddr); ok {
+		addrTCP = ta
+	} else {
+		dest = addr.String()
+	}
+
+	tp := gw.NewTcpProxy(directClientAddr, ctype,
+		nil, nil, nil)
+	err := gw.Dial(tp, dest, addrTCP)
+	if err != nil {
+		return nil, nil, err
+	}
+	return tp, tp.ProxyConnClose, nil
+}
+
+func (gw *Gateway) trackTcpProxy(proxy *streams.TcpProxy) {
+	gw.tcpLock.Lock()
+	gw.ActiveTcp[proxy.StreamId] = proxy
+	tcpConActive.Add(1)
+	tcpConTotal.Add(1)
+	gw.tcpLock.Unlock()
+}
+
+// Initiate and track the TcpProxy object.
+// Requires an "Id" key to be set - based on the source only.
+// ctype represents the type of the acceptor.
+//
+// src is typically the 'previous hop' - i.e. the IP address and port accepting the connection.
+// The original source may be different.
+//
+// clientOut can be a http.ResponseWriter or net.Conn
+func (gw *Gateway) NewTcpProxy(src net.Addr,
+		ctype string,
+		initialData []byte,
+		clientIn io.ReadCloser,
+		clientOut io.Writer) *streams.TcpProxy {
+	var origIP net.IP
+	var origPort int
+	if tsrc, ok := src.(*net.TCPAddr); ok {
+		origIP = tsrc.IP
+		origPort = tsrc.Port
+	} else {
+		log.Println("UNEXPECTED SRC ", src, clientIn)
+		host, port, _ := net.SplitHostPort(src.String())
+		origPort, _ = strconv.Atoi(port)
+		origIPAddr, _ := net.ResolveIPAddr("ip", host)
+		if origIPAddr != nil {
+			origIP = origIPAddr.IP
+		}
+	}
+
+	tp := &streams.TcpProxy{
+		Stream: streams.Stream{
+			Open:       time.Now(),
+			Type:       ctype,
+			StreamId:   nextProxyId(),
+			Origin:     src.String(),
+			OriginIP:   origIP,
+			OriginPort: origPort,
+		},
+		ClientAddr:   src,
+		OnProxyClose: gw.OnProxyClose,
+		Initial:      initialData,
+		ClientIn:     clientIn,
+		ClientOut:    clientOut,
+	}
+
+	gw.trackTcpProxy(tp)
+
+	//if Debug {
+	//	log.Println("TPROXY OPEN ", tp.Type, tp.StreamId, tp.Origin, initialData, clientIn)
+	//}
+	return tp
+}
+
+
+// Local (non-internet) addresses.
+// RFC1918, RFC4193, LL
+func IsRFC1918(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.To4() == nil {
+		// IPv6 equivalent - RFC4193, ULA - but this is used as DMesh
+		if ip[0] == 0xfd {
+			return true
+		}
+		if ip[0] == 0xfe && ip[1] == 0x80 {
+			return true
+		}
+		return false
+	}
+	if ip[0] == 10 {
+		return true
+	}
+	if ip[0] == 192 && ip[1] == 168 {
+		return true
+	}
+	if ip[0] == 172 && ip[1]&0xF0 == 0x10 {
+		return true
+	}
+	// Technically not 1918, but 6333
+	if ip[0] == 192 && ip[1] == 0 && ip[2] == 0 {
+		return true
+	}
+
+	return false
+}
+
+func (gw *Gateway) OnProxyClose(tp *streams.TcpProxy) {
+	gw.tcpLock.Lock()
+
+	_, f1 := gw.ActiveTcp[tp.StreamId]
+	if !f1 {
+		gw.tcpLock.Unlock()
+		return
+	}
+
+	delete(gw.ActiveTcp, tp.StreamId)
+
+	if tp.Closer != nil {
+		tp.Closer()
+	}
+	gw.tcpLock.Unlock()
+
+	if tp.ServerIn != nil {
+		tp.ServerIn.Close()
+	}
+	if tp.ServerOut != nil {
+		if r, f := tp.ServerOut.(io.Closer); f {
+			r.Close()
+		}
+	}
+	if tp.ClientIn != nil {
+		tp.ClientIn.Close()
+	}
+
+	log.Printf("TCPC: %d src=%s dst=%s rcv=%d/%d snd=%d/%d la=%v ra=%v op=%v dest=%v %v %s",
+		tp.StreamId,
+		tp.Origin,
+		tp.Dest,
+		tp.RcvdPackets, tp.RcvdBytes,
+		tp.SentPackets, tp.SentBytes,
+		time.Since(tp.LastClientActivity),
+		time.Since(tp.LastRemoteActivity),
+		time.Since(tp.Open),
+		tp.PrevPath, tp.NextPath, tp.Type)
+
+	tcpConActive.Add(-1)
+
+	gw.tcpLock.Lock()
+	hs, f := gw.AllTcpCon[tp.Dest]
+
+	if !f {
+		hs = &HostStats{Open: time.Now()}
+		gw.AllTcpCon[tp.Dest] = hs
+	}
+	hs.Last = time.Now()
+	hs.SentPackets += tp.SentPackets
+	hs.SentBytes += tp.SentBytes
+	hs.RcvdPackets += tp.RcvdPackets
+	hs.RcvdBytes += tp.RcvdBytes
+	hs.Count++
+
+	hs.LastLatency = hs.Last.Sub(tp.Open)
+	hs.LastBPS = int(int64(hs.RcvdBytes) * 1000000000 / hs.LastLatency.Nanoseconds())
+
+	gw.tcpLock.Unlock()
+}
+
+// HttpGetNodes (/dmesh/ip6) returns the list of known nodes, both direct and indirect.
+// This allows nodes to sync the mesh routing table.
+func (gw *Gateway) HttpGetNodes(w http.ResponseWriter, r *http.Request) {
+	gw.m.RLock()
+	defer gw.m.RUnlock()
+	je := json.NewEncoder(w)
+	je.SetIndent(" ", " ")
+	je.Encode(gw.Nodes)
+}
+
+// HttpGetNodes (/dmesh/ip6) returns the list of known nodes, both direct and indirect.
+// This allows nodes to sync the mesh routing table.
+func (gw *Gateway) HttpNodesFilter(w http.ResponseWriter, r *http.Request) {
+	gw.m.RLock()
+	defer gw.m.RUnlock()
+	rec := []*DMNode{}
+	t0 := time.Now()
+	for _, n := range gw.Nodes {
+		if t0.Sub(n.LastSeen) < 6000*time.Millisecond {
+			rec = append(rec, n)
+		}
+	}
+	je := json.NewEncoder(w)
+	je.SetIndent(" ", " ")
+	je.Encode(rec)
+}
+
+func (gw *Gateway) HttpAllTCP(w http.ResponseWriter, r *http.Request) {
+	gw.tcpLock.RLock()
+	defer gw.tcpLock.RUnlock()
+	json.NewEncoder(w).Encode(gw.AllTcpCon)
+}
+
+func (gw *Gateway) HttpTCP(w http.ResponseWriter, r *http.Request) {
+	gw.tcpLock.RLock()
+	defer gw.tcpLock.RUnlock()
+	json.NewEncoder(w).Encode(gw.ActiveTcp)
 }

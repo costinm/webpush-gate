@@ -7,6 +7,7 @@ import (
 	"expvar"
 	"log"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -88,6 +89,9 @@ type LLDiscovery struct {
 	// Defaults to 6970
 	baseListenPort int
 	gw             *mesh.Gateway
+	// Listening on * for signed messages
+	// Source for sent messages and multicasts
+	UDPMsgConn *net.UDPConn
 
 	// My credentials
 	auth *auth.Auth
@@ -105,21 +109,20 @@ func NewLocal(gw *mesh.Gateway, auth *auth.Auth) *LLDiscovery {
 	}
 }
 
-//// Create a UDP listener for local UDP messages.
-//func ListenUDP(gw *LLDiscovery) {
-//	m2, err := net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
-//	if err != nil {
-//		log.Println("Error listening on UDP ", gw.udpPort, err)
-//		gw.udpPort = 0
-//		m2, err = net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
-//		if err != nil {
-//			log.Println("Error listening on UDP ", mesh.UDPMsgPort, err)
-//			return
-//		}
-//	}
-//	gw.gw.UDPMsgConn = m2
-//	go unicastReaderThread(gw, m2, nil)
-//}
+// Create a UDP listener for local UDP messages.
+func ListenUDP(gw *LLDiscovery) {
+	m2, err := net.ListenUDP("udp", &net.UDPAddr{Port: gw.udpPort})
+	if err != nil {
+		log.Println("Error listening on UDP ", gw.udpPort, err)
+		m2, err = net.ListenUDP("udp", &net.UDPAddr{Port: 0})
+		if err != nil {
+			log.Println("Error listening on UDP ", gw.udpPort, err)
+			return
+		}
+	}
+	gw.UDPMsgConn = m2
+	go unicastReaderThread(gw, m2, nil)
+}
 
 // DirectActiveInterface tracks interfaces with mesh or internet connections.
 //
@@ -160,10 +163,9 @@ func (gw *LLDiscovery) OnLocalNetworkFunc(node *mesh.DMNode, addr *net.UDPAddr, 
 			node.TunClient = sshVpn
 
 			// Blocking - will be closed when the ssh connection is closed.
-			sshVpn.AcceptDial()
+			sshVpn.Wait()
 
 			node.TunClient = nil
-			sshVpn.Close()
 			log.Println("SSH STA CLOSE ", add, node.VIP)
 
 		}()
@@ -205,7 +207,7 @@ func (gw *LLDiscovery) ensureConnectedUp(laddr *net.UDPAddr, node *mesh.DMNode) 
 			// WLAN connected to 49.1 - probably AP
 			if !strings.Contains(a.Name, "p2p") && a.AndroidAPClient {
 				hasUp = true
-				var conMux mesh.JumpHost
+				var conMux mesh.MuxSession
 				addr := ""
 				if laddr != nil {
 					addr = laddr.String()
@@ -227,10 +229,9 @@ func (gw *LLDiscovery) ensureConnectedUp(laddr *net.UDPAddr, node *mesh.DMNode) 
 					gw.gw.SSHClientUp = conMux
 
 					// Blocking - will be closed when the ssh connection is closed.
-					conMux.AcceptDial()
+					conMux.Wait()
 					gw.gw.SSHClientUp = nil
 					// TODO: shorter timeout with exponential backoff
-					conMux.Close()
 					log.Println("SSH VPN CLOSED")
 					time.Sleep(5 * time.Second)
 				}
@@ -436,7 +437,7 @@ func (gw *LLDiscovery) listen4(base int, ip net.IP, iface *DirectActiveInterface
 // Called when refreshNetworks is called, 15 min or on change
 func (gw *LLDiscovery) AnnounceMulticast() {
 	// It appears go can get multicasts from the AP.
-	if gw.gw.UDPMsgConn == nil {
+	if gw.UDPMsgConn == nil {
 		log.Println("Invalid UDPMSGConn")
 		return
 	}
@@ -465,7 +466,7 @@ func (gw *LLDiscovery) AnnounceMulticast() {
 		var err error
 		for i := 0; i < 2; i++ {
 
-			gw.gw.UDPMsgConn.WriteTo(jsonAnn, addr)
+			gw.UDPMsgConn.WriteTo(jsonAnn, addr)
 
 			//if a.unicastUdpServer != nil {
 			//	_, err = a.unicastUdpServer.WriteTo(jsonAnn, addr)
@@ -657,7 +658,7 @@ func (gw *LLDiscovery) multicastReaderThread(c net.PacketConn, iface *DirectActi
 			addr.Port = port0
 			jsonAnn := mcMessage(gw, iface, true)
 
-			gw.gw.UDPMsgConn.WriteTo(jsonAnn, addr)
+			gw.UDPMsgConn.WriteTo(jsonAnn, addr)
 			// This works for IP6 - not for IP4
 			//
 			//
@@ -667,7 +668,7 @@ func (gw *LLDiscovery) multicastReaderThread(c net.PacketConn, iface *DirectActi
 			//if addr.IP.To4() != nil && iface.unicastUdpServer4 != nil {
 			//	_, err = iface.unicastUdpServer4.WriteTo(jsonAnn, addr)
 			//}
-			addr.Port = mesh.UDPMsgPort
+			addr.Port = gw.udpPort
 			//if addr.IP.To4() == nil && iface.unicastUdpServer != nil {
 			//	_, err = iface.unicastUdpServer.WriteTo(jsonAnn, addr)
 			//}
@@ -675,7 +676,7 @@ func (gw *LLDiscovery) multicastReaderThread(c net.PacketConn, iface *DirectActi
 			//	_, err = iface.unicastUdpServer4.WriteTo(jsonAnn, addr)
 			//}
 
-			gw.gw.UDPMsgConn.WriteTo(jsonAnn, addr)
+			gw.UDPMsgConn.WriteTo(jsonAnn, addr)
 		}
 	}
 }
@@ -683,6 +684,16 @@ func (gw *LLDiscovery) multicastReaderThread(c net.PacketConn, iface *DirectActi
 var errZone = errors.New("same zone")
 var errStart = errors.New("invalid start of message")
 var errMinSize = errors.New("too short")
+
+func (gw *LLDiscovery) HttpGetLLIf(w http.ResponseWriter, r *http.Request) {
+	gw.RefreshNetworks()
+
+	gw.activeMutex.RLock()
+	defer gw.activeMutex.RUnlock()
+	je := json.NewEncoder(w)
+	je.SetIndent(" ", " ")
+	je.Encode(gw.DirectActiveInterfaces)
+}
 
 // AddHandler a UDP multicast announce. Used when this discovery server acts as a registry (master).
 // The content of the multicasts is signed for historical reasons, due to the older version, where

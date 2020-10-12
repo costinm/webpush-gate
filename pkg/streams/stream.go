@@ -1,4 +1,4 @@
-package mesh
+package streams
 
 import (
 	"context"
@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// Common to TCP and UDP proxies
+// Represents an outgoing connection to a remote site, with stats.
+//
 // Common to TCP and UDP proxies. Results of a "Dial"
 // originating a connection to a remote or local destination.
 //
@@ -61,9 +64,15 @@ type Stream struct {
 	DestAddr *net.TCPAddr
 
 	// True if the destination is local, no VPN needed
+	// Used for VPN-accepted connections,
+	LocalDest bool
+
+	// True if the destination is local, no VPN needed
 	// Used for VPN-accepted connections forwarded to directly
 	// reachable hosts, disables dialing through other VPNs.
 	DestDirectNoVPN bool
+
+	DestIP net.IP
 
 	// DestPort is set
 	DestPort int
@@ -131,6 +140,28 @@ var (
 		return make([]byte, 0, 32*1024)
 	}}
 )
+
+func (tp *Stream) Write(b []byte) (n int, err error) {
+	if tp.ServerOut == nil {
+		return
+	}
+	n, err = tp.ServerOut.Write(b)
+	tp.SentBytes += n
+	tp.SentPackets++
+	tp.LastClientActivity = time.Now()
+
+	return
+}
+
+func (tp *Stream) Read(out []byte) (int, error) {
+	n, err := tp.ServerIn.Read(out)
+	tp.RcvdBytes += n
+	tp.RcvdPackets++
+	tp.LastRemoteActivity = time.Now()
+	return n, err
+}
+
+
 
 // Copy src to dst, using a pooled intermediary buffer.
 //
@@ -229,22 +260,3 @@ func (tp *Stream) RemoteAddr() net.Addr {
 	//return tp.SrcAddr
 }
 
-func (tp *Stream) Write(b []byte) (n int, err error) {
-	if tp.ServerOut == nil {
-		return
-	}
-	n, err = tp.ServerOut.Write(b)
-	tp.SentBytes += n
-	tp.SentPackets++
-	tp.LastClientActivity = time.Now()
-
-	return
-}
-
-func (tp *Stream) Read(out []byte) (int, error) {
-	n, err := tp.ServerIn.Read(out)
-	tp.RcvdBytes += n
-	tp.RcvdPackets++
-	tp.LastRemoteActivity = time.Now()
-	return n, err
-}

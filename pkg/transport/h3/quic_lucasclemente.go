@@ -1,11 +1,8 @@
-// +build !NOQUIC
-
-package h2
+package h3
 
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"expvar"
 	"io"
 	"log"
 	"net"
@@ -15,11 +12,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/wpgate/pkg/h2"
+	"github.com/costinm/wpgate/pkg/streams"
+	"github.com/costinm/wpgate/pkg/telemetry"
 	"github.com/lucas-clemente/quic-go"
 	h2quic "github.com/lucas-clemente/quic-go/http3"
-	"github.com/zserge/metric"
 )
+
+// 2020/09:
+// - still not merged mtls patch for HTTP3,
+// - missing push
+// - low level QUIC works great !!!
 
 // Modified QUIC, using a hack specific to Android P2P to work around its limitations.
 // Also adds instrumentation (expvar)
@@ -39,9 +43,6 @@ import (
 // Need to implement wifi-like ACK for each packet - this seems to be the main problem
 // with broadcast. A second problem is the power/bw.
 
-const (
-	UseQuic = true
-)
 
 /*
 env variable for debug:
@@ -75,68 +76,26 @@ Client:
   No h2, but we may not need this.
 */
 
-var (
-	QuicDebugClient = false
-	QuicDebugServer = false
-	//quicClientRead    = expvar.NewInt("quicClientRead")
-	//quicClientReadPk  = expvar.NewInt("quicClientReadPk")
-	//quicClientReadErr = expvar.NewMap("quicClientReadErr")
-	//
-	//quicClientWrite   = expvar.NewInt("quicClientWrite")
-	//quicClientWritePk = expvar.NewInt("quicClientWritePk")
-	//
-	//quicSRead    = expvar.NewInt("quicSrvRead")
-	//quicSReadPk  = expvar.NewInt("quicSrvReadPk")
-	//quicSWrite   = expvar.NewInt("quicSrvWrite")
-	//quicSWritePk = expvar.NewInt("quicSrvWritePk")
-	//
-	//quicDialCnt       = expvar.NewInt("quicClientDial")
-	//quicDialErrListen = expvar.NewInt("quicClientDialListen")
-	//quicDialErrDial   = expvar.NewInt("quicClientDialErr")
+type H3 struct {
+	quicClientsMux sync.RWMutex
+	quicClients    map[string]*http.Client
 
-	quicDialErrs = expvar.NewMap("quicDialErr")
-)
 
-var (
-	quicClientRead       = metric.NewGauge("15m10s", "1h1m")
-	quicClientReadPk     = metric.NewGauge("15m10s")
-	quicClientReadErrCnt = metric.NewCounter("15m10s")
-	quicClientReadErr    = expvar.NewMap("quicClientReadErr")
+	Certs *auth.Auth
 
-	quicClientWrite   = metric.NewCounter("15m10s")
-	quicClientWritePk = metric.NewCounter("15m10s")
-
-	quicSRead    = metric.NewCounter("15m10s")
-	quicSReadPk  = metric.NewCounter("15m10s")
-	quicSWrite   = metric.NewCounter("15m10s")
-	quicSWritePk = metric.NewCounter("15m10s")
-
-	quicDialCnt       = metric.NewGauge("15m10s")
-	quicDialErrListen = metric.NewCounter("15m10s")
-	quicDialErrDial   = metric.NewCounter("15m10s")
-)
-
-func init() {
-	expvar.Publish("quicClientRead", quicClientRead)
-	expvar.Publish("quicClientReadPk", quicClientReadPk)
-	expvar.Publish("quicClientReadErrCnt", quicClientReadErrCnt)
-
-	expvar.Publish("quicClientWrite", quicClientWrite)
-	expvar.Publish("quicClientWritePk", quicClientWritePk)
-
-	expvar.Publish("quicSrvRead", quicSRead)
-	expvar.Publish("quicSrvReadPk", quicSReadPk)
-	expvar.Publish("quicSrvWrite", quicSWrite)
-	expvar.Publish("quicSrvWritePk", quicSWritePk)
-
-	expvar.Publish("quicClientDial", quicDialCnt)
-	expvar.Publish("quicClientDialErr", quicDialErrDial)
 }
 
-var qport int
+func NewH3(certs *auth.Auth) *H3 {
+	return &H3{
+		Certs: certs,
+		quicClients: map[string]*http.Client{},
+	}
+}
+
+
 
 // InitQuicServer starts a regular QUIC server, bound to a port, using the H2 certificates.
-func (h2 *H2) InitQuicServer(port int, handler http.Handler) error {
+func InitQuicServer(h2 *h2.H2, port int, handler http.Handler) error {
 	c, err := net.ListenUDP("udp",
 		&net.UDPAddr{
 			Port: port,
@@ -146,7 +105,7 @@ func (h2 *H2) InitQuicServer(port int, handler http.Handler) error {
 		return err
 	}
 
-	err = h2.InitQuicServerConn(port, c, handler)
+	err = InitQuicServerConn(h2, port, c, handler)
 	if err != nil {
 		log.Println("H2: Failed to start server ", err)
 		return err
@@ -156,10 +115,11 @@ func (h2 *H2) InitQuicServer(port int, handler http.Handler) error {
 }
 
 // InitQuicServerConn starts a QUIC server, using H2 certs, on a connection.
-func (h2 *H2) InitQuicServerConn(port int, conn net.PacketConn, handler http.Handler) error {
-	conn = &PacketConnWrapper{
+func InitQuicServerConn(h2 *h2.H2,port int,
+	conn net.PacketConn, handler http.Handler) error {
+
+	conn = &telemetry.PacketConnWrapper{
 		PacketConn: conn,
-		useApHack:  false,
 	}
 
 	mtlsServerConfig := h2.Certs.GenerateTLSConfigServer()
@@ -176,6 +136,10 @@ func (h2 *H2) InitQuicServerConn(port int, conn net.PacketConn, handler http.Han
 		//}
 		return nil
 	}
+	mtlsServerConfig.VerifyConnection = func(state tls.ConnectionState) error {
+		log.Println(state)
+		return nil
+	}
 	mtlsServerConfig.ClientAuth = tls.RequireAnyClientCert // only one supported by mint?
 
 	quicServer := &h2quic.Server{
@@ -190,7 +154,7 @@ func (h2 *H2) InitQuicServerConn(port int, conn net.PacketConn, handler http.Han
 
 		Server: &http.Server{
 			Addr:        ":" + strconv.Itoa(port),
-			Handler:     h2.handlerWrapper(handler),
+			Handler:     h2.HandlerAuthWrapper(handler),
 			TLSConfig:   mtlsServerConfig,
 			ReadTimeout: 5 * time.Second,
 		},
@@ -245,7 +209,7 @@ func (qw *quicWrapper) RoundTrip(req *http.Request) (*http.Response, error) {
 // QUIC_GO_LOG_LEVEL
 // InitQuicClient will configure h2.QuicClient as mtls
 // using the h2 private key
-func (h2 *H2) InitQuicClient() *http.Client {
+func InitQuicClient(h2 *h2.H2, destHost string) *http.Client {
 	/*
 		May 2018 - quic uses mint. client-state-machine implements the handshake.
 
@@ -258,7 +222,7 @@ func (h2 *H2) InitQuicClient() *http.Client {
 	qtorig := &h2quic.RoundTripper{
 		//		Dial: h2.QuicDialer,
 
-		TLSClientConfig: h2.tlsConfig,
+		TLSClientConfig: h2.TlsClientConfig(destHost),
 
 		QuicConfig: &quic.Config{
 			//RequestConnectionIDOmission: false,
@@ -282,9 +246,33 @@ func (h2 *H2) InitQuicClient() *http.Client {
 	qt1 := &quicWrapper{Transport: qtorig}
 	qrtt := http.RoundTripper(qt1)
 
-	if mesh.MetricsClientTransportWrapper != nil {
-		qrtt = mesh.MetricsClientTransportWrapper(qrtt)
+	if streams.MetricsClientTransportWrapper != nil {
+		qrtt = streams.MetricsClientTransportWrapper(qrtt)
 	}
+
+	//if UseQuic {
+	//	if strings.Contains(host, "p2p") ||
+	//			(strings.Contains(host, "wlan") && strings.HasPrefix(host, AndroidAPMaster)) {
+	//		h2.quicClientsMux.RLock()
+	//		if c, f := h2.quicClients[host]; f {
+	//			h2.quicClientsMux.RUnlock()
+	//			return c
+	//		}
+	//		h2.quicClientsMux.RUnlock()
+	//
+	//		h2.quicClientsMux.Lock()
+	//		if c, f := h2.quicClients[host]; f {
+	//			h2.quicClientsMux.Unlock()
+	//			return c
+	//		}
+	//		c := h2.InitQuicClient()
+	//		h2.quicClients[host] = c
+	//		h2.quicClientsMux.Unlock()
+	//
+	//		log.Println("TCP-H2 QUIC", host)
+	//		return c
+	//	}
+	//}
 
 	return &http.Client{
 		Timeout: 5 * time.Second,
@@ -293,29 +281,16 @@ func (h2 *H2) InitQuicClient() *http.Client {
 	}
 }
 
-var (
-	// TODO: debug, clean, check, close
-	// has a Context
-	// ConnectionState - peer cert, ServerName
-	slock sync.RWMutex
-
-	// Key is Host of the request
-	sessions map[string]quic.Session = map[string]quic.Session{}
-)
-
-// Used for p2p interface.
-// Client on p2p:
+//var (
+//	// TODO: debug, clean, check, close
+//	// has a Context
+//	// ConnectionState - peer cert, ServerName
+//	slock sync.RWMutex
 //
-// Server on p2p:
-// - client listens and sends from a random port - won't be able to get response back
-//   on same port
-//   The MC port will need to get the answers, with a dispatcher
-type UDPMux struct {
-}
+//	// Key is Host of the request
+//	sessions map[string]quic.Session = map[string]quic.Session{}
+//)
 
-var (
-	UDPMap map[string]*UDPMux
-)
 
 //// Special dialer, using a custom port range, friendly to firewalls. From h2quic.RT -> client.dial()
 //// This includes TLS handshake with the remote peer, and any TLS retry.
@@ -402,177 +377,3 @@ var (
 
 // --------  Wrappers around quic structs to intercept and modify the routing using multicast -----------
 
-// Wrap a packet conn, display messages and adjust addresses.
-type ClientPacketConnWrapper struct {
-	PacketConn   net.PacketConn
-	PacketConnAP net.PacketConn
-
-	// Address - set in client mode
-	addr string
-
-	start time.Time
-	sent  int
-	rcv   int
-
-	useApHack bool
-}
-
-func (c *ClientPacketConnWrapper) ReadFrom(b []byte) (int, net.Addr, error) {
-	con := c.PacketConn
-	if c.PacketConnAP != nil {
-		con = c.PacketConnAP
-	}
-	l, a, e := con.ReadFrom(b)
-	if QuicDebugClient || e != nil {
-		if e != nil && !strings.Contains(e.Error(), "use of closed network connection") {
-			log.Println("QC Read: ", l, a, e, c.addr)
-		}
-	}
-	quicClientReadPk.Add(1)
-	quicClientRead.Add(float64(l))
-	c.rcv += l
-	if e != nil {
-		quicClientReadErr.Add(e.Error(), 1)
-		quicClientReadErrCnt.Add(1)
-	}
-	return l, a, e
-}
-
-func (c *ClientPacketConnWrapper) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	udp, ok := addr.(*net.UDPAddr)
-	if ok {
-		zone := udp.Zone
-		if c.useApHack && strings.Contains(zone, "p2p") &&
-			udp.IP[0] == 0xfe {
-			udp.IP[0] = 0xff
-			udp.IP[1] = 2
-			udp.Port++ // TODO: maintain a port map (based on registry data) if ports are not in order
-			// Normally for client connection Registry is already maintaining the right IP/port
-			if true || QuicDebugClient {
-				log.Println("OVERRIDE", udp, udp.IP)
-			}
-		} else {
-			ok = false
-		}
-		addr = udp
-	}
-
-	n, err = c.PacketConn.WriteTo(b, addr)
-	if QuicDebugClient || err != nil {
-		log.Println("QC Write: ", n, err, c.addr, udp)
-	}
-	quicClientWritePk.Add(1)
-	quicClientWrite.Add(float64(n))
-	c.sent += n
-	return
-}
-func (c *ClientPacketConnWrapper) Close() error {
-	e := c.PacketConn.Close()
-	if c.PacketConnAP != nil {
-		c.PacketConnAP.Close()
-	}
-	// Can be called by establishSecureConnection for Crypto handshake did not complete...
-	log.Println("QC: CloseUDP ", c.addr, time.Since(c.start), c.sent, c.rcv)
-	return e
-}
-
-func (c *ClientPacketConnWrapper) LocalAddr() net.Addr {
-	a := c.PacketConn.LocalAddr()
-	if QuicDebugClient {
-		log.Println("QC LocalAddr", a, c.addr)
-	}
-	return a
-}
-
-func (c *ClientPacketConnWrapper) SetDeadline(t time.Time) error {
-	e := c.PacketConn.SetDeadline(t)
-	log.Println("QC SetDeadline", t, c.addr)
-	return e
-}
-
-func (c *ClientPacketConnWrapper) SetReadDeadline(t time.Time) error {
-	e := c.PacketConn.SetReadDeadline(t)
-	log.Println("QC SetReadDeadline", t, c.addr)
-	return e
-}
-
-func (c *ClientPacketConnWrapper) SetWriteDeadline(t time.Time) error {
-	e := c.PacketConn.SetReadDeadline(t)
-	log.Println("QC SetReadDeadline", t, c.addr)
-	return e
-}
-
-type PacketConnWrapper struct {
-	PacketConn net.PacketConn
-	useApHack  bool
-}
-
-func (c *PacketConnWrapper) ReadFrom(b []byte) (int, net.Addr, error) {
-	l, a, e := c.PacketConn.ReadFrom(b)
-	if QuicDebugServer {
-		log.Println("SW Read: ", l, a, e)
-	}
-	// TODO: routing based on connection ID 1!!
-	quicSReadPk.Add(1)
-	quicSRead.Add(float64(l))
-
-	return l, a, e
-}
-
-func (c *PacketConnWrapper) WriteTo(b []byte, addr net.Addr) (n int, err error) {
-	udp, ok := addr.(*net.UDPAddr)
-	if ok {
-		zone := udp.Zone
-		if c.useApHack && strings.Contains(zone, "p2p") &&
-			udp.IP[0] == 0xfe {
-			udp.IP[0] = 0xff
-			udp.IP[1] = 2
-			udp.Port++ // TODO: maintain a port map (based on registry data) if ports are not in order
-			// Normally for client connection Registry is already maintaining the right IP/port
-			if QuicDebugServer {
-				log.Println("SRV OVERRIDE", udp, udp.IP)
-			}
-		} else {
-			ok = false
-		}
-		addr = udp
-	}
-
-	n, err = c.PacketConn.WriteTo(b, addr)
-	if QuicDebugServer {
-		log.Println("QS Write: ", n, err, ok, udp)
-	}
-	quicSWritePk.Add(1)
-	quicSWrite.Add(float64(n))
-	return
-}
-
-func (c *PacketConnWrapper) Close() error {
-	e := c.PacketConn.Close()
-	log.Println("QS CloseUDP ", e)
-	return e
-}
-
-// Client only seems to call it for the debug, in server.go/Listen
-func (c *PacketConnWrapper) LocalAddr() net.Addr {
-	a := c.PacketConn.LocalAddr()
-	//log.Println("QS LocalAddr", a)
-	return a
-}
-func (c *PacketConnWrapper) SetDeadline(t time.Time) error {
-	e := c.PacketConn.SetDeadline(t)
-	log.Println("QS SetDeadline", t)
-	return e
-}
-
-func (c *PacketConnWrapper) SetReadDeadline(t time.Time) error {
-	e := c.PacketConn.SetReadDeadline(t)
-	log.Println("QS SetReadDeadline", t)
-	return e
-}
-func (c *PacketConnWrapper) SetWriteDeadline(t time.Time) error {
-	e := c.PacketConn.SetReadDeadline(t)
-	log.Println("QS SetWriteDeadline", t)
-	return e
-
-}

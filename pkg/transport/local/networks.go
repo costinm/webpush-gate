@@ -263,6 +263,32 @@ func (gw *LLDiscovery) RefreshNetworks() {
 
 }
 
+func IPs() []net.IP {
+	ips := []net.IP{}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		if err == nil {
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+				ips = append(ips, ip)
+				// process IP address
+			}
+		}
+	}
+	return ips
+}
+
 // ActiveNetworks lists the networks that have IP6 link local, and detects if they are
 // android special or AP. (ap, p2pClient)
 func ActiveNetworks(gw *LLDiscovery) (map[string]*DirectActiveInterface, error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
@@ -41,12 +42,13 @@ func (sshS *SSHServerConn) handleServerSessionChannel(node *mesh.DMNode, newChan
 	}
 
 	//if role != ROLE_GUEST {
-	msgs.DefaultMux.AddConnection("sshs-"+node.VIP.String(), mconn)
+	id := "sshs-"+node.VIP.String()
+	msgs.DefaultMux.AddConnection(id, mconn)
 	//}
 
 	br := bufio.NewReader(channel)
 
-	go handleMessageStream(node, br, sshS.VIP6.String(), mconn, true)
+	go handleMessageStream(msgs.DefaultMux, id, node, br, sshS.VIP6.String(), sshS.gate.certs.VIP6.String(), mconn, true)
 
 	mconn.SendMessageToRemote(msgs.NewMessage("/endpoint/sshs", map[string]string{
 		//"remote", nConn.RemoteAddr().String(),
@@ -67,13 +69,16 @@ func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
 	return nil
 }
 
-// Messages received from remote, over SSH.
+// Messages received from remote, over SSH, WS, etc
 //
 // from is the authenticated VIP of the sender.
 // self is my own VIP
-func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string,
-	mconn *msgs.MsgConnection, isServer bool) {
-
+//
+//
+func handleMessageStream(mux *msgs.Mux, id string, node *mesh.DMNode,
+			br *bufio.Reader, from string, self string,
+			mconn *msgs.MsgConnection, isServer bool) {
+	t0 := time.Now()
 	mconn.HandleMessageStream(func(ev *msgs.Message) {
 		// Direct message from the client, with its own info
 		if ev.Topic == "endpoint" {
@@ -87,10 +92,11 @@ func handleMessageStream(node *mesh.DMNode, br *bufio.Reader, from string,
 
 	}, br, from)
 
-	log.Println("Message mux closed")
+	mux.RemoveConnection(id, mconn)
+	log.Println("Message con close", id, time.Since(t0))
 }
 
-func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []string) (mesh.JumpHost, error) {
+func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []string) (mesh.MuxSession, error) {
 	// Each ClientConn can support multiple interactive sessions,
 	// represented by a Session.
 	// go implementation is geared toward term emulation/shell - use the raw mechanism.
@@ -135,6 +141,13 @@ func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []str
 	return nil, nil
 }
 
+// ======= Copied from SSHClientConn, to customize
+
+// RFC 4254 Section 6.5.
+type execMsg struct {
+	Command string
+}
+
 // SSH client: handles the connection with the server.
 //
 // Messages from server are dispatched to the mux, for local forwarding
@@ -151,7 +164,8 @@ func (sshC *SSHConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Chann
 		VIP:                 node.VIP.String(),
 	}
 
-	msgs.DefaultMux.AddConnection("sshc-"+sshC.VIP6.String(), mconn)
+	id := "sshc-"+sshC.VIP6.String()
+	msgs.DefaultMux.AddConnection(id, mconn)
 
 	// From and path will be populated by forwarder code.
 	mconn.SendMessageToRemote(msgs.NewMessage("/endpoint/sshc", map[string]string{
@@ -162,7 +176,9 @@ func (sshC *SSHConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Chann
 	}))
 
 	br := bufio.NewReader(channel)
-	handleMessageStream(node, br, sshC.VIP6.String(), mconn, false)
+
+	handleMessageStream(msgs.DefaultMux, id, node, br, sshC.VIP6.String(),
+		sshC.gate.certs.VIP6.String(), mconn, false)
 
 	// Disconnected
 	node.TunClient = nil
