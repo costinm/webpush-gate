@@ -11,6 +11,7 @@ import (
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/transport/accept"
+	"golang.org/x/net/http2"
 
 	_ "net/http/pprof"
 )
@@ -70,14 +71,14 @@ func InitCommonGateways() {
 		return
 	}
 	ClientGW = TestGateway(16000)
-	HSClientGW = h2.SocksHttp("127.0.0.1:" + strconv.Itoa(16001))
+	HSClientGW = h2.NewSocksHttpInsecure("127.0.0.1:" + strconv.Itoa(16001))
 	HPClientGW = h2.ProxyHttp("127.0.0.1:" + strconv.Itoa(16002))
 
 	TestEnv1 = NewTestEnv(3000)
 
 	// VPN server on 14000(mesh)
 	VpnGW = TestGateway(14000)
-	HSVpnGW = h2.SocksHttp("127.0.0.1:" + strconv.Itoa(14001))
+	HSVpnGW = h2.NewSocksHttpInsecure("127.0.0.1:" + strconv.Itoa(14001))
 	HPVpnGW = h2.ProxyHttp("127.0.0.1:" + strconv.Itoa(14002))
 
 }
@@ -198,3 +199,33 @@ func TcpEchoTest(c1 net.Conn) {
 
 	//tcpClient(t)
 }
+
+func NewLocalListener() (net.Listener) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err == nil {
+		return ln
+	}
+	ln, err = net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		return nil
+	}
+	return ln
+}
+
+// Start a H2 server over plain text
+func StartH2cServer(handler http.Handler) net.Listener {
+	h2Server := &http2.Server{}
+	l := NewLocalListener()
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		h2Server.ServeConn(
+			conn, // &h2.FakeTLSConn{conn},
+			&http2.ServeConnOpts{
+				Handler: handler})
+	}()
+	return l
+}
+

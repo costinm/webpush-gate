@@ -831,7 +831,9 @@ func (auth *Auth) GenerateTLSConfigServer() *tls.Config {
 
 		// Will only be called if client supplies SNI and Certificates empty
 		GetCertificate: func(ch *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			log.Printf("ClientHello %v", ch)
+			// Log on each new TCP connection, after client hello
+			//
+			log.Printf("Server/NewConn/CH %s %v %v", ch.ServerName, ch.SupportedProtos, ch.Conn.RemoteAddr())
 			// doesn't include :5228
 			c, ok := certMap[ch.ServerName]
 			if ok {

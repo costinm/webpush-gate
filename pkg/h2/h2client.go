@@ -46,9 +46,34 @@ func (h2 *H2) Client(host string) *http.Client {
 	return h2.httpsClient
 }
 
+// NewSocksHttpClient returns a new client using SOCKS5 server.
+func NewSocksHttpClient(socksAddr string) *http.Client {
+	if socksAddr == "" {
+		socksAddr = "127.0.0.1:15004"
+	}
+	//os.Setenv("HTTP_PROXY", "socks5://"+socks5Addr)
+	// Localhost is not accepted by environment.
+	//hc := &http.Client{Transport: &http.Transport{Gateway: http.ProxyFromEnvironment}}
+
+	// Configure a hcSocks http client using localhost SOCKS
+	socksProxy, _ := url.Parse("socks5://" + socksAddr)
+	return &http.Client{
+		Timeout: 15 * time.Minute,
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(socksProxy),
+			//TLSClientConfig: &tls.Config{
+			//	InsecureSkipVerify: true,
+			//},
+		},
+	}
+}
+
 // Returns a HTTP client using SOCKS gateway on the requested
 // port.
-func SocksHttp(socksAddr string) *http.Client {
+func NewSocksHttpInsecure(socksAddr string) *http.Client {
+	if socksAddr == "" {
+		socksAddr = "127.0.0.1:15004"
+	}
 	// Configure a hcSocks http client using localhost SOCKS
 	socksProxy, _ := url.Parse("socks5://" + socksAddr)
 	return &http.Client{

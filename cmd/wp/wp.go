@@ -114,7 +114,7 @@ func sendMessage(toS string, vapid *auth.Auth, show bool, msg string) {
 		destURL = *pushService + "/push/"
 		hc = h2.InsecureHttp()
 	} else {
-		hc = h2.SocksHttp("127.0.0.1:5224")
+		hc = h2.NewSocksHttpClient("127.0.0.1:5224")
 	}
 
 	ec := auth.NewContextSend(destPubK, authk)

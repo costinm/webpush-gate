@@ -13,7 +13,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -34,14 +33,9 @@ import (
 type H2 struct {
 	quicClientsMux sync.RWMutex
 	quicClients    map[string]*http.Client
-
 	// HttpsClient with mesh certificates, H2.
 	// Call Client() to get it - or the Quic one
 	httpsClient *http.Client
-
-	VIP6 net.IP
-
-	Vpn string
 
 	// Local mux is exposed on 127.0.0.1:5227
 	// Status, UI.
@@ -64,8 +58,8 @@ type H2 struct {
 var (
 	// Set to the address of the AP master
 	AndroidAPMaster string
-	AndroidAPIface  *net.Interface
-	AndroidAPLL     net.IP
+	//AndroidAPIface  *net.Interface
+	//AndroidAPLL     net.IP
 )
 
 // Deprecated, test only
@@ -75,6 +69,11 @@ func NewH2(confdir string) (*H2, error) {
 	return NewTransport(certs)
 }
 
+// NewTransport initialized the H2 transport. Requires auth information for
+// setting up TLS. Same certificate can be used for both server or client, like in Istio.
+// This will also initialize a GRPC server and 2 Mux, one for localhost and one for ingress.
+//
+// Verification is disabled in transport, but implemented in a wrapper, using authz.
 func NewTransport(authz *auth.Auth) (*H2, error) {
 	h2 := &H2{
 		MTLSMux:     &http.ServeMux{},
@@ -85,8 +84,6 @@ func NewTransport(authz *auth.Auth) (*H2, error) {
 
 	h2.Certs = authz
 
-	h2.VIP6 = auth.Pub2VIP(h2.Certs.Pub)
-
 	ctls := h2.Certs.GenerateTLSConfigClient()
 	ctls.VerifyPeerCertificate = verify("")
 	h2.tlsConfig = ctls
@@ -96,6 +93,10 @@ func NewTransport(authz *auth.Auth) (*H2, error) {
 		TLSClientConfig: ctls,
 	}
 
+	// Will modify t to add NPN. If H2, t1.TLSNextProto will be set so it upgrades.
+	// The H2 dial will return t2 as RoundTripper. Requires the server to have TLS.
+	// The resulting transport will be used as roundtripper to servers using SSH-style
+	// auth.
 	http2.ConfigureTransport(t)
 	rtt := http.RoundTripper(t)
 
@@ -121,11 +122,11 @@ func CleanQuic(httpClient *http.Client) {
 }
 
 // Used by a H2 server to 'fake' a secure connection.
-type fakeTLSConn struct {
+type FakeTLSConn struct {
 	net.Conn
 }
 
-func (c *fakeTLSConn) ConnectionState() tls.ConnectionState {
+func (c *FakeTLSConn) ConnectionState() tls.ConnectionState {
 	return tls.ConnectionState{
 		Version:     tls.VersionTLS12,
 		CipherSuite: 0xC02F,
@@ -160,7 +161,7 @@ func (h2 *H2) InitPlaintext(port string) {
 
 		h2Server := &http2.Server{}
 		h2Server.ServeConn(
-			&fakeTLSConn{conn},
+			conn, //&FakeTLSConn{conn},
 			&http2.ServeConnOpts{
 				Handler: h2.handlerWrapper(h2.MTLSMux)})
 	}()
@@ -223,7 +224,7 @@ func (h2 *H2) InitH2ServerListener(tcpConn *net.TCPListener, handler http.Handle
 	return nil
 }
 
-// Verify a server
+// Verify a server cert. Not enough context to verify name at this point
 func verify(pub string) func(der [][]byte, verifiedChains [][]*x509.Certificate) error {
 	return func(der [][]byte, verifiedChains [][]*x509.Certificate) error {
 		var err error
@@ -458,24 +459,3 @@ func GetSAN(c *x509.Certificate) ([]string, error) {
 	return dns, nil
 }
 
-// NewSocksHttpClient returns a new client using SOCKS5 server.
-func NewSocksHttpClient(socksAddr string) *http.Client {
-	if socksAddr == "" {
-		socksAddr = "127.0.0.1:15004"
-	}
-	//os.Setenv("HTTP_PROXY", "socks5://"+socks5Addr)
-	// Localhost is not accepted by environment.
-	//hc := &http.Client{Transport: &http.Transport{Gateway: http.ProxyFromEnvironment}}
-
-	// Configure a hcSocks http client using localhost SOCKS
-	socksProxy, _ := url.Parse("socks5://" + socksAddr)
-	return &http.Client{
-		Timeout: 15 * time.Minute,
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(socksProxy),
-			//TLSClientConfig: &tls.Config{
-			//	InsecureSkipVerify: true,
-			//},
-		},
-	}
-}

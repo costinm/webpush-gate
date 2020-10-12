@@ -100,7 +100,7 @@ func main() {
 	//// Periodic registrations.
 	//m.Registry.RefreshNetworksPeriodic()
 
-	log.Printf("Loading with VIP6: %v ID64: %s %s\n", h2s.VIP6,
+	log.Printf("Loading with VIP6: %v ID64: %s %s\n", h2s.Certs.VIP6,
 		base64.RawURLEncoding.EncodeToString(h2s.Certs.VIP6[8:]))
 
 	http.ListenAndServe("localhost:5227", u)
