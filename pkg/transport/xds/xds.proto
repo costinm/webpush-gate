@@ -2,7 +2,7 @@ syntax = "proto3";
 
 // GRPC package - part of the URL. Service is added.
 // URL: /PACKAGE.SERVICE/METHOD
-package envoy.service.discovery.v2;
+package envoy.service.discovery.v3;
 
 option go_package="github.com/costinm/wpgate/pkg/xds";
 
