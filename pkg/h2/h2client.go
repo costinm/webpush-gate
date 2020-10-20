@@ -74,29 +74,6 @@ func InsecureHttp() *http.Client {
 	}
 }
 
-// NewSocksHttpClient returns a new client using SOCKS5 server.
-func NewSocksHttpClient(socksAddr string) *http.Client {
-	if socksAddr == "" {
-		socksAddr = "127.0.0.1:15004"
-	}
-	//os.Setenv("HTTP_PROXY", "socks5://"+socks5Addr)
-	// Localhost is not accepted by environment.
-	//hc := &http.Client{Transport: &http.Transport{Gateway: http.ProxyFromEnvironment}}
-
-	// Configure a hcSocks http client using localhost SOCKS
-	socksProxy, _ := url.Parse("socks5://" + socksAddr)
-	return &http.Client{
-		Timeout: 15 * time.Minute,
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(socksProxy),
-			//TLSClientConfig: &tls.Config{
-			//	InsecureSkipVerify: true,
-			//},
-		},
-	}
-}
-
-
 // Returns a HTTP client using HTTP PROXY and CONNECT
 func ProxyHttp(addr string) *http.Client {
 	// Configure a HTTP CONNECT client to be used against the clientGW

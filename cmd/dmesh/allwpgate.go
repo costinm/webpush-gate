@@ -173,6 +173,7 @@ func StartAll(a *ServerAll) {
 
 	// Local discovery interface - multicast, local network IPs
 	ld := local.NewLocal(a.GW, authz)
+	local.ListenUDP(ld)
 	go ld.PeriodicThread()
 	a.Local = ld
 

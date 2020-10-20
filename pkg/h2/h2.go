@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/wpgate/pkg/streams"
 	"github.com/soheilhy/cmux"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -100,8 +100,8 @@ func NewTransport(authz *auth.Auth) (*H2, error) {
 	http2.ConfigureTransport(t)
 	rtt := http.RoundTripper(t)
 
-	if mesh.MetricsClientTransportWrapper != nil {
-		rtt = mesh.MetricsClientTransportWrapper(rtt)
+	if streams.MetricsClientTransportWrapper != nil {
+		rtt = streams.MetricsClientTransportWrapper(rtt)
 	}
 
 	h2.httpsClient = &http.Client{
@@ -171,16 +171,16 @@ func (h2 *H2) InitPlaintext(port string) {
 
 // Start QUIC and HTTPS servers on port, using handler.
 func (h2 *H2) InitMTLSServer(port int, handler http.Handler) error {
-	if mesh.MetricsHandlerWrapper != nil {
-		handler = mesh.MetricsHandlerWrapper(handler)
+	if streams.MetricsHandlerWrapper != nil {
+		handler = streams.MetricsHandlerWrapper(handler)
 	}
 	err := h2.InitH2Server(":"+strconv.Itoa(port), handler, true)
 	if err != nil {
 		return err
 	}
-	if UseQuic {
-		err = h2.InitQuicServer(port, handler)
-	}
+	//if UseQuic {
+	//	err = h2.InitQuicServer(port, handler)
+	//}
 	return err
 }
 
