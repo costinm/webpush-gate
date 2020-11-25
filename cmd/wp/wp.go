@@ -240,7 +240,7 @@ func watchNodes() {
 	if *pushService != "" {
 		hc = h2.InsecureHttp()
 	} else {
-		hc = h2.SocksHttp("127.0.0.1:5224")
+		hc = h2.NewSocksHttpClient("127.0.0.1:5224")
 	}
 	hc.Timeout = 1 * time.Hour
 

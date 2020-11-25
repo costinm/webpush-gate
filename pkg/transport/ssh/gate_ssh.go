@@ -411,6 +411,8 @@ func (sshC *SSHConn) DialProxy(tp *streams.Stream) error {
 	})
 	ch, in, err := sshC.sshclient.OpenChannel("direct-tcpip", ssh.Marshal(&msg))
 	if err != nil {
+		// UnknownChannelType ??
+		log.Println("SSH-CL: failed to open ", err)
 		return err
 	}
 	go ssh.DiscardRequests(in)
