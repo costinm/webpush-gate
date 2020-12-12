@@ -36,6 +36,17 @@ func HTTPHandlerPushPromise(w http.ResponseWriter, req *http.Request) {
 
 	ch := make(chan *msgs.Message, 10)
 
+	opt := &http.PushOptions{
+		Header: http.Header{
+			"User-Agent": {"foo"},
+		},
+	}
+	// This will result in a separate handler to get the message
+	if err := w.(http.Pusher).Push("/push/START", opt); err != nil {
+		fmt.Println("error pushing", err)
+		return
+	}
+
 	id := "http-" + req.RemoteAddr
 	mc := &msgs.MsgConnection{
 		SubscriptionsToSend: []string{"*"},

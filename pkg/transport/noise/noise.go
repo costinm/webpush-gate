@@ -1,3 +1,5 @@
+// +build NOISE
+
 package noise
 
 import (

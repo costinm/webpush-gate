@@ -17,6 +17,7 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/cloudevents"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
+	"github.com/costinm/wpgate/pkg/transport/ipfs"
 	"github.com/costinm/wpgate/pkg/transport/iptables"
 	"github.com/costinm/wpgate/pkg/transport/local"
 	"github.com/costinm/wpgate/pkg/transport/sni"
@@ -108,6 +109,7 @@ type ServerAll struct {
 	Local  *local.LLDiscovery
 	Conf   *conf.Conf
 	sshg   *sshgate.SSHGate
+	IPFS   *ipfs.IPFS
 }
 
 func (sa *ServerAll) Close() {
@@ -173,6 +175,7 @@ func StartAll(a *ServerAll) {
 
 	// Local discovery interface - multicast, local network IPs
 	ld := local.NewLocal(a.GW, authz)
+	local.ListenUDP(ld)
 	go ld.PeriodicThread()
 	local.ListenUDP(ld)
 	a.Local = ld
@@ -248,6 +251,9 @@ func (a *ServerAll) StartExtra() {
 		accept.NewForwarder(a.GW, t)
 	}
 
-	udpNat  := udp.NewUDPGate(a.GW)
+	udpNat := udp.NewUDPGate(a.GW)
 	a.UDPNat = udpNat
+
+	a.IPFS = ipfs.InitIPFS(a.GW.Auth, 5231, a.H2.MTLSMux)
+	a.H2.LocalMux.Handle("/ipfs/", a.IPFS)
 }
