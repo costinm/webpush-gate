@@ -572,7 +572,10 @@ func (gw *LLDiscovery) multicastReaderThread(c net.PacketConn, iface *DirectActi
 		c.Close()
 		log.Println("MCDirect: multicatReaderThread master closed ", iface.IP6LL, iface.iface.Name)
 	}()
-
+	if gw.UDPMsgConn == nil {
+		log.Print("INVALID UDP LL")
+		return
+	}
 	m := make([]byte, 1600)
 	for {
 		m = m[0:1600]

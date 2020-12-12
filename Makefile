@@ -4,6 +4,7 @@ OUT ?= ${HOME}/go/bin
 GO ?= go
 
 build:
+	go build -o ${OUT}/dmesh ./cmd/dmesh
 	go build -o ${OUT}/wps ./cmd/wps
 	go build -o ${OUT}/wp ./cmd/wp
 
