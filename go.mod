@@ -2,7 +2,7 @@ module github.com/costinm/wpgate
 
 go 1.15
 
-replace github.com/costinm/go-ws-transport => ../go-ws-transport
+// replace github.com/costinm/go-ws-transport => ../go-ws-transport
 
 require (
 	github.com/cloudevents/sdk-go v0.10.1
