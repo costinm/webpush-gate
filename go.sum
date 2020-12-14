@@ -154,6 +154,8 @@ github.com/coreos/go-systemd/v22 v22.0.0/go.mod h1:xO0FLkIi5MaZafQlIrOotqXZ90ih+
 github.com/coreos/go-systemd/v22 v22.1.0/go.mod h1:xO0FLkIi5MaZafQlIrOotqXZ90ih+1atmu1JpKERPPk=
 github.com/coreos/pkg v0.0.0-20160727233714-3ac0863d7acf/go.mod h1:E3G3o1h8I7cfcXa63jLwjI0eiQQMgzzUDFVpN/nH/eA=
 github.com/coreos/pkg v0.0.0-20180108230652-97fdf19511ea/go.mod h1:E3G3o1h8I7cfcXa63jLwjI0eiQQMgzzUDFVpN/nH/eA=
+github.com/costinm/go-libp2p-h2-transport v0.0.0-20201207063231-1a8e9b8b7557 h1:ZFIQEf8wGWvnnGEIyM7ZxlfNojky0drbH/kE9jOi+Ig=
+github.com/costinm/go-libp2p-h2-transport v0.0.0-20201207063231-1a8e9b8b7557/go.mod h1:FnMYtyXVM5D1UVywDtKqaB7W5JQeH45DsmhgtVN6Ia8=
 github.com/costinm/go-ws-transport v0.3.2-0.20201108210539-68fbbde6ea68 h1:avQuQV+ltnBQOSwEQ688+Y+aJpTjPSFSrMdkJ1vuw18=
 github.com/costinm/go-ws-transport v0.3.2-0.20201108210539-68fbbde6ea68/go.mod h1:3LkvmgbegbcAD6kzgb9S+0nNl5biTA/jsOY+Q6G0qDQ=
 github.com/cpuguy83/go-md2man v1.0.10/go.mod h1:SmD6nW6nTyfqj6ABTjUi3V3JVMnlJmwcJI5acqYI6dE=
@@ -192,6 +194,8 @@ github.com/docker/docker-credential-helpers v0.6.3/go.mod h1:WRaJzqw3CTB9bk10avu
 github.com/docker/go-connections v0.4.0/go.mod h1:Gbd7IOopHjR8Iph03tsViu4nIes5XhDvyHbTtUxmeec=
 github.com/docker/go-units v0.4.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/docker/spdystream v0.0.0-20160310174837-449fdfce4d96/go.mod h1:Qh8CwZgvJUkLughtfhJv5dyTYa91l1fOUCrgjqmcifM=
+github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c h1:ZfSZ3P3BedhKGUhzj7BQlPSU4OvT6tfOKe3DVHzOA7s=
+github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c/go.mod h1:Qh8CwZgvJUkLughtfhJv5dyTYa91l1fOUCrgjqmcifM=
 github.com/dprotaso/go-yit v0.0.0-20191028211022-135eb7262960/go.mod h1:9HQzr9D/0PGwMEbC3d5AB7oi67+h4TsQqItC1GVYG58=
 github.com/dustin/go-humanize v0.0.0-20171111073723-bb3d318650d4/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
@@ -1291,6 +1295,7 @@ github.com/whyrusleeping/go-logging v0.0.1/go.mod h1:lDPYj54zutzG1XYfHAhcc7oNXEb
 github.com/whyrusleeping/go-notifier v0.0.0-20170827234753-097c5d47330f/go.mod h1:cZNvX9cFybI01GriPRMXDtczuvUhgbcYr9iCGaNlRv8=
 github.com/whyrusleeping/go-smux-multiplex v3.0.16+incompatible/go.mod h1:34LEDbeKFZInPUrAG+bjuJmUXONGdEFW7XL0SpTY1y4=
 github.com/whyrusleeping/go-smux-multistream v2.0.2+incompatible/go.mod h1:dRWHHvc4HDQSHh9gbKEBbUZ+f2Q8iZTPG3UOGYODxSQ=
+github.com/whyrusleeping/go-smux-spdystream v0.0.0-20170912225229-a6182ff2a058/go.mod h1:inhtXtzyFlJUtRQxtel8sEl7gUV8U4iV14/11LJg9e8=
 github.com/whyrusleeping/go-smux-yamux v2.0.8+incompatible/go.mod h1:6qHUzBXUbB9MXmw3AUdB52L8sEb/hScCqOdW2kj/wuI=
 github.com/whyrusleeping/go-smux-yamux v2.0.9+incompatible/go.mod h1:6qHUzBXUbB9MXmw3AUdB52L8sEb/hScCqOdW2kj/wuI=
 github.com/whyrusleeping/go-sysinfo v0.0.0-20190219211824-4a357d4b90b1/go.mod h1:tKH72zYNt/exx6/5IQO6L9LoQ0rEjd5SbbWaDTs9Zso=
@@ -1696,6 +1701,7 @@ google.golang.org/grpc v1.31.0/go.mod h1:N36X2cJ7JwdamYAgDz+s+rVMFjt3numwzf/HckM
 google.golang.org/grpc v1.31.1 h1:SfXqXS5hkufcdZ/mHtYCh53P2b+92WQq/DZcKLgsFRs=
 google.golang.org/grpc v1.31.1/go.mod h1:N36X2cJ7JwdamYAgDz+s+rVMFjt3numwzf/HckM8pak=
 google.golang.org/grpc v1.33.2 h1:EQyQC3sa8M+p6Ulc8yy9SWSS2GVwyRc83gAbG8lrl4o=
+google.golang.org/grpc v1.34.0 h1:raiipEjMOIC/TO2AvyTxP25XFdLxNIBwzDh3FM3XztI=
 google.golang.org/grpc/cmd/protoc-gen-go-grpc v0.0.0-20200807164945-d3e3e7a46f57 h1:HUYN2YJkA2CncMV2zRg945o0Xrn7NS5nH2Q4eiy9axc=
 google.golang.org/grpc/cmd/protoc-gen-go-grpc v0.0.0-20200807164945-d3e3e7a46f57/go.mod h1:6Kw0yEErY5E/yWrBtf03jp27GLLJujG4z/JK95pnjjw=
 google.golang.org/grpc/examples v0.0.0-20201121004645-9da74c039bbf h1:p1xUNjI+Ogtm5xtFZD600651CvtAvI3ZTHhviZCdhJU=

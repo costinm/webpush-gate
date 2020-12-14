@@ -251,3 +251,6 @@ You send messages to each node, by public key.
 # BMX7
 
 
+# Slirp
+
+TUN + capture, IP stack, like netstack.

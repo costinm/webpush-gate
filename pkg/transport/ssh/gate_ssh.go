@@ -155,11 +155,11 @@ func (sshGate *SSHGate) DirectConnect(node *mesh.DMNode) (chan error, error) {
 	return nil, nil
 }
 
-// ConnectStream creates a MuxSession over an established conn
+// ConnectStream creates a MuxedConn over an established conn
 // addr may be empty.
 //
 // If node has a VIP or public key it will be checked.
-// The resulting MuxSession will be set a node.TunClient
+// The resulting MuxedConn will be set a node.TunClient
 func (sshGate *SSHGate) ConnectStream(node *mesh.DMNode,
 	addr string,
 	conn net.Conn) (func() error, error) {
@@ -217,7 +217,7 @@ func (sshGate *SSHGate) ConnectStream(node *mesh.DMNode,
 
 
 func (sshGate *SSHGate) DialMUX(addr string,
-	pub []byte, subs []string) (mesh.MuxSession, error) {
+	pub []byte, subs []string) (mesh.MuxedConn, error) {
 
 	// TODO: remove subs, separate topic
 	// TODO: pub should be set for 'trusted' nodes.
@@ -234,7 +234,7 @@ func (sshGate *SSHGate) DialMUX(addr string,
 }
 
 func (sshGate *SSHGate) DialCon(conn net.Conn, addr string,
-			pub []byte) (mesh.MuxSession, error) {
+			pub []byte) (mesh.MuxedConn, error) {
 	sshC := &SSHConn{
 			Addr:                addr,
 			gate:                sshGate,
@@ -376,7 +376,7 @@ func (sshC *SSHConn) Close() error {
 }
 
 // DialProxy will use a SSH client connection MUX to reach a remote server.
-// Part of MuxSession interface used to connect to a destination
+// Part of MuxedConn interface used to connect to a destination
 // over this connection.
 // On success, tp.Server[In|Out] will be set with a connection to
 //  tp.Dest:tp.DestPort

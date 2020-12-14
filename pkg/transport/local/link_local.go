@@ -207,7 +207,7 @@ func (gw *LLDiscovery) ensureConnectedUp(laddr *net.UDPAddr, node *mesh.DMNode) 
 			// WLAN connected to 49.1 - probably AP
 			if !strings.Contains(a.Name, "p2p") && a.AndroidAPClient {
 				hasUp = true
-				var conMux mesh.MuxSession
+				var conMux mesh.MuxedConn
 				addr := ""
 				if laddr != nil {
 					addr = laddr.String()
