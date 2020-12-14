@@ -272,8 +272,8 @@ func (sshGate *SSHGate) HandleServerConn(nConn net.Conn) {
 			if role == ROLE_GUEST &&
 				req.Rport != SSH_MESH_PORT && req.Rport != H2_MESH_PORT {
 				newChannel.Reject(ssh.Prohibited,
-					"only authorized users can proxy "+
-							scon.VIP6.String())
+					"only authorized users can proxy " +
+					scon.VIP6.String())
 				continue
 			}
 			log.Println("-L: forward request", req.Laddr, req.Lport, req.Raddr, req.Rport, role)
