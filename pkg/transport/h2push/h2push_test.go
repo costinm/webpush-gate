@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/bootstrap/tests"
+	"github.com/costinm/wpgate/pkg/tests"
 	quic "github.com/lucas-clemente/quic-go"
 	"golang.org/x/net/http2"
 )
@@ -166,8 +166,6 @@ func NewLocalListener() net.Listener {
 	return ln
 }
 
-var tlsConfigInsecure = &tls.Config{InsecureSkipVerify: true}
-
 // Start a H2 server with fake TLS
 func startH2cServer(t *testing.T) net.Listener {
 	h2Server := &http2.Server{}
@@ -218,6 +216,7 @@ func TestTransportH2c(t *testing.T) {
 		t.Fatalf("response got %v, want %v", got, want)
 	}
 }
+var tlsConfigInsecure = &tls.Config{InsecureSkipVerify: true}
 
 func Test_Service(t *testing.T) {
 	mux := http.NewServeMux()

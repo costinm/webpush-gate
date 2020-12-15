@@ -14,7 +14,7 @@ import (
 	"testing"
 
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/bootstrap/tests"
+	"github.com/costinm/wpgate/pkg/tests"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/transport/ssh"
@@ -42,10 +42,10 @@ func TestSSH(t *testing.T) {
 
 	bTls := bA.GenerateTLSConfigServer()
 	bTls.ClientAuth = tls.RequestClientCert
-	bTls.VerifyConnection = func(state tls.ConnectionState) error {
-		log.Println("SState; ", state)
-		return nil
-	}
+	//bTls.VerifyConnection = func(state tls.ConnectionState) error {
+	//	log.Println("SState; ", state)
+	//	return nil
+	//}
 	bTls.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 		return nil
 	}
@@ -68,10 +68,10 @@ func TestQ(t *testing.T) {
 	bA := auth.NewAuth(nil, "bob", "m.webinf.info")
 	bTls := bA.GenerateTLSConfigServer()
 	bTls.ClientAuth = tls.RequestClientCert
-	bTls.VerifyConnection = func(state tls.ConnectionState) error {
-		log.Println("SState; ", state)
-		return nil
-	}
+	//bTls.VerifyConnection = func(state tls.ConnectionState) error {
+	//	log.Println("SState; ", state)
+	//	return nil
+	//}
 	bTls.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 		return nil
 	}

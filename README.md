@@ -10,25 +10,6 @@ Goals:
 Core messaging protocol: Webpush with e2e encryption
 Core stream transports: SSH and H2 gRPC transport based on Envoy XDS/UDPA. 
 
-# Event and messaging protocols
-
-There are many apps and protocols used for events and messaging - MQTT is one of my current favourites based on its broad
-IoT adoption. I spent many years implementing C2DM/GCM/FCM so I'm still attached to them. NATS
-is a nice and modern messaging implementation I like, and too many other
- interesting protocols and implementations to list.
-
-All messaging protocols share the basic features: a 'message'/'event' is sent/published
-to one or many receivers. Each invents its own names and terms, but the message 
-structure is almost universally a binary blob plus some metadata. CloudEvents 
-attempts to standarize a common representation and mappings, with a decent approach.
-
-The implementation differences are around scale and latency, with variation 
-around storage/reliability. For example the number of endpoints - can be 10s of billions
-for IoT/Android/Web, or 1000s for server-optimized. Number of topics can be extremely
-large - or optimized for smaller use cases.  
-
-Protocols are in almost all cases based on long lived connections - using a variety
-of encodings and framing mechanism. 
 
 # Webpush
 

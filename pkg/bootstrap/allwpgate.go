@@ -1,4 +1,4 @@
-package main
+package bootstrap
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
@@ -14,7 +15,6 @@ import (
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/accept"
-	"github.com/costinm/wpgate/pkg/transport/cloudevents"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/ipfs"
@@ -24,6 +24,7 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/udp"
+	"github.com/costinm/wpgate/pkg/transport/uds"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 	"github.com/costinm/wpgate/pkg/ui"
@@ -199,8 +200,6 @@ func (a *ServerAll) addr(off int) string {
 }
 
 func (a *ServerAll) StartMsg() {
-	// ServerAll - accept from other sources
-	cloudevents.NewCloudEvents(msgs.DefaultMux, a.BasePort+CLOUD_EVENTS)
 	// TODO: list of sinks, add NATS in-process
 
 	// TODO: eventstream client (MonitorNode)
@@ -256,4 +255,44 @@ func (a *ServerAll) StartExtra() {
 
 	a.IPFS = ipfs.InitIPFS(a.GW.Auth, 5231, a.H2.MTLSMux)
 	a.H2.LocalMux.Handle("/ipfs/", a.IPFS)
+}
+
+func ServerUDSConnection(gw *mesh.Gateway, ld *local.LLDiscovery, cfg *conf.Conf) {
+	srv, err := uds.NewServer("lproxy", msgs.DefaultMux)
+	if err != nil {
+		log.Println("Can't start lproxy UDS", err)
+		return
+	}
+
+	srv.Start()
+}
+
+func ClientUDSConnection(gw *mesh.Gateway, ld *local.LLDiscovery, cfg *conf.Conf) {
+	// Attempt to connect to local UDS socket, to communicate with android app.
+	for i := 0; i < 5; i++ {
+		ucon, err := uds.Dial("dmesh", msgs.DefaultMux, map[string]string{})
+		if err != nil {
+			time.Sleep(1 * time.Second)
+		} else {
+			//lmnet.NewWifi(ld, &ucon.MsgConnection, ld)
+
+			// Special messages:
+			// - close - terminate program, java side dead
+			// - KILL - explicit request to stop
+			ucon.Handler = msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
+			})
+			go func() {
+				for {
+					ucon.HandleStream()
+					// Connection closes if the android side is dead.
+					// TODO: this is only for the UDS connection !!!
+					log.Printf("UDS: parent closed, exiting ")
+					os.Exit(4)
+				}
+			}()
+
+			break
+		}
+	}
+	log.Println("Failed to initialize UDS to root app")
 }

@@ -146,7 +146,7 @@ type UDPGate struct {
 	// This is typically a netstack or TProxy
 	UDPWriter mesh.UdpWriter
 
-	DNS dmdns.DmDns
+	DNS *dmdns.DmDns
 
 	// Timeout for UDP sockets. Default 60 sec.
 	ConnTimeout time.Duration
@@ -257,7 +257,9 @@ func remoteConnectionReadLoop(gw *UDPGate, localAddr *net.UDPAddr, upstreamConn 
 
 // Special capture for DNS. Will use the DNS VPN or direct calls.
 func (gw *UDPGate) HandleDNS(dstAddr net.IP, dstPort uint16, src *net.UDPAddr, data []byte) {
-
+	if gw.DNS == nil {
+		return
+	}
 	req := new(dns.Msg)
 	req.Unpack(data)
 

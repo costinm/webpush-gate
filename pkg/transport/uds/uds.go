@@ -177,7 +177,6 @@ func (uds *UdsServer) Start() error {
 var cnt = 0
 
 // Called after connecting to the remote UDS. Must send something, so credentials are passed.
-//
 func (conn *UdsConn) serverHandshake(uds *UdsServer) error {
 	//data := make([]byte, 4096)
 
