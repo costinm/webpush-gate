@@ -92,18 +92,18 @@ type Gateway struct {
 	Listeners map[int]net.Listener
 
 	// SSHClientConn-based gateway
-	SSHGate MUXDialer
+	SSHGate Transport
 
 	// Client to VPN
-	SSHClient MuxSession
+	SSHClient MuxedConn
 
-	JumpHosts map[string]MuxSession
+	JumpHosts map[string]MuxedConn
 
 	// Client to mesh expansion - not trusted, set when mesh expansion is in use.
 	// Used as a jump host to connect to the next destination.
 	// TODO: allow multiple addresses.
 	// TODO: this can also be used as 'egressGateway'
-	SSHClientUp MuxSession
+	SSHClientUp MuxedConn
 
 	Auth *auth.Auth
 }
@@ -124,7 +124,7 @@ func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
 		//AllUdpCon: make(map[string]*HostStats),
 		AllTcpCon: make(map[string]*HostStats),
 		Listeners: make(map[int]net.Listener),
-		JumpHosts: map[string]MuxSession{},
+		JumpHosts: map[string]MuxedConn{},
 		//upstreamMessageChannel: make(chan packet, 100),
 		Auth:           certs,
 		Config:         gcfg,

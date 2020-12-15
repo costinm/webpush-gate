@@ -96,7 +96,7 @@ func handleMessageStream(mux *msgs.Mux, id string, node *mesh.DMNode,
 	log.Println("Message con close", id, time.Since(t0))
 }
 
-func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []string) (mesh.MuxSession, error) {
+func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []string) (mesh.MuxedConn, error) {
 	// Each ClientConn can support multiple interactive sessions,
 	// represented by a Session.
 	// go implementation is geared toward term emulation/shell - use the raw mechanism.

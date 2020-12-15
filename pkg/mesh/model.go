@@ -68,10 +68,10 @@ type DMNode struct {
 	// node, with the node acting as client.
 	// Streams will be forwarded to the node using special 'accept' mode.
 	// This is similar with PUSH in H2.
-	TunSrv MuxSession `json:"-"`
+	TunSrv MuxedConn `json:"-"`
 
 	// Existing tun to the remote node, previously dialed.
-	TunClient MuxSession `json:"-"`
+	TunClient MuxedConn `json:"-"`
 
 	// IP4 address of last announce
 	Last4 *net.UDPAddr `json:"-"`
@@ -124,7 +124,7 @@ func NewDMNode() *DMNode {
 // or proxied) to specific nodes.
 //
 // For example SSHClient, SSHServer, Quic can support this.
-type MuxSession interface {
+type MuxedConn interface {
 	// DialProxy will use the remote gateway to jump to
 	// a different destination, indicated by stream.
 	// On return, the stream ServerOut and ServerIn will be
@@ -152,11 +152,10 @@ type MuxSession interface {
 	//RemoteAccept(remoteListenAddr, forwardDest string) error
 }
 
-// MUXDialer is implemented by a transport that can be
-// used for egress for streams. SSHGate creating SSHClients is an example.
+// Transport is creates multiplexed connections.
 //
-// On the server side, MuxSession are created when a client connects
-type MUXDialer interface {
+// On the server side, MuxedConn are created when a client connects.
+type Transport interface {
 	// Dial one TCP/mux connection to the IP:port.
 	// The destination is a mesh node - port typically 5222, or 22 for 'regular' SSH serves.
 	//
@@ -166,7 +165,7 @@ type MUXDialer interface {
 	// or a child. The subsriptions are used to indicate what messages will be forwarded to the server.
 	// Typically VPN will receive all events, AP will receive subset of events related to topology while
 	// child/peer only receive directed messages.
-	DialMUX(addr string, pub []byte, subs []string) (MuxSession, error)
+	DialMUX(addr string, pub []byte, subs []string) (MuxedConn, error)
 }
 
 // IPResolver uses DNS cache or lookups to return the name

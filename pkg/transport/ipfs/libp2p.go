@@ -12,50 +12,69 @@ import (
 
 	"fmt"
 
-	ws "github.com/costinm/go-ws-transport"
 	"github.com/costinm/wpgate/pkg/auth"
+
 	"github.com/ipfs/go-datastore"
+
 	config "github.com/ipfs/go-ipfs-config"
+
 	"github.com/ipfs/go-ipns"
+
 	"github.com/libp2p/go-libp2p"
+
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
+
 	"github.com/libp2p/go-libp2p-core/control"
-	crypto "github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/event"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/routing"
+
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p-kad-dht/dual"
+
+	ws "github.com/costinm/go-libp2p-h2-transport"
 	libp2pquic "github.com/libp2p/go-libp2p-quic-transport"
+
 	record "github.com/libp2p/go-libp2p-record"
 	libp2ptls "github.com/libp2p/go-libp2p-tls"
 	"github.com/multiformats/go-multiaddr"
 )
 
+// ConnectionGater, Server
 type IPFS struct {
 	Host host.Host
 	DHT  *dual.DHT
 }
 
 func (p2p *IPFS) InterceptPeerDial(p peer.ID) (allow bool) {
+	log.Println("IPFS: peerDial", p)
 	return true
 }
 
 func (p2p *IPFS) InterceptAddrDial(id peer.ID, m multiaddr.Multiaddr) (allow bool) {
+	log.Println("IPFS: addrDial", id, m)
 	return true
 }
 
 func (p2p *IPFS) InterceptAccept(multiaddrs network.ConnMultiaddrs) (allow bool) {
+	t, _ := multiaddrs.RemoteMultiaddr().MarshalText()
+	t1, _ := multiaddrs.LocalMultiaddr().MarshalText()
+	log.Println("IPFS: accept", string(t), string(t1))
 	return true
 }
 
 func (p2p *IPFS) InterceptSecured(direction network.Direction, id peer.ID, multiaddrs network.ConnMultiaddrs) (allow bool) {
+	t, _ := multiaddrs.RemoteMultiaddr().MarshalText()
+	log.Println("IPFS: secured", direction, id, string(t))
 	return true
 }
 
 func (p2p *IPFS) InterceptUpgraded(conn network.Conn) (allow bool, reason control.DisconnectReason) {
+	t, _ := conn.RemoteMultiaddr().MarshalText()
+	log.Println("IPFS: secured", conn.RemotePeer(), string(t))
 	return true, 0
 }
 
@@ -148,8 +167,6 @@ func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 	listen, _ = multiaddr.NewMultiaddr("/ip4/0.0.0.0/udp/4005/quic")
 	la = append(la, listen)
 
-	var ddht *dual.DHT
-
 	// TODO: set a ConnectionGater !
 	// TODO: equivalent StreamGater ?
 	// TODO: create a ssh proxy
@@ -160,11 +177,9 @@ func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 		libp2p.ListenAddrs(la...),
 		libp2p.ChainOptions(
 			libp2p.Transport(libp2pquic.NewTransport),
-			libp2p.Transport(ws.New),
+			libp2p.Transport(ws.NewH2Transport),
 			//libp2p.Transport(ws.NewMux(mux, "/ipfs/ws/")),
 		),
-		// In-memory peer store
-		//libp2p.DefaultPeerstore,
 
 		// After adding ACL
 		//libp2p.EnableAutoRelay(),
@@ -173,11 +188,7 @@ func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 
 		libp2p.NATPortMap(),
 		//libp2p.PrivateNetwork(secret),
-		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
-			ddht, err = newDHT(ctx, h, ds)
-			p2p.DHT = ddht
-			return ddht, err
-		}),
+
 		libp2p.ConnectionManager(connmgr.NewConnManager(
 			10,          // Lowwater
 			20,          // HighWater,
@@ -216,9 +227,22 @@ func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 		libp2p.DefaultStaticRelays(),
 	}
 
+	if os.Getenv("DHT") != "" {
+		var ddht *dual.DHT
+		finalOpts = append(finalOpts, libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
+			ddht, err = newDHT(ctx, h, ds)
+			p2p.DHT = ddht
+			return ddht, err
+		}))
+	} else {
+		// In-memory peer store
+
+		finalOpts = append(finalOpts, libp2p.DefaultPeerstore)
+	}
+
 	var pi *peer.AddrInfo
 	if rt := os.Getenv("IPFS_ROOT"); rt != "" {
-		pi, err := P2PAddrFromString(rt)
+		pi, err = P2PAddrFromString(rt)
 		if err != nil {
 			log.Println("Invalid ", rt, err)
 		} else {
@@ -248,6 +272,13 @@ func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 	} else {
 		if pi != nil {
 			ps.AddPeer(*pi)
+
+			err = h.Connect(context.Background(), *pi)
+			if err != nil {
+				log.Println("IPFS: Failed to connect to ", *pi)
+			} else {
+				log.Println("IPFS: Connected to ", *pi)
+			}
 		}
 	}
 
@@ -258,12 +289,13 @@ func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 	go func() {
 		defer sub.Close()
 		for e := range sub.Out() {
-			log.Println("Event: ", e)
+			log.Println("IPFS Event: ", e)
 		}
 
 	}()
 
 	log.Println("IPFS ID: ", h.ID().String())
+	log.Println("IPFS Addr: ", h.Addrs())
 	return p2p
 }
 
