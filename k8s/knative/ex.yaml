@@ -1,0 +1,34 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    client.knative.dev/user-image: gcr.io/wlhe-cr/h2c
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+  labels:
+    cloud.googleapis.com/location: us-central1
+  name: h2c-beta
+  namespace: '601426346923'
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '1000'
+        client.knative.dev/user-image: gcr.io/wlhe-cr/h2c
+        run.googleapis.com/client-name: gcloud
+        run.googleapis.com/client-version: HEAD
+    spec:
+      containerConcurrency: 80
+      containers:
+        - image: gcr.io/wlhe-cr/h2c
+          ports:
+            - containerPort: 8080
+              name: h2c
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 256Mi
+      timeoutSeconds: 300
+  traffic:
+    - latestRevision: true
+      percent: 100

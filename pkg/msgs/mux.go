@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
 )
 
 // Local processing of messages. Interface doesn't use any specific struct,

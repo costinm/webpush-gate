@@ -14,14 +14,13 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/streams"
 
@@ -64,12 +63,7 @@ var (
 type Gateway struct {
 	m sync.RWMutex
 
-	// Direct Nodes by interface address (which is derived from public key - last 8 bytes in
-	// initial prototype). This includes only directly connected notes - either Wifi on same segment, or VPNs and
-	// connected devices.
-	Nodes map[uint64]*DMNode
-
-	// Vpns contains trusted VPN servers, or exit points.
+	*ugate.UGate
 
 	// Vpn is the currently active VPN server. Will be selected from the list of
 	// known VPN servers (in future - for now hardcoded to the test server)
@@ -78,56 +72,47 @@ type Gateway struct {
 	// User agent - hostname or android build id or custom.
 	UA string
 
-	Config *GateCfg
-
 	tcpLock   sync.RWMutex
 	ActiveTcp map[int]*streams.TcpProxy
+
 	AllTcpCon map[string]*HostStats
 
 	// DNS forward DNS requests, may resolve local addresses
-	DNS IPResolver
-
-	// Key is the local port. Value has info about where it is forwarded,
-	// including the VIP associated with the client.
-	Listeners map[int]net.Listener
+	DNS ugate.IPResolver
 
 	// SSHClientConn-based gateway
-	SSHGate Transport
+	SSHGate ugate.Transport
 
 	// Client to VPN
-	SSHClient MuxedConn
+	SSHClient ugate.MuxedConn
 
-	JumpHosts map[string]MuxedConn
+	JumpHosts map[string]ugate.MuxedConn
 
 	// Client to mesh expansion - not trusted, set when mesh expansion is in use.
 	// Used as a jump host to connect to the next destination.
 	// TODO: allow multiple addresses.
 	// TODO: this can also be used as 'egressGateway'
-	SSHClientUp MuxedConn
+	SSHClientUp ugate.MuxedConn
 
-	Auth *auth.Auth
+	Auth *ugate.Auth
 }
-
 
 func (gw *Gateway) ActiveTCP() map[int]*streams.TcpProxy {
 	return gw.ActiveTcp
 }
 
-func New(certs *auth.Auth, gcfg *GateCfg) *Gateway {
+func New(certs *ugate.Auth, gcfg *ugate.GateCfg) *Gateway {
 	if gcfg == nil {
-		gcfg = &GateCfg{}
+		gcfg = &ugate.GateCfg{}
 	}
 	gw := &Gateway{
-		Nodes: map[uint64]*DMNode{},
 		//ActiveUdp: make(map[string]*UdpNat),
 		ActiveTcp: make(map[int]*streams.TcpProxy),
 		//AllUdpCon: make(map[string]*HostStats),
 		AllTcpCon: make(map[string]*HostStats),
-		Listeners: make(map[int]net.Listener),
-		JumpHosts: map[string]MuxedConn{},
+		JumpHosts: map[string]ugate.MuxedConn{},
 		//upstreamMessageChannel: make(chan packet, 100),
 		Auth:           certs,
-		Config:         gcfg,
 	}
 
 	return gw
@@ -160,17 +145,17 @@ func androidClientUnicast2MulticastAddress(ip6 net.IP) net.IP {
 	return net.IP(b)
 }
 
-func (gw *Gateway) Node(pub []byte) *DMNode {
+func (gw *Gateway) Node(pub []byte) *ugate.DMNode {
 	dmFrom := auth.Pub2ID(pub)
 	gw.m.Lock()
 	defer gw.m.Unlock()
 
-	node, f := gw.Nodes[dmFrom]
+	node, f := gw.UGate.Nodes[dmFrom]
 	if !f {
-		node = NewDMNode()
+		node = ugate.NewDMNode()
 		node.PublicKey = pub
 		node.VIP = auth.Pub2VIP(pub)
-		gw.Nodes[dmFrom] = node
+		gw.UGate.Nodes[dmFrom] = node
 	}
 	node.PublicKey = pub
 	node.LastSeen = time.Now()
@@ -179,10 +164,10 @@ func (gw *Gateway) Node(pub []byte) *DMNode {
 }
 
 // Used by the mesh router to find the GW address based on IP
-func (gw *Gateway) GetNodeByID(dmFrom uint64) (*DMNode, bool) {
+func (gw *Gateway) GetNodeByID(dmFrom uint64) (*ugate.DMNode, bool) {
 	gw.m.Lock()
 	defer gw.m.Unlock()
-	node, f := gw.Nodes[dmFrom]
+	node, f := gw.UGate.Nodes[dmFrom]
 	return node, f
 }
 
@@ -202,13 +187,13 @@ func (gw *Gateway) FreeIdleSockets() {
 	var tcpClientsToTimeout []int
 
 	for client, remote := range gw.ActiveTcp {
-		if t0.Sub(remote.LastClientActivity) > tcpClose &&
-			t0.Sub(remote.LastRemoteActivity) > tcpClose {
+		if t0.Sub(remote.LastWrite) > tcpClose &&
+			t0.Sub(remote.LastRead) > tcpClose {
 			log.Printf("UDPC: %s:%d rcv=%d/%d snd=%d/%d ac=%v ra=%v op=%v la=%s",
 				remote.DestAddr.IP, remote.DestAddr.Port,
 				remote.RcvdPackets, remote.RcvdBytes,
 				remote.SentPackets, remote.SentBytes,
-				time.Since(remote.LastClientActivity), time.Since(remote.LastRemoteActivity), time.Since(remote.Open),
+				time.Since(remote.LastWrite), time.Since(remote.LastRead), time.Since(remote.Open),
 				client)
 
 			tcpClientsToTimeout = append(tcpClientsToTimeout, client)
@@ -305,7 +290,7 @@ func (gw *Gateway) DialMesh(tp *streams.TcpProxy) error {
 
 // DialMeshLocal will connect to a node that is locally known - has a MUX connection, local IP or
 // external IP.
-func (gw *Gateway) DialMeshLocal(tp *streams.TcpProxy, node *DMNode) bool {
+func (gw *Gateway) DialMeshLocal(tp *streams.TcpProxy, node *ugate.DMNode) bool {
 	if node.TunSrv != nil {
 		tp.Type = tp.Type + "-MSSHD"
 		err := node.TunSrv.DialProxy(&tp.Stream)
@@ -385,8 +370,8 @@ func (gw *Gateway) dialDirect(tp *streams.TcpProxy, addr string, dstIP net.IP, d
 		return err
 	}
 
-	tp.ServerIn = c1
-	tp.ServerOut = c1
+	tp.In = c1
+	tp.Out = c1
 
 	return nil
 }
@@ -476,22 +461,6 @@ func (gw *Gateway) Dial(tp *streams.TcpProxy, dest string, addr *net.TCPAddr) er
 		}
 	}
 
-	via := gw.Config.Via[dest]
-	if via == "" {
-		dot := strings.Index(dest, ".")
-		dd := dest[dot+1:]
-		via = gw.Config.Via[dd]
-	}
-	if via != "" {
-		// TODO
-		tcpMux := gw.JumpHosts[via]
-		if tcpMux == nil {
-			return errors.New("Not found " + via)
-		}
-		log.Println("VIA: ", dest, via)
-		return tcpMux.DialProxy(&tp.Stream)
-	}
-
 	// dest can be an IP:port or hostname:port or MESHID/[....]
 	// TODO: support literal form of MESH hosts
 	//if g.Vpn != "" {
@@ -505,21 +474,6 @@ func (gw *Gateway) Dial(tp *streams.TcpProxy, dest string, addr *net.TCPAddr) er
 	return gw.dialDirect(tp, dest, tp.DestIP, tp.DestPort)
 }
 
-
-// Implements the http.Transport.DialContext function - used for dialing requests using
-// custom net.Conn.
-//
-// Also implements x.net.proxy.ContextDialer - socks also implements it.
-func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn net.Conn, e error) {
-	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6,
-		Port: nextProxyId()}, "DIAL", nil, nil, nil)
-	err := gw.Dial(tp, addr, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return tp, nil
-}
 
 var (
 	tcpProxyId    = 0
@@ -545,10 +499,39 @@ func (gw *Gateway) NewStream(acceptClientAddr net.IP, remotePort uint16,
 	return gw.NewTcpProxy(&net.TCPAddr{IP: acceptClientAddr, Port: int(remotePort)}, ctype, initialData, clientIn, clientOut)
 }
 
+// Implements the http.Transport.DialContext function - used for dialing requests using
+// custom net.Conn.
+//
+// Also implements x.net.proxy.ContextDialer - socks also implements it.
+func (gw *Gateway) DialContext(ctx context.Context, network, addr string) (conn net.Conn, e error) {
+	// Get meta from ctx:
+	// ctype ( how was the connection received )
+	// directClientAddr - previous source
+
+	tp := gw.NewTcpProxy(&net.TCPAddr{IP: gw.Auth.VIP6,
+		Port: nextProxyId()},
+		"DIAL", nil, nil, nil)
+
+	err := gw.Dial(tp, addr, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return tp, nil
+}
+
+func (gw *Gateway) HandleTUN(conn net.Conn, target *net.TCPAddr) error {
+	_, p, err := gw.DialProxy(context.Background(), conn.RemoteAddr(), conn.LocalAddr(), "tun")
+	if err != nil {
+		return err
+	}
+	return p(conn)
+}
+
 // Glue for interface type. Called when a new captured TCP connection
 // is accepted and src/dst meta decoded.
 func (gw *Gateway) DialProxy(ctx context.Context,
-		addr net.Addr, directClientAddr *net.TCPAddr,
+		addr net.Addr, directClientAddr net.Addr,
 		ctype string, meta ...string) (net.Conn, func(client net.Conn) error, error) {
 	var addrTCP *net.TCPAddr
 	dest := ""
@@ -588,30 +571,26 @@ func (gw *Gateway) NewTcpProxy(src net.Addr,
 		initialData []byte,
 		clientIn io.ReadCloser,
 		clientOut io.Writer) *streams.TcpProxy {
-	var origIP net.IP
-	var origPort int
-	if tsrc, ok := src.(*net.TCPAddr); ok {
-		origIP = tsrc.IP
-		origPort = tsrc.Port
-	} else {
-		log.Println("UNEXPECTED SRC ", src, clientIn)
-		host, port, _ := net.SplitHostPort(src.String())
-		origPort, _ = strconv.Atoi(port)
-		origIPAddr, _ := net.ResolveIPAddr("ip", host)
-		if origIPAddr != nil {
-			origIP = origIPAddr.IP
-		}
-	}
+//	if tsrc, ok := src.(*net.TCPAddr); ok {
+		//origIP = tsrc.IP
+		//origPort = tsrc.Port
+//	} else {
+//		log.Println("UNEXPECTED SRC ", src, clientIn)
+//		host, port, _ := net.SplitHostPort(src.String())
+//		origPort, _ = strconv.Atoi(port)
+//		origIPAddr, _ := net.ResolveIPAddr("ip", host)
+//		if origIPAddr != nil {
+//			origIP = origIPAddr.IP
+//		}
+//	}
 
 	tp := &streams.TcpProxy{
-		Stream: streams.Stream{
+		Stream: ugate.Stream{
 			Open:       time.Now(),
 			Type:       ctype,
 			StreamId:   nextProxyId(),
-			Origin:     src.String(),
-			OriginIP:   origIP,
-			OriginPort: origPort,
 		},
+		Origin:     src.String(),
 		ClientAddr:   src,
 		OnProxyClose: gw.OnProxyClose,
 		Initial:      initialData,
@@ -677,28 +656,17 @@ func (gw *Gateway) OnProxyClose(tp *streams.TcpProxy) {
 	}
 	gw.tcpLock.Unlock()
 
-	if tp.ServerIn != nil {
-		tp.ServerIn.Close()
+	if tp.In != nil {
+		tp.In.Close()
 	}
-	if tp.ServerOut != nil {
-		if r, f := tp.ServerOut.(io.Closer); f {
+	if tp.Out != nil {
+		if r, f := tp.Out.(io.Closer); f {
 			r.Close()
 		}
 	}
 	if tp.ClientIn != nil {
 		tp.ClientIn.Close()
 	}
-
-	log.Printf("TCPC: %d src=%s dst=%s rcv=%d/%d snd=%d/%d la=%v ra=%v op=%v dest=%v %v %s",
-		tp.StreamId,
-		tp.Origin,
-		tp.Dest,
-		tp.RcvdPackets, tp.RcvdBytes,
-		tp.SentPackets, tp.SentBytes,
-		time.Since(tp.LastClientActivity),
-		time.Since(tp.LastRemoteActivity),
-		time.Since(tp.Open),
-		tp.PrevPath, tp.NextPath, tp.Type)
 
 	tcpConActive.Add(-1)
 
@@ -729,7 +697,7 @@ func (gw *Gateway) HttpGetNodes(w http.ResponseWriter, r *http.Request) {
 	defer gw.m.RUnlock()
 	je := json.NewEncoder(w)
 	je.SetIndent(" ", " ")
-	je.Encode(gw.Nodes)
+	je.Encode(gw.UGate.Nodes)
 }
 
 // HttpGetNodes (/dmesh/ip6) returns the list of known nodes, both direct and indirect.
@@ -737,9 +705,9 @@ func (gw *Gateway) HttpGetNodes(w http.ResponseWriter, r *http.Request) {
 func (gw *Gateway) HttpNodesFilter(w http.ResponseWriter, r *http.Request) {
 	gw.m.RLock()
 	defer gw.m.RUnlock()
-	rec := []*DMNode{}
+	rec := []*ugate.DMNode{}
 	t0 := time.Now()
-	for _, n := range gw.Nodes {
+	for _, n := range gw.UGate.Nodes {
 		if t0.Sub(n.LastSeen) < 6000*time.Millisecond {
 			rec = append(rec, n)
 		}

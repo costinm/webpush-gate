@@ -154,7 +154,7 @@ func InitQuicServerConn(h2 *h2.H2,port int,
 
 		Server: &http.Server{
 			Addr:        ":" + strconv.Itoa(port),
-			Handler:     h2.HandlerAuthWrapper(handler),
+			Handler:     h2.HandlerWrapper(handler),
 			TLSConfig:   mtlsServerConfig,
 			ReadTimeout: 5 * time.Second,
 		},
@@ -218,11 +218,13 @@ func InitQuicClient(h2 *h2.H2, destHost string) *http.Client {
 
 	*/
 	// tlsconfig.hostname can override the SNI
+	ctls := h2.Certs.GenerateTLSConfigClient()
+	//ctls.VerifyPeerCertificate = verify(destHost)
 
 	qtorig := &h2quic.RoundTripper{
 		//		Dial: h2.QuicDialer,
 
-		TLSClientConfig: h2.TlsClientConfig(destHost),
+		TLSClientConfig: ctls,
 
 		QuicConfig: &quic.Config{
 			//RequestConnectionIDOmission: false,

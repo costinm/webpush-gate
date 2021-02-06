@@ -1,0 +1,19 @@
+# Because of how host matches in vhost and gate, create one
+# gateway per port.
+# Ports must match deployment's hostPorts
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: gate5000
+  namespace: istio-gw-hostport
+spec:
+  selector:
+    app: gate
+  servers:
+    - hosts:
+        - "./*"
+      port:
+        name: http-registry
+        number: 5000
+        protocol: HTTP
+---

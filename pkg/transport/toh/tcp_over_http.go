@@ -14,16 +14,6 @@ import (
 	"github.com/costinm/wpgate/pkg/streams"
 )
 
-// K8S:
-// API_SERVER/api/v1/namespaces/%s/pods/%s/portforward
-// Forwards a local port to the pod, using SPDY or Websocket.
-
-// TODO: half close doesn't work well - if http client closes the req body, we detect and half close the remote
-// connection. However if remote half closes, we can't close the stream going back to client without terminating
-// the request, which also terminates reading from remote.
-// The fix is to either tweak the QUIC stack to keep sending request body, or use the low-level APIs, or to
-// packetize the response from remote to loca ( going in the response writter ).
-
 type TcpOverH2 struct {
 	gw *mesh.Gateway
 }
@@ -146,7 +136,7 @@ func (br *BodyReader) Read(out []byte) (int, error) {
 	n, err := ch.ClientIn.Read(out)
 	ch.SentBytes += n
 	ch.SentPackets++
-	ch.LastClientActivity = time.Now()
+	ch.LastWrite = time.Now()
 
 	if err != nil {
 		ch.ClientClose = true
@@ -288,7 +278,7 @@ func (toh *TcpOverH2) DialViaHTTP(h2 *h2.H2, tp *streams.TcpProxy, via, destAddr
 	//  - remoteIn is used to implement Read() of the net.Conn implemented by TcpProxy
 	if tp.ClientIn == nil {
 		pr, pw := io.Pipe()
-		tp.ServerOut = pw
+		tp.Out = pw
 		tp.ClientIn = pr
 	}
 
@@ -316,7 +306,7 @@ func (toh *TcpOverH2) DialViaHTTP(h2 *h2.H2, tp *streams.TcpProxy, via, destAddr
 	}
 
 	// TODO: use a H2 stream low level. res.Body would be the stream
-	tp.ServerIn = res.Body
+	tp.In = res.Body
 	// Read method of tcpp will be used, streaming of data from tcpp should have already started
 	// The proxy method will ignore remoteOut, it is hooked to "localIn" by the HTTP handler.
 	//ch.remoteOut = nil

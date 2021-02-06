@@ -41,14 +41,14 @@ type H2SServer struct {
 
 type Session struct {
 	m       sync.RWMutex
-	streams map[uint32]*Stream
+	streams map[uint32]*H2Stream
 
-	streamCh chan *Stream
+	streamCh chan *H2Stream
 	srv      *H2SServer
 	framer   *http2.Framer
 }
 
-type Stream struct {
+type H2Stream struct {
 	id uint32
 	s *Session
 
@@ -73,8 +73,8 @@ func Listen(ll net.Listener, tls *tls.Config, cfg *H2SCfg) *H2SServer {
 		}
 		h2ss := &Session{
 			srv: h2s,
-			streams: map[uint32]*Stream{},
-			streamCh: make(chan *Stream, 8),
+			streams: map[uint32]*H2Stream{},
+			streamCh: make(chan *H2Stream, 8),
 		}
 
 		go h2ss.handleStreamServer(str, h2s.tls)
@@ -150,7 +150,7 @@ func (h2s *Session) handleStreamClient(c net.Conn, tlsCfg *tls.Config) error {
 		h2s.srv.cfg.OnConnection(h2s)
 	}
 
-	var str *Stream
+	var str *H2Stream
 	for {
 		f, err := h2f.ReadFrame()
 		if err != nil {
@@ -215,12 +215,12 @@ func (h2s *Session) handleStreamClient(c net.Conn, tlsCfg *tls.Config) error {
 	return nil
 }
 
-func (h2s *Session) handleStream(s *Stream) {
+func (h2s *Session) handleStream(s *H2Stream) {
 
 }
 
 
-func (h2s *Session) stream(id uint32) *Stream {
+func (h2s *Session) stream(id uint32) *H2Stream {
 	h2s.m.RLock()
 	if ss, f := h2s.streams[id]; f {
 		h2s.m.RUnlock()
@@ -230,7 +230,7 @@ func (h2s *Session) stream(id uint32) *Stream {
 
 	h2s.m.Lock()
 	bb := &bytes.Buffer{}
-	ss := &Stream{
+	ss := &H2Stream{
 		s: h2s,
 		hbuf: bb,
 		henc: hpack.NewEncoder(bb),
@@ -244,35 +244,35 @@ func (h2s *Session) stream(id uint32) *Stream {
 	return ss
 }
 
-func (h2s *Session) AcceptStream(background context.Context) (*Stream, error) {
+func (h2s *Session) AcceptStream(background context.Context) (*H2Stream, error) {
 
-		return &Stream{}, nil
+		return &H2Stream{}, nil
 }
 
 // In Quic, it's OpenStreamSync - quic returns a stream of bytes that is framed independently
 // For H2, streams are opened using HEADER - using a http.Request to pass info
-func (h2s *Session) OpenStreamSync(background context.Context) (*Stream, error) {
+func (h2s *Session) OpenStreamSync(background context.Context) (*H2Stream, error) {
 
-	return &Stream{}, nil
+	return &H2Stream{}, nil
 }
 
-func (str *Stream) Close() error {
+func (str *H2Stream) Close() error {
 	return nil
 }
 
-func (str *Stream) WriteHeader(r *http.Request) (n int, err error) {
+func (str *H2Stream) WriteHeader(r *http.Request) (n int, err error) {
 	panic("implement me")
 }
 
-func (str *Stream) Write(p []byte) (n int, err error) {
+func (str *H2Stream) Write(p []byte) (n int, err error) {
 	panic("implement me")
 }
 
-func (str *Stream) ReadHeader(r *http.Request) (n int, err error) {
+func (str *H2Stream) ReadHeader(r *http.Request) (n int, err error) {
 	panic("implement me")
 }
 
-func (str *Stream) Read(p []byte) (n int, err error) {
+func (str *H2Stream) Read(p []byte) (n int, err error) {
 	panic("implement me")
 }
 

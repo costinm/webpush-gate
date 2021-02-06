@@ -10,7 +10,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/costinm/wpgate/pkg/auth"
@@ -214,39 +213,5 @@ func TestTransportH2c(t *testing.T) {
 	}
 	if got, want := string(body), "Hello, /foobar, http: true"; got != want {
 		t.Fatalf("response got %v, want %v", got, want)
-	}
-}
-var tlsConfigInsecure = &tls.Config{InsecureSkipVerify: true}
-
-func Test_Service(t *testing.T) {
-	mux := http.NewServeMux()
-
-	// Real TLS server listener, httptest.Server
-	srv := httptest.NewUnstartedServer(mux)
-	srv.EnableHTTP2 = true
-	srv.StartTLS()
-	defer srv.Close()
-
-	http2.ConfigureServer(srv.Config, &http2.Server{})
-	log.Println(srv.URL)
-
-	url := srv.URL
-
-	// h2 - inspired from h2demo
-	http2.VerboseLogs = true
-
-	tr := &http.Transport{
-		TLSClientConfig: tlsConfigInsecure,
-	}
-	hc := http.Client{
-		Transport: tr,
-	}
-	res, err := hc.Get(url + "/subscribe")
-	if err != nil {
-		t.Fatal("subscribe", err)
-	}
-	loc := res.Header.Get("location")
-	if len(loc) == 0 {
-		t.Fatal("location", res)
 	}
 }

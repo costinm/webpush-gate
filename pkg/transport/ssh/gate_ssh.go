@@ -7,9 +7,11 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
@@ -76,7 +78,7 @@ type SSHGate struct {
 	rAccept   streams.Metric
 	rMesh     *streams.ServiceMetrics
 
-	certs *auth.Auth
+	certs *ugate.Auth
 
 	ConnectTimeout time.Duration
 }
@@ -113,7 +115,7 @@ type SSHConn struct {
 	vip        uint64
 	VIP6       net.IP
 
-	Node *mesh.DMNode
+	Node *ugate.DMNode
 
 	// TODO: both extend ssh.Conn - server has Permissions
 	sshConn *ssh.ServerConn
@@ -129,7 +131,7 @@ type SSHConn struct {
 //}
 
 // Initialize the SSH gateway.
-func NewSSHGate(gw *mesh.Gateway, certs *auth.Auth) *SSHGate {
+func NewSSHGate(gw *mesh.Gateway, certs *ugate.Auth) *SSHGate {
 	sg := &SSHGate{
 		SshClients: map[string]*SSHConn{},
 		SshConn:    map[uint64]*SSHServerConn{},
@@ -151,7 +153,7 @@ func NewSSHGate(gw *mesh.Gateway, certs *auth.Auth) *SSHGate {
 
 const SSH_MSG = true
 
-func (sshGate *SSHGate) DirectConnect(node *mesh.DMNode) (chan error, error) {
+func (sshGate *SSHGate) DirectConnect(node *ugate.DMNode) (chan error, error) {
 	return nil, nil
 }
 
@@ -160,7 +162,7 @@ func (sshGate *SSHGate) DirectConnect(node *mesh.DMNode) (chan error, error) {
 //
 // If node has a VIP or public key it will be checked.
 // The resulting MuxedConn will be set a node.TunClient
-func (sshGate *SSHGate) ConnectStream(node *mesh.DMNode,
+func (sshGate *SSHGate) ConnectStream(node *ugate.DMNode,
 	addr string,
 	conn net.Conn) (func() error, error) {
 
@@ -217,7 +219,7 @@ func (sshGate *SSHGate) ConnectStream(node *mesh.DMNode,
 
 
 func (sshGate *SSHGate) DialMUX(addr string,
-	pub []byte, subs []string) (mesh.MuxedConn, error) {
+	pub []byte, subs []string) (ugate.MuxedConn, error) {
 
 	// TODO: remove subs, separate topic
 	// TODO: pub should be set for 'trusted' nodes.
@@ -234,7 +236,7 @@ func (sshGate *SSHGate) DialMUX(addr string,
 }
 
 func (sshGate *SSHGate) DialCon(conn net.Conn, addr string,
-			pub []byte) (mesh.MuxedConn, error) {
+			pub []byte) (ugate.MuxedConn, error) {
 	sshC := &SSHConn{
 			Addr:                addr,
 			gate:                sshGate,
@@ -322,7 +324,7 @@ func (sshGate *SSHGate)	onConnect(sshC *SSHConn, client *ssh.Client, addr string
 	log.Println("/sshc/connect", sshC.Addr)
 }
 
-func (sshGate *SSHGate) keepalive(client *ssh.Client, n *mesh.DMNode) func() {
+func (sshGate *SSHGate) keepalive(client *ssh.Client, n *ugate.DMNode) func() {
 	return func() {
 		for {
 			rcvd := false
@@ -381,24 +383,18 @@ func (sshC *SSHConn) Close() error {
 // On success, tp.Server[In|Out] will be set with a connection to
 //  tp.Dest:tp.DestPort
 // Uses the equivalent of "-L".
-func (sshC *SSHConn) DialProxy(tp *streams.Stream) error {
+func (sshC *SSHConn) DialProxy(tp *ugate.Stream) error {
 	// Parse the address into host and numeric port.
-	h, _, _ := net.SplitHostPort(tp.Dest)
+	h, p, _ := net.SplitHostPort(tp.Dest)
+	pp, _ := strconv.Atoi(p)
 
 	msg := channelOpenDirectMsg{
 		Raddr: h,
-		Rport: uint32(tp.DestPort),
+		Rport: uint32(pp),
 	}
 
-	if tp.OriginIP != nil && tp.OriginIP[0] != 127 && tp.OriginIP[0] != 10 {
-		// Pass original 'originIP/port' - passed at creation time, from remote data.
-		// Captured traffic has 127.0.0.1
-		msg.Laddr = tp.OriginIP.String()
-		msg.Lport = uint32(tp.OriginPort)
-	} else {
-		msg.Laddr = sshC.gate.certs.VIP6.String() // tp.OriginIP.String(),
-		msg.Lport = uint32(tp.StreamId)
-	}
+	msg.Laddr = sshC.gate.certs.VIP6.String() // tp.OriginIP.String(),
+	msg.Lport = uint32(tp.StreamId)
 
 	var ch ssh.Channel = nil
 	time.AfterFunc(5*time.Second, func() {
@@ -417,8 +413,8 @@ func (sshC *SSHConn) DialProxy(tp *streams.Stream) error {
 	}
 	go ssh.DiscardRequests(in)
 
-	tp.ServerOut = ch
-	tp.ServerIn = ch
+	tp.Out = ch
+	tp.In = ch
 	return nil
 }
 
@@ -599,7 +595,7 @@ func MaintainVPNConnection(gw *mesh.Gateway) {
 const version = "SSH-2.0-dmesh"
 
 func (sshGate *SSHGate) clientConfig(sshC *SSHConn, pub []byte) *ssh.ClientConfig {
-	signer, _ := ssh.NewSignerFromKey(sshGate.certs.EC256PrivateKey) // ssh.Signer
+	signer, _ := ssh.NewSignerFromKey(sshGate.certs.EC256Cert.PrivateKey) // ssh.Signer
 	user := "dmesh"
 	sshGate.cmetrics.Total.Add(1)
 
@@ -607,14 +603,14 @@ func (sshGate *SSHGate) clientConfig(sshC *SSHConn, pub []byte) *ssh.ClientConfi
 
 	authm = append(authm, ssh.PublicKeys(signer))
 
-	if sshGate.certs.RSAPrivate != nil {
-		signer1, err := ssh.NewSignerFromKey(sshGate.certs.RSAPrivate)
+	if sshGate.certs.RSACert != nil {
+		signer1, err := ssh.NewSignerFromKey(sshGate.certs.RSACert.PrivateKey)
 		if err == nil {
 			authm = append(authm, ssh.PublicKeys(signer1))
 		}
 	}
-	if sshGate.certs.EDPrivate != nil {
-		signer1, err := ssh.NewSignerFromKey(sshGate.certs.EDPrivate)
+	if sshGate.certs.ED25519Cert.PrivateKey != nil {
+		signer1, err := ssh.NewSignerFromKey(sshGate.certs.ED25519Cert.PrivateKey)
 		if err == nil {
 			authm = append(authm, ssh.PublicKeys(signer1))
 		}

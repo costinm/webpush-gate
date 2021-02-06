@@ -31,9 +31,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/costinm/ugate"
 	dmdns "github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/mesh"
-	"github.com/costinm/wpgate/pkg/streams"
 	"github.com/miekg/dns"
 	"golang.org/x/net/ipv4"
 )
@@ -121,7 +121,7 @@ var (
 // Represents on UDP 'nat' connection.
 // Currently full cone, i.e. one local port per NAT.
 type UdpNat struct {
-	streams.Stream
+	ugate.Stream
 	// bound to a local port (on the real network).
 	UDP *net.UDPConn
 
@@ -144,7 +144,7 @@ type UDPGate struct {
 	// UDP
 	// Capture return - sends packets back to client app.
 	// This is typically a netstack or TProxy
-	UDPWriter mesh.UdpWriter
+	UDPWriter ugate.UdpWriter
 
 	DNS *dmdns.DmDns
 
@@ -218,7 +218,7 @@ func remoteConnectionReadLoop(gw *UDPGate, localAddr *net.UDPAddr, upstreamConn 
 			gw.udpLock.Unlock()
 			return
 		}
-		udpN.LastRemoteActivity = time.Now()
+		udpN.LastRead = time.Now()
 		udpN.RcvdPackets++
 		udpN.RcvdBytes += size
 
@@ -363,7 +363,7 @@ func (gw *UDPGate) HandleUdp(dstAddr net.IP, dstPort uint16,
 	dst := &net.UDPAddr{Port: int(dstPort), IP: dstAddr}
 	n, err := conn.UDP.WriteTo(data, dst)
 
-	conn.LastClientActivity = time.Now()
+	conn.LastWrite = time.Now()
 	conn.SentPackets++
 	conn.SentBytes += len(data)
 	conn.Open = time.Now()
@@ -395,12 +395,12 @@ func FreeIdleSockets(gw *UDPGate) {
 	active := 0
 	t0 := time.Now()
 	for client, remote := range gw.ActiveUdp {
-		if t0.Sub(remote.LastClientActivity) > gw.ConnTimeout {
+		if t0.Sub(remote.LastWrite) > gw.ConnTimeout {
 			log.Printf("UDPC: %s:%d rcv=%d/%d snd=%d/%d ac=%v ra=%v op=%v lr=%s:%d la=%s %s",
 				remote.DestAddr.IP, remote.DestAddr.Port,
 				remote.RcvdPackets, remote.RcvdBytes,
 				remote.SentPackets, remote.SentBytes,
-				time.Since(remote.LastClientActivity), time.Since(remote.LastRemoteActivity), time.Since(remote.Open),
+				time.Since(remote.LastWrite), time.Since(remote.LastRead), time.Since(remote.Open),
 				remote.LastRemoteIP, remote.LastsRemotePort, remote.UDP.LocalAddr(), client)
 			remote.Closed = true
 			clientsToTimeout = append(clientsToTimeout, client)
@@ -410,7 +410,7 @@ func FreeIdleSockets(gw *UDPGate) {
 				hs = &mesh.HostStats{Open: time.Now()}
 				gw.AllUdpCon[remote.Dest] = hs
 			}
-			hs.Last = remote.LastRemoteActivity
+			hs.Last = remote.LastRead
 			hs.SentPackets += remote.SentPackets
 			hs.SentBytes += remote.SentBytes
 			hs.RcvdPackets += remote.RcvdPackets

@@ -12,9 +12,9 @@ import (
 
 	_ "net/http/pprof"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
-	"github.com/costinm/wpgate/pkg/transport/accept"
 	"golang.org/x/net/http2"
 )
 
@@ -55,17 +55,17 @@ func TestGateway(baseport int) *mesh.Gateway {
 	h2c.InitMTLSServer(baseport, h2c.MTLSMux)
 
 	gw := mesh.New(h2c.Certs,
-		&mesh.GateCfg{})
+		&ugate.GateCfg{})
 
 	// /tcp ingress circuits
 	// ingress only via SSHClientConn and accepted connections
 	//gw.InitMux(h2c.MTLSMux)
 
-	accept.NewForwarder(gw, &mesh.ListenerConf{
-		Local:  fmt.Sprintf(":%d", baseport+3),
-		Remote: "localhost:8000",
-	})
-
+	//accept.NewForwarder(gw, &mesh.Listener{
+	//	Local:  fmt.Sprintf(":%d", baseport+3),
+	//	Remote: "localhost:8000",
+	//})
+	//
 	return gw
 }
 

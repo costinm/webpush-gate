@@ -1,19 +1,17 @@
 package httpproxy
 
 import (
-	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
 	"strings"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
-	"github.com/costinm/wpgate/pkg/streams"
 )
 
 // Reverse proxy for HTTP requests.
@@ -56,7 +54,7 @@ type HTTPGate struct {
 // Used if the Host header found is configured explicitly to forward to a specific address.
 func (gw *HTTPGate) ForwardHTTP(w http.ResponseWriter, r *http.Request, pathH string) {
 	r.Host = pathH
-	r1, cancel := createUpstreamRequest(w, r)
+	r1, cancel := ugate.CreateUpstreamRequest(w, r)
 	defer cancel()
 
 	r1.URL.Scheme = "http"
@@ -68,20 +66,20 @@ func (gw *HTTPGate) ForwardHTTP(w http.ResponseWriter, r *http.Request, pathH st
 	// can add headers to the response
 
 	res, err := gw.h2.Client(r1.URL.Host).Transport.RoundTrip(r1)
-	SendBackResponse(w, r, res, err)
+	ugate.SendBackResponse(w, r, res, err)
 }
 
 // HTTP proxy.
 // Host headers:
 // - NODEID.dm -> forwarded to node, using connected client or parent.
 // - configured host -> forwarded via HTTP/1.1 or H2, local named hosts
-func (gw *HTTPGate) Forward443(w http.ResponseWriter, r *http.Request) {
-	gw.proxy(w, r)
-}
-
-func (gw *HTTPGate) Forward80(w http.ResponseWriter, r *http.Request) {
-	gw.proxy(w, r)
-}
+//func (gw *HTTPGate) Forward443(w http.ResponseWriter, r *http.Request) {
+//	gw.proxy(w, r)
+//}
+//
+//func (gw *HTTPGate) Forward80(w http.ResponseWriter, r *http.Request) {
+//	gw.proxy(w, r)
+//}
 
 // Http proxy to a configured HTTP host. Hostname to HTTP address explicitly
 // configured. Also hostnmae to file serving.
@@ -95,12 +93,6 @@ func (gw *HTTPGate) proxy(w http.ResponseWriter, r *http.Request) bool {
 	if len(host.Addr) > 0 {
 		log.Println("FWDHTTP: ", r.Method, r.Host, r.RemoteAddr, r.URL)
 		gw.ForwardHTTP(w, r, host.Addr)
-	}
-	if host.Dir != "" {
-		if host.Mux == nil {
-			host.Mux = http.FileServer(http.Dir(host.Dir))
-		}
-		host.Mux.ServeHTTP(w, r)
 	}
 	return true
 }
@@ -294,160 +286,6 @@ func BaseURL(gw *net.UDPAddr) string {
 	return "https://" + strings.Replace(gw.String(), "%", "%25", 1)
 }
 
-// createUpstremRequest shallow-copies r into a new request
-// that can be sent upstream.
-//
-// Derived from reverseproxy.go in the standard Go httputil package.
-// Derived from caddy
-func createUpstreamRequest(rw http.ResponseWriter, r *http.Request) (*http.Request, context.CancelFunc) {
-	// Original incoming DmDns request may be canceled by the
-	// user or by std lib(e.g. too many idle connections).
-	ctx, cancel := context.WithCancel(r.Context())
-	if cn, ok := rw.(http.CloseNotifier); ok {
-		notifyChan := cn.CloseNotify()
-		go func() {
-			select {
-			case <-notifyChan:
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
-	}
-
-	outreq := r.WithContext(ctx) // includes shallow copies of maps, but okay
-
-	// We should set body to nil explicitly if request body is empty.
-	// For DmDns requests the Request Body is always non-nil.
-	if r.ContentLength == 0 {
-		outreq.Body = nil
-	}
-
-	// We are modifying the same underlying map from req (shallow
-	// copied above) so we only copy it if necessary.
-	copiedHeaders := false
-
-	// Remove hop-by-hop headers listed in the "Connection" header.
-	// See RFC 2616, section 14.10.
-	if c := outreq.Header.Get("Connection"); c != "" {
-		for _, f := range strings.Split(c, ",") {
-			if f = strings.TrimSpace(f); f != "" {
-				if !copiedHeaders {
-					outreq.Header = make(http.Header)
-					copyHeader(outreq.Header, r.Header)
-					copiedHeaders = true
-				}
-				outreq.Header.Del(f)
-			}
-		}
-	}
-
-	// Remove hop-by-hop headers to the backend. Especially
-	// important is "Connection" because we want a persistent
-	// connection, regardless of what the client sent to us.
-	for _, h := range hopHeaders {
-		if outreq.Header.Get(h) != "" {
-			if !copiedHeaders {
-				outreq.Header = make(http.Header)
-				copyHeader(outreq.Header, r.Header)
-				copiedHeaders = true
-			}
-			outreq.Header.Del(h)
-		}
-	}
-
-	if clientIP, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		// If we aren't the first proxy, retain prior
-		// X-Forwarded-For information as a comma+space
-		// separated list and fold multiple headers into one.
-		if prior, ok := outreq.Header["X-Forwarded-For"]; ok {
-			clientIP = strings.Join(prior, ", ") + ", " + clientIP
-		}
-		outreq.Header.Set("X-Forwarded-For", clientIP)
-	}
-
-	return outreq, cancel
-}
-
-// Hop-by-hop headers. These are removed when sent to the backend in createUpstreamRequest
-// http://www.w3.org/Protocols/rfc2616/rfc2616-sec13.html
-var hopHeaders = []string{
-	"Alt-Svc",
-	"Alternate-Protocol",
-	"Connection",
-	"Keep-Alive",
-	"HTTPGate-Authenticate",
-	"HTTPGate-Authorization",
-	"HTTPGate-Connection", // non-standard but still sent by libcurl and rejected by e.g. google
-	"Te",                  // canonicalized version of "TE"
-	"Trailer",             // not Trailers per URL above; http://www.rfc-editor.org/errata_search.php?eid=4522
-	"Transfer-Encoding",
-	"Upgrade",
-}
-
-// used in createUpstreamRequetst to copy the headers to the new req.
-func copyHeader(dst, src http.Header) {
-	for k, vv := range src {
-		if _, ok := dst[k]; ok {
-			// skip some predefined headers
-			// see https://github.com/mholt/caddy/issues/1086
-			if _, shouldSkip := skipHeaders[k]; shouldSkip {
-				continue
-			}
-			// otherwise, overwrite to avoid duplicated fields that can be
-			// problematic (see issue #1086) -- however, allow duplicate
-			// Server fields so we can see the reality of the proxying.
-			if k != "Server" {
-				dst.Del(k)
-			}
-		}
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
-	}
-}
-
-// skip these headers if they already exist.
-// see https://github.com/mholt/caddy/pull/1112#discussion_r80092582
-var skipHeaders = map[string]struct{}{
-	"Content-Type":        {},
-	"Content-Disposition": {},
-	"accept-Ranges":       {},
-	"Set-Cookie":          {},
-	"Cache-Control":       {},
-	"Expires":             {},
-}
-
-// ------ End 'createUpstreamRequest' --------
-
-// Used by both ForwardHTTP and ForwardMesh, after RoundTrip is done.
-// Will copy response headers and body
-func SendBackResponse(w http.ResponseWriter, r *http.Request,
-	res *http.Response, err error) {
-
-	if err != nil {
-		if res != nil {
-			CopyHeaders(w.Header(), res.Header)
-			w.WriteHeader(res.StatusCode)
-			io.Copy(w, res.Body)
-			log.Println("Got ", err, res.Header)
-		} else {
-			http.Error(w, err.Error(), 500)
-		}
-		return
-	}
-
-	origBody := res.Body
-	defer origBody.Close()
-
-	CopyHeaders(w.Header(), res.Header)
-	w.WriteHeader(res.StatusCode)
-
-	stats := &streams.Stream{}
-	n, err := stats.CopyBuffered(w, res.Body, true)
-
-	log.Println("Done: ", r.URL, res.StatusCode, n, err)
-}
-
 // ReverseForward the request to a DMESH host, using a neighbor address.
 //
 // path is either a URL on the destination host or a forward.
@@ -483,7 +321,7 @@ func (gw *HTTPGate) DMNodeHttpRequestViaNeighbor(or *http.Request, w http.Respon
 		return err
 	}
 
-	SendBackResponse(w, r, res, err)
+	ugate.SendBackResponse(w, r, res, err)
 	log.Println("HFWD-VIA", nurl, oldPath, oldPathIp, res.StatusCode)
 
 	return nil
@@ -510,7 +348,7 @@ func (gw *HTTPGate) ProxyHttp(cl *http.Client, or *http.Request, w http.Response
 		return err
 	}
 
-	SendBackResponse(w, r, res, err)
+	ugate.SendBackResponse(w, r, res, err)
 	log.Println("HFWD-DIRECT-OUT", nurl, oldPath, res.StatusCode)
 
 	return nil
@@ -519,15 +357,3 @@ func (gw *HTTPGate) ProxyHttp(cl *http.Client, or *http.Request, w http.Response
 // See http.ProxyFromEnvironment(req) - using HTTP_PROXY, HTTPS_PROXY and NO_PROXY
 // HTTPS_PROXY has precedence.
 // HTTPGate URL can be http, https or socks5 scheme
-
-// Also used in httpproxy_capture, for forward http proxy
-func CopyHeaders(dst, src http.Header) {
-	for k, _ := range dst {
-		dst.Del(k)
-	}
-	for k, vs := range src {
-		for _, v := range vs {
-			dst.Add(k, v)
-		}
-	}
-}

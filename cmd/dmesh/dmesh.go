@@ -12,7 +12,7 @@ import (
 
 // Full: all features. Has a UDS connection, similar with the Android package.
 func main() {
-	log.Print("Starting native process pwd=", os.Getenv("PWD"), os.Environ())
+	log.Print("Starting native process pwd=", os.Getenv("PWD"))
 	bp := 5200
 	base := os.Getenv("BASE_PORT")
 	if base != "" {
@@ -29,8 +29,8 @@ func main() {
 	// Debug interface
 	log.Println("Starting WPS server on ", all.BasePort)
 
-	bootstrap.ClientUDSConnection(all.GW, all.Local, all.Conf)
-	bootstrap.ServerUDSConnection(all.GW, all.Local, all.Conf)
+	go bootstrap.ClientUDSConnection(all.GW, all.Conf)
+	go bootstrap.ServerUDSConnection(all.GW, all.Conf)
 
 	//// Periodic registrations.
 	//m.Registry.RefreshNetworksPeriodic()

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
 	"github.com/costinm/wpgate/pkg/dns"
@@ -13,7 +14,6 @@ import (
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
-	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
@@ -33,8 +33,6 @@ import (
 // - socks
 // - local http proxy
 func main() {
-	// Set if running in a knative env.
-	knativePort := os.Getenv("PORT")
 
 	bp := 5200
 	base := os.Getenv("BASE_PORT")
@@ -47,8 +45,8 @@ func main() {
 	// File-based config, load identity and auth
 	config := conf.NewConf(cfgDir, "./var/lib/dmesh/")
 
-	authz := auth.NewAuth(config, "", "m.webinf.info")
-	authz.Dump()
+	authz := ugate.NewAuth(config, "", "m.webinf.info")
+	//authz.Dump()
 
 	// Init Auth on the DefaultMux, for messaging
 	msgs.DefaultMux.Auth = authz
@@ -73,6 +71,7 @@ func main() {
 	// - will send mesh connections
 	// - messaging
 	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
+
 	if meshH != "" && meshH != "OFF" {
 		GW.Vpn = meshH
 		go sshgate.MaintainVPNConnection(GW)
@@ -88,13 +87,6 @@ func main() {
 	// Messages and streams over websocket - HTTP/1.1 compatible
 	websocket.WSTransport(msgs.DefaultMux, sshg, h2s.MTLSMux)
 
-	// Egress - SOCKS, HTTP
-	s5, err := socks.Socks5Capture(laddr(bp, 24), GW)
-	if err != nil {
-		log.Print("Error: ", err)
-	}
-	log.Println("Start SOCKS, use -x socks5://" + s5.Listener.Addr().String())
-
 	hgw := httpproxy.NewHTTPGate(GW, h2s)
 	hgw.HttpProxyCapture(laddr(bp, 3))
 
@@ -103,11 +95,7 @@ func main() {
 	dns.Start(h2s.MTLSMux)
 	GW.DNS = dns
 
-	if knativePort == "" {
-		h2s.InitMTLSServer(bp+28, h2s.MTLSMux)
-	} else {
-		h2s.InitPlaintext(":" + knativePort)
-	}
+	h2s.InitMTLSServer(bp+28, h2s.MTLSMux)
 
 	select {}
 }

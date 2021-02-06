@@ -129,3 +129,9 @@ install/proto:
 #	go get github.com/gogo/protobuf/protoc-gen-gogo
 #	go get github.com/gogo/protobuf/protoc-gen-gogofast
 #	go get github.com/gogo/protobuf/protoc-gen-gogoslick
+
+run/home:
+    CGO_ENABLED=0 go build -o ${OUT}/ugate github.com/costinm/ugate/cmd/ugate
+    ls -l ${OUT}/ugate
+    strip ${OUT}/ugate
+    ls -l ${OUT}/ugate

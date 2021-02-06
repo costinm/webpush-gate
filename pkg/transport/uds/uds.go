@@ -130,7 +130,6 @@ func (uc *UdsConn) Redial() error {
 	err = uc.handshakeClient()
 
 	return err
-
 }
 
 func (uds *UdsServer) Close() {

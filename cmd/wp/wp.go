@@ -22,10 +22,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
 	"github.com/costinm/wpgate/pkg/h2"
-	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 )
@@ -221,7 +221,7 @@ func main() {
 var watchers = map[uint64]*watcher{}
 
 type watcher struct {
-	Node *mesh.DMNode
+	Node *ugate.DMNode
 	Path []string
 
 	dirty bool
@@ -278,7 +278,7 @@ func watchNodes() {
 }
 
 // Get neighbors from a node. Side effect: updates the watchers table.
-func neighbors(url string, path []string) map[uint64]*mesh.DMNode {
+func neighbors(url string, path []string) map[uint64]*ugate.DMNode {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		log.Print("HTTP_ERROR1", url, err)
@@ -298,7 +298,7 @@ func neighbors(url string, path []string) map[uint64]*mesh.DMNode {
 	}
 
 	cnodes, _ := ioutil.ReadAll(res.Body)
-	cnodemap := map[uint64]*mesh.DMNode{}
+	cnodemap := map[uint64]*ugate.DMNode{}
 	err = json.Unmarshal(cnodes, &cnodemap)
 	if err != nil {
 		log.Println("HTTP_ERROR_RES", url, err, string(cnodes))

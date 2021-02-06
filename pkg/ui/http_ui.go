@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/conf"
 	"github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/h2"
@@ -198,10 +199,10 @@ func QuitHandler(writer http.ResponseWriter, request *http.Request) {
 	os.Exit(0)
 }
 
-func NodeID(n *mesh.DMNode) string {
+func NodeID(n *ugate.DMNode) string {
 	return hex.EncodeToString(n.VIP[8:])
 }
-func IP6(n *mesh.DMNode) net.IP {
+func IP6(n *ugate.DMNode) net.IP {
 	return n.VIP
 }
 func ToJson(n interface{}) string {

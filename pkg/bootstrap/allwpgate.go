@@ -2,26 +2,24 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"time"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
 	"github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
-	"github.com/costinm/wpgate/pkg/transport/accept"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/ipfs"
-	"github.com/costinm/wpgate/pkg/transport/iptables"
 	"github.com/costinm/wpgate/pkg/transport/local"
-	"github.com/costinm/wpgate/pkg/transport/sni"
-	"github.com/costinm/wpgate/pkg/transport/socks"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/udp"
 	"github.com/costinm/wpgate/pkg/transport/uds"
@@ -100,7 +98,6 @@ type ServerAll struct {
 
 	GW *mesh.Gateway
 
-	Socks5 net.Listener
 	hgw    *httpproxy.HTTPGate
 	H2     *h2.H2
 
@@ -122,23 +119,29 @@ func StartAll(a *ServerAll) {
 	config := conf.NewConf(a.ConfDir, "./var/lib/dmesh/")
 	a.Conf = config
 
-	// Init or load certificates/keys
-	authz := auth.NewAuth(config, "", "m.webinf.info")
-	authz.Dump()
+	cfg := &ugate.GateCfg{
+		BasePort: 15000,
+		Domain: "h.webinf.info",
+	}
+	data, err := config.Get("ugate.json")
+	if err == nil && data != nil {
+		err = json.Unmarshal(data, cfg)
+		if err != nil {
+			log.Println("Error parsing json ", err, string(data))
+		}
+	}
+
+	authz := ugate.NewAuth(config, cfg.Name, cfg.Domain)
+	// By default, pass through using net.Dialer
+	ug := ugate.NewGate(&net.Dialer{}, authz, cfg)
+
 
 	// Init Auth on the DefaultMux, for messaging
 	msgs.DefaultMux.Auth = authz
 
-	gcfg := &mesh.GateCfg{}
-	err := conf.Get(config, "gate.json", gcfg)
-	if err != nil {
-		log.Println("Use default config ", err)
-	} else {
-		log.Println("Cfg: ", gcfg)
-	}
-
 	// HTTPGate - common structures
-	a.GW = mesh.New(authz, gcfg)
+	a.GW = mesh.New(authz, cfg)
+	a.GW.UGate = ug
 
 	// Create the H2
 	h2s, err := h2.NewTransport(authz)
@@ -219,55 +222,34 @@ func (a *ServerAll) StartMsg() {
 }
 
 func (a *ServerAll) StartExtra() {
-	var err error
-	// accept: used for SSH -R
-
-	s5, err := socks.Socks5Capture(a.laddr(SOCKS), a.GW)
-	if err != nil {
-		log.Print("Error: ", err)
-	}
-	log.Println("Start SOCKS, use -x socks5://" + s5.Listener.Addr().String())
-	a.Socks5 = s5.Listener
-
-	// Outbound capture using Istio config
-	iptables.StartIstioCapture(a.GW, "127.0.0.1:15002")
-
-	sniAddr := os.Getenv("SNI_ADDR")
-	if sniAddr != "" {
-		go sni.SniProxy(a.GW, sniAddr)
-	}
-
 	a.hgw = httpproxy.NewHTTPGate(a.GW, a.H2)
 	a.hgw.HttpProxyCapture(a.laddr(HTTP_PROXY))
 
 	// Local DNS resolver. Can forward up.
-	dnss, err := dns.NewDmDns(a.BasePort + DNS)
+	dnss, _ := dns.NewDmDns(a.BasePort + DNS)
 	dnss.Start(a.H2.MTLSMux)
 	a.GW.DNS = dnss
 
-	// Explicit TCP forwarders.
-	for _, t := range a.GW.Config.Listeners {
-		accept.NewForwarder(a.GW, t)
-	}
 
 	udpNat := udp.NewUDPGate(a.GW)
 	a.UDPNat = udpNat
 
 	a.IPFS = ipfs.InitIPFS(a.GW.Auth, 5231, a.H2.MTLSMux)
+
 	a.H2.LocalMux.Handle("/ipfs/", a.IPFS)
 }
 
-func ServerUDSConnection(gw *mesh.Gateway, ld *local.LLDiscovery, cfg *conf.Conf) {
+func ServerUDSConnection(gw *mesh.Gateway, cfg *conf.Conf) {
 	srv, err := uds.NewServer("lproxy", msgs.DefaultMux)
 	if err != nil {
 		log.Println("Can't start lproxy UDS", err)
 		return
 	}
 
-	srv.Start()
+	go srv.Start()
 }
 
-func ClientUDSConnection(gw *mesh.Gateway, ld *local.LLDiscovery, cfg *conf.Conf) {
+func ClientUDSConnection(gw *mesh.Gateway, cfg *conf.Conf) {
 	// Attempt to connect to local UDS socket, to communicate with android app.
 	for i := 0; i < 5; i++ {
 		ucon, err := uds.Dial("dmesh", msgs.DefaultMux, map[string]string{})

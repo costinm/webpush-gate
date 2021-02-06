@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -10,11 +11,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
-	"github.com/costinm/wpgate/pkg/streams"
-	"github.com/costinm/wpgate/pkg/transport/accept"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -113,7 +112,7 @@ func (sshGate *SSHGate) InitServer() error {
 		},
 	}
 
-	privateKey, err := ssh.NewSignerFromKey(sshGate.certs.EC256PrivateKey) // ssh.Signer
+	privateKey, err := ssh.NewSignerFromKey(sshGate.certs.EC256Cert.PrivateKey) // ssh.Signer
 	config.AddHostKey(privateKey)
 
 	sshGate.serverConfig = config
@@ -300,15 +299,15 @@ type SSHServerConn struct {
 	SSHConn
 }
 
-func (sc *SSHServerConn) RemoteVIP() net.IP {
-	return sc.VIP6
+func (sshS *SSHServerConn) RemoteVIP() net.IP {
+	return sshS.VIP6
 }
 
-func (sc *SSHServerConn) Wait() error {
+func (sshS *SSHServerConn) Wait() error {
 	return nil
 }
 
-func (sc *SSHServerConn) RemoteAccept(r, f string) error {
+func (sshS *SSHServerConn) RemoteAccept(r, f string) error {
 	return nil
 }
 func (sshS *SSHServerConn) Close() error {
@@ -317,7 +316,7 @@ func (sshS *SSHServerConn) Close() error {
 }
 
 // Global requests
-func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n *mesh.DMNode, nConn net.Conn, conn *ssh.ServerConn, vipHex string, sshGate *SSHGate) {
+func (sshS *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n *ugate.DMNode, nConn net.Conn, conn *ssh.ServerConn, vipHex string, sshGate *SSHGate) {
 	for r := range reqs {
 		// Global types.
 		switch r.Type {
@@ -334,16 +333,16 @@ func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n 
 			}
 
 			if req.BindPort == SSH_MESH_PORT || req.BindPort != H2_MESH_PORT {
-				scon.handleMeshNodeForward(req, n, r, vipHex)
+				sshS.handleMeshNodeForward(req, n, r, vipHex)
 			} else {
-				if scon.role == ROLE_GUEST && req.BindPort != SSH_MESH_PORT {
+				if sshS.role == ROLE_GUEST && req.BindPort != SSH_MESH_PORT {
 					r.Reply(false, nil)
 					continue
 				}
-				listener := scon.handleTcpipForward(req, r)
+				listener := sshS.handleTcpipForward(req, r)
 				if listener != nil {
 					defer func() {
-						log.Println("Listener close ", listener)
+						log.Println("portListener close ", listener)
 						listener.Close()
 					}()
 				}
@@ -368,11 +367,11 @@ func (scon *SSHServerConn) handleServerConnRequests(reqs <-chan *ssh.Request, n 
 
 // For -R on 5222, special reverse TCP mode similar with SOCKS.
 // No listener is created - this is used internally
-func (scon *SSHServerConn) handleMeshNodeForward(req tcpipForwardRequest,
-	clientNode *mesh.DMNode,
+func (sshS *SSHServerConn) handleMeshNodeForward(req tcpipForwardRequest,
+	clientNode *ugate.DMNode,
 	r *ssh.Request, vipHex string) {
 	// This is the SSHClientConn-mesh port of the connected client. Will be used as gateway
-	clientNode.TunSrv = scon
+	clientNode.TunSrv = sshS
 	// No special listener - this is a virtual mux, using reverse SOCKS
 	var res tcpipForwardResponse
 	res.BoundPort = req.BindPort
@@ -381,18 +380,112 @@ func (scon *SSHServerConn) handleMeshNodeForward(req tcpipForwardRequest,
 
 	// TODO: propagate the endpoint, reflect it in the UI
 	msgs.Send("/endpoint/ssh",
-		"remote", scon.Addr,
-		"key", base64.StdEncoding.EncodeToString([]byte(scon.sshConn.Permissions.Extensions["key"])),
+		"remote", sshS.Addr,
+		"key", base64.StdEncoding.EncodeToString([]byte(sshS.sshConn.Permissions.Extensions["key"])),
 		"vip", vipHex) // TODO: configure the public addresses !
 }
 
+type fwdPort struct {
+	scon     *SSHServerConn
+	bindPort uint32
+	bindIP   string
+}
+
+func (fp *fwdPort) DialContext(ctx context.Context, net, addr string) (net.Conn, error) {
+	// TODO: get remote IP and port from ctx
+
+	//log.Println("SSH-R FWD Connection ", ip, port, portKey)
+	var req forwardTCPIPChannelRequest
+	req.ForwardIP = fp.bindIP
+	req.ForwardPort = fp.bindPort
+
+	//req.OriginIP = ip.String()
+	//req.OriginPort = uint32(port)
+
+	channel, reqs, err := fp.scon.sshConn.OpenChannel("forwarded-tcpip", ssh.Marshal(req))
+	if err != nil {
+		log.Println("Failed for forward-tcpip", err)
+		return nil, err
+	}
+
+	go func() {
+		for r := range reqs {
+			log.Println("forwarded-tcpip remote request ", r)
+
+			r.Reply(false, nil)
+		}
+	}()
+	return &netChannel{channel}, nil
+}
+
+type netChannel struct {
+	c ssh.Channel
+}
+
+func (n2 netChannel) Read(b []byte) (n int, err error) {
+	return n2.c.Read(b)
+}
+
+func (n2 netChannel) Write(b []byte) (n int, err error) {
+	return n2.c.Write(b)
+}
+
+func (n2 netChannel) Close() error {
+	return n2.c.Close()
+}
+
+func (n2 netChannel) CloseWrite() error {
+	return n2.c.CloseWrite()
+}
+
+func (n2 netChannel) LocalAddr() net.Addr {
+	panic("implement me")
+}
+
+func (n2 netChannel) RemoteAddr() net.Addr {
+	panic("implement me")
+}
+
+func (n2 netChannel) SetDeadline(t time.Time) error {
+	panic("implement me")
+}
+
+func (n2 netChannel) SetReadDeadline(t time.Time) error {
+	panic("implement me")
+}
+
+func (n2 netChannel) SetWriteDeadline(t time.Time) error {
+	panic("implement me")
+}
+
 // -R handling - create accepting socket to forward over this conn.
-func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Request) net.Listener {
+func (sshS *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Request) io.Closer {
 	// Requested port
 	forPort := req.BindPort
 
+	k := sshS.VIP6.String()
+
+	// TODO: remove at exit
+
+	// Add a TCP listener that forwards specifically to the client on this
+	// connection.
+	// Replaced with H2R
+	// - add a 'node' at connect, based on client pubkey
+	// - set the node's h2r
+	cl, addr, err := sshS.gate.gw.UGate.Add(&ugate.Listener{
+		Address: fmt.Sprintf("0.0.0.0:%d", forPort),
+		ForwardTo: k,
+		// TODO: this is currently disabled, to clean the interface.
+		// XXXXXXXXXXXXXXXX
+	  //Dialer: &fwdPort{
+		//	scon:     sshS,
+		//	bindIP:   req.BindIP,
+		//	bindPort: req.BindPort,
+		//},
+	})
+
 	// Not supported: RFC: address "" means all families, 0.0.0.0 IP4, :: IP6, localhost IP4/6, etc
-	listener, err := accept.NewPortListener(scon.gate.gw, fmt.Sprintf("%s:%d", req.BindIP, forPort))
+	//listener, err := accept.NewPortListener(scon.gate.gw, fmt.Sprintf("%s:%d", req.BindIP, forPort))
 	if err != nil {
 		log.Println("Error accepting ", err, forPort)
 		r.Reply(false, nil)
@@ -401,18 +494,19 @@ func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Re
 
 	// BindIP and BindPort must be sent back  via ReverseForward, so client can
 	// match the -R.. request
-	listener.SetAcceptForwarder(scon, req.BindIP, req.BindPort)
-	_, port, err := net.SplitHostPort(listener.Listener.Addr().String())
+	//listener.SetAcceptForwarder(scon, req.BindIP, req.BindPort)
+	_, port, err := net.SplitHostPort(addr.String())
+	//_, port, err := net.SplitHostPort(listener.Listener.Addr().String())
 	if err != nil {
 		r.Reply(false, nil)
 		return nil
 	}
 
 	msgs.Send("/ssh/accept",
-		"remote", scon.sshConn.RemoteAddr().String(),
+		"remote", sshS.sshConn.RemoteAddr().String(),
 		"req", fmt.Sprintf("%d", req.BindPort),
-		"vip", scon.VIP6.String(),
-		"key", base64.StdEncoding.EncodeToString([]byte(scon.sshConn.Permissions.Extensions["key"])),
+		"vip", sshS.VIP6.String(),
+		"key", base64.StdEncoding.EncodeToString([]byte(sshS.sshConn.Permissions.Extensions["key"])),
 		"addr", fmt.Sprintf("%s:%d", "", forPort)) // TODO: configure the public addresses !
 
 	var res tcpipForwardResponse
@@ -425,9 +519,63 @@ func (scon *SSHServerConn) handleTcpipForward(req tcpipForwardRequest, r *ssh.Re
 	r.Reply(true, ssh.Marshal(res))
 
 	//bindAddr := net.JoinHostPort(req.BindIP, fmt.Sprintf("%d", req.BindPort))
-	go listener.Run()
 
-	return listener
+	return cl
+}
+
+type netConnChannel struct {
+	ssh.Channel
+}
+
+func (n *netConnChannel) LocalAddr() net.Addr {
+	return nil
+}
+
+func (n *netConnChannel) RemoteAddr() net.Addr {
+	return nil
+}
+
+func (n *netConnChannel) SetDeadline(t time.Time) error {
+	return nil
+}
+
+func (n *netConnChannel) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+func (n *netConnChannel) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
+func (sshS *SSHServerConn) DialForwarded(ctx context.Context,
+	remote net.Addr,
+	hostKey string, portKey uint32) (net.Conn, error) {
+	var req forwardTCPIPChannelRequest
+	req.ForwardIP = hostKey
+	req.ForwardPort = portKey
+
+	rt := remote.(*net.TCPAddr)
+	req.OriginIP = rt.IP.String()
+	req.OriginPort = uint32(rt.Port)
+
+	channel, reqs, err := sshS.sshConn.OpenChannel("forwarded-tcpip", ssh.Marshal(req))
+	if err != nil {
+		log.Println("Failed for forward-tcpip", err)
+		return nil, err
+	}
+
+	defer func() {
+		channel.Close()
+	}()
+
+	go func() {
+		for r := range reqs {
+			log.Println("forwarded-tcpip remote request ", r)
+
+			r.Reply(false, nil)
+		}
+	}()
+	return &netConnChannel{channel}, nil
 }
 
 // For -R, when a remote conn is received on a TCP accept.
@@ -471,8 +619,8 @@ func (sshS *SSHServerConn) AcceptForward(in io.ReadCloser, out io.Writer,
 	// Will proxy the 2 connections, with stats, etc.
 	proxy := sshS.gate.gw.NewTcpProxy(&net.TCPAddr{IP: ip, Port: port}, "SSHR", nil, in, out)
 	defer proxy.Close()
-	proxy.ServerIn = channel
-	proxy.ServerOut = channel
+	proxy.In = channel
+	proxy.Out = channel
 
 	// Not accurate - we don't really know where it goes after next hop
 	proxy.Dest = sshS.sshConn.RemoteAddr().String()
@@ -488,7 +636,7 @@ func (sshS *SSHServerConn) AcceptForward(in io.ReadCloser, out io.Writer,
 // (TODO: use CONNECT, and make it consistent for all channels)
 //
 // This only works if the clients are compatible with this extension
-func (sshS *SSHServerConn) DialProxy(tp *streams.Stream) error {
+func (sshS *SSHServerConn) DialProxy(tp *ugate.Stream) error {
 	if string(sshS.sshConn.ClientVersion()) != version {
 		return sshS.DialProxyLegacy(tp)
 	}
@@ -498,7 +646,7 @@ func (sshS *SSHServerConn) DialProxy(tp *streams.Stream) error {
 
 	req := dmeshChannelData {
 		Dest: tp.Dest,
-		RemoteAddr: tp.Origin,
+		RemoteAddr: "",
 	}
 
 	channel, reqs, err := sshS.sshConn.OpenChannel("dmesh",
@@ -523,8 +671,8 @@ func (sshS *SSHServerConn) DialProxy(tp *streams.Stream) error {
 		sshS.gate.rMesh.Latency.Add(time.Since(t0).Seconds())
 		channel.Close()
 	}
-	tp.ServerOut = channel
-	tp.ServerIn = channel
+	tp.Out = channel
+	tp.In = channel
 
 	return nil
 }
@@ -534,7 +682,7 @@ func (sshS *SSHServerConn) DialProxy(tp *streams.Stream) error {
 // -R 0:localSocks or localConnect.
 //
 // For now legacy is not a priority.
-func (sshS *SSHServerConn) DialProxyLegacy(tp *streams.Stream) error {
+func (sshS *SSHServerConn) DialProxyLegacy(tp *ugate.Stream) error {
 	log.Println("SSHClientConn SOCKS Reverse Connection ", tp.Dest)
 
 	sshS.gate.rMesh.Total.Add(1)
@@ -543,7 +691,7 @@ func (sshS *SSHServerConn) DialProxyLegacy(tp *streams.Stream) error {
 	req.ForwardIP = "0.0.0.0"
 	req.ForwardPort = 5222
 
-	orighost, origPort, _ := net.SplitHostPort(tp.Origin)
+	orighost, origPort, _ := net.SplitHostPort(tp.LocalAddr().String())
 	origPortI, _ := strconv.Atoi(origPort)
 
 	req.OriginIP = orighost
@@ -572,8 +720,8 @@ func (sshS *SSHServerConn) DialProxyLegacy(tp *streams.Stream) error {
 		sshS.gate.rMesh.Latency.Add(time.Since(t0).Seconds())
 		channel.Close()
 	}
-	tp.ServerOut = channel
-	tp.ServerIn = channel
+	tp.Out = channel
+	tp.In = channel
 
 	return nil
 }
@@ -637,7 +785,7 @@ const ROLE_GUEST = "guest"
 
 // As a server, handle out-of-band requests on a session.
 // server may have multiple sessions
-func (sshS *SSHServerConn) handleServerRequestChan(n *mesh.DMNode, in <-chan *ssh.Request) {
+func (sshS *SSHServerConn) handleServerRequestChan(n *ugate.DMNode, in <-chan *ssh.Request) {
 	for req := range in {
 		switch req.Type {
 		case "shell":

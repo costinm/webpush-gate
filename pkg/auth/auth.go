@@ -105,9 +105,6 @@ type Auth struct {
 	Authz     map[string]*AuthzInfo
 	AuthzByID map[uint64]*AuthzInfo
 
-	// TODO: Root certificates to trust, keyed by domain.
-	Roots map[string]*Root
-
 	// cached
 	pub64 string
 }
@@ -186,10 +183,6 @@ type Subscription struct {
 
 	// Used by the UA to receive messages, as PUSH promises
 	Location string
-}
-
-type Root struct {
-	hosts []string
 }
 
 // SSH certificates:
@@ -851,8 +844,8 @@ func (auth *Auth) GetCerts() map[string]*tls.Certificate {
 	certMap := map[string]*tls.Certificate{}
 
 	// Attempt istio certs.
-	if _, err := os.Stat("/etc/certs/key.pem"); !os.IsNotExist(err) {
-		crt, err := tls.LoadX509KeyPair("/etc/certs/cert-chain.pem", "/etc/certs/key.pem")
+	if _, err := os.Stat("./etc/certs/key.pem"); !os.IsNotExist(err) {
+		crt, err := tls.LoadX509KeyPair("./etc/certs/cert-chain.pem", "./etc/certs/key.pem")
 		if err != nil {
 			log.Println("Failed to load system istio certs", err)
 		} else {

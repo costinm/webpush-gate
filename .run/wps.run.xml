@@ -10,7 +10,7 @@
     </option>
     <option name="redeployOnChanges" value="true" />
     <option name="selectedOptions">
-      <set />
+      <list />
     </option>
     <option name="skaffoldConfigurationFilePath" value="$PROJECT_DIR$/../wpgate/skaffold.yaml" />
     <option name="skaffoldNamespace" />
@@ -38,7 +38,7 @@
     </option>
     <option name="redeployOnChanges" value="true" />
     <option name="selectedOptions">
-      <set />
+      <list />
     </option>
     <option name="skaffoldConfigurationFilePath" value="$PROJECT_DIR$/../wpgate/skaffold.yaml" />
     <option name="skaffoldNamespace" />
@@ -58,7 +58,7 @@
   <configuration default="false" name="wps" type="GoApplicationRunConfiguration" factoryName="Go Application">
     <module name="dmesh" />
     <working_directory value="$PROJECT_DIR$/../wpgate" />
-    <kind value="PACKAGE" />
+    <kind value="FILE" />
     <filePath value="$PROJECT_DIR$/../wpgate/cmd/wps/wps.go" />
     <package value="github.com/costinm/wpgate/cmd/wps" />
     <directory value="$PROJECT_DIR$/.idea/modules" />

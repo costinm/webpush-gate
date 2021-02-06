@@ -7,7 +7,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/mesh"
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"golang.org/x/crypto/ssh"
 )
@@ -17,7 +17,7 @@ import (
 // that is execed, using stdin and stdout for communication.
 // TODO: reuse UDS protocol parsing (or eventing)
 // TODO: ACL (possibly reused from eventing) - command messages only from trusted sources, forwarding, etc
-func (sshS *SSHServerConn) handleServerSessionChannel(node *mesh.DMNode, newChannel ssh.NewChannel, role string) {
+func (sshS *SSHServerConn) handleServerSessionChannel(node *ugate.DMNode, newChannel ssh.NewChannel, role string) {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		log.Println("could not accept channel.")
@@ -75,7 +75,7 @@ func (sc *SSHConn) SendMessageToRemote(ev *msgs.Message) error {
 // self is my own VIP
 //
 //
-func handleMessageStream(mux *msgs.Mux, id string, node *mesh.DMNode,
+func handleMessageStream(mux *msgs.Mux, id string, node *ugate.DMNode,
 			br *bufio.Reader, from string, self string,
 			mconn *msgs.MsgConnection, isServer bool) {
 	t0 := time.Now()
@@ -83,7 +83,7 @@ func handleMessageStream(mux *msgs.Mux, id string, node *mesh.DMNode,
 		// Direct message from the client, with its own info
 		if ev.Topic == "endpoint" {
 			if node.NodeAnnounce == nil {
-				node.NodeAnnounce = &mesh.NodeAnnounce{}
+				node.NodeAnnounce = &ugate.NodeAnnounce{}
 			}
 			node.NodeAnnounce.UA = ev.Meta["ua"]
 		}
@@ -96,7 +96,7 @@ func handleMessageStream(mux *msgs.Mux, id string, node *mesh.DMNode,
 	log.Println("Message con close", id, time.Since(t0))
 }
 
-func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *mesh.DMNode, subs []string) (mesh.MuxedConn, error) {
+func sshClientMsgs(client *ssh.Client, sshC *SSHConn, n *ugate.DMNode, subs []string) (ugate.MuxedConn, error) {
 	// Each ClientConn can support multiple interactive sessions,
 	// represented by a Session.
 	// go implementation is geared toward term emulation/shell - use the raw mechanism.
@@ -154,7 +154,7 @@ type execMsg struct {
 // Messages from local mux are sent to the server - sub is *.
 //
 // The mux is responsible for eliminating loops and forwarding.
-func (sshC *SSHConn) handleClientMsgChannel(node *mesh.DMNode, channel ssh.Channel, subs []string) {
+func (sshC *SSHConn) handleClientMsgChannel(node *ugate.DMNode, channel ssh.Channel, subs []string) {
 
 	// TODO: get rid of the message over SSH, use a port forward
 	// and H2 or the stream.

@@ -13,17 +13,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 )
 
 // link local announcements,discovery and messaging
-// The discovered nodes are not trusted by default, but
-// may be used as jump hosts.
 
 var (
-	// Address used for link local discovery. Multicast on port 5227
+	// Address used for link local discovery.
+	// Multicast on port 5227
 	MulticastDiscoveryIP6 = net.ParseIP("FF02::5227")
 	MulticastDiscoveryIP4 = net.ParseIP("224.0.0.250")
 )
@@ -79,7 +79,7 @@ type LLDiscovery struct {
 
 	// UpstreamAP is set if a local announce or registration from an AP has been received. In includes the IP4 and IP6
 	// of the AP and info. Will be used by Dial to initiate multiplexed connections ( SSH, future QUIC )
-	UpstreamAP *mesh.DMNode
+	UpstreamAP *ugate.DMNode
 
 	// Port used to listen for multicast messages. Default 5227.
 	mcPort  int
@@ -94,12 +94,12 @@ type LLDiscovery struct {
 	UDPMsgConn *net.UDPConn
 
 	// My credentials
-	auth *auth.Auth
+	auth *ugate.Auth
 
 	WifiInfo *mesh.WifiRegistrationInfo
 }
 
-func NewLocal(gw *mesh.Gateway, auth *auth.Auth) *LLDiscovery {
+func NewLocal(gw *mesh.Gateway, auth *ugate.Auth) *LLDiscovery {
 	return &LLDiscovery{
 		mcPort:   5227,
 		udpPort:  5228,
@@ -149,7 +149,7 @@ type DirectActiveInterface struct {
 
 // Called after connection to the VPN has been created.
 // Currently used only for Mesh AP chains.
-func (gw *LLDiscovery) OnLocalNetworkFunc(node *mesh.DMNode, addr *net.UDPAddr, fromMySTA bool) {
+func (gw *LLDiscovery) OnLocalNetworkFunc(node *ugate.DMNode, addr *net.UDPAddr, fromMySTA bool) {
 	//now := time.Now()
 	add := &net.UDPAddr{IP: addr.IP, Zone: addr.Zone, Port: 5222}
 
@@ -195,7 +195,7 @@ func (gw *LLDiscovery) FixIp6ForHTTP(addr *net.UDPAddr) string {
 // otherwise we need to wait for the connection from the AP to client or IP6 announce.
 //
 // Should be called after network changes and announce
-func (gw *LLDiscovery) ensureConnectedUp(laddr *net.UDPAddr, node *mesh.DMNode) error {
+func (gw *LLDiscovery) ensureConnectedUp(laddr *net.UDPAddr, node *ugate.DMNode) error {
 	if gw.gw.SSHClientUp != nil {
 		return nil
 	}
@@ -207,7 +207,7 @@ func (gw *LLDiscovery) ensureConnectedUp(laddr *net.UDPAddr, node *mesh.DMNode) 
 			// WLAN connected to 49.1 - probably AP
 			if !strings.Contains(a.Name, "p2p") && a.AndroidAPClient {
 				hasUp = true
-				var conMux mesh.MuxedConn
+				var conMux ugate.MuxedConn
 				addr := ""
 				if laddr != nil {
 					addr = laddr.String()
@@ -285,7 +285,7 @@ func mcMessage(gw *LLDiscovery, i *DirectActiveInterface, isAck bool) []byte {
 	// VPN VIP
 	// my client ssid
 	//
-	ann := &mesh.NodeAnnounce{
+	ann := &ugate.NodeAnnounce{
 		UA:   gw.gw.Auth.Name,
 		IPs:  ips(gw.DirectActiveInterfaces),
 		SSID: auth.Conf(gw.auth.Config, "ssid", ""),
@@ -301,7 +301,7 @@ func mcMessage(gw *LLDiscovery, i *DirectActiveInterface, isAck bool) []byte {
 }
 
 // Sign the message in the buffer.
-func signedMessage(buf *bytes.Buffer, auth *auth.Auth) []byte {
+func signedMessage(buf *bytes.Buffer, auth *ugate.Auth) []byte {
 
 	buf.Write(auth.Pub[1:])
 	buf.Write(auth.Pub[1:]) // to add another 64 bytes
@@ -704,7 +704,7 @@ func (gw *LLDiscovery) HttpGetLLIf(w http.ResponseWriter, r *http.Request) {
 //
 // Currently the info is only for debugging - all registration happens in the /register handshake,
 // using mtls.
-func (gw *LLDiscovery) processMCAnnounce(data []byte, addr *net.UDPAddr, iface *DirectActiveInterface) (*mesh.DMNode, *mesh.NodeAnnounce, error) {
+func (gw *LLDiscovery) processMCAnnounce(data []byte, addr *net.UDPAddr, iface *DirectActiveInterface) (*ugate.DMNode, *ugate.NodeAnnounce, error) {
 
 	dl := len(data)
 
@@ -733,7 +733,7 @@ func (gw *LLDiscovery) processMCAnnounce(data []byte, addr *net.UDPAddr, iface *
 	}
 
 	// Parse the message
-	ann := &mesh.NodeAnnounce{}
+	ann := &ugate.NodeAnnounce{}
 	err = json.Unmarshal(jsonData, ann)
 	if err != nil {
 		log.Println("MCDirect: Failed to parse ann", err, string(data[0:dl-128]))

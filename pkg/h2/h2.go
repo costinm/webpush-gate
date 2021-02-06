@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/costinm/ugate"
 	"github.com/costinm/wpgate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/streams"
-	"github.com/soheilhy/cmux"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 )
@@ -50,7 +50,7 @@ type H2 struct {
 
 	//GrpcServer http.Handler
 
-	Certs *auth.Auth
+	Certs *ugate.Auth
 
 	GRPC *grpc.Server
 }
@@ -65,7 +65,7 @@ var (
 // Deprecated, test only
 func NewH2(confdir string) (*H2, error) {
 	name, _ := os.Hostname()
-	certs := auth.NewAuth(nil, name, "m.webinf.info")
+	certs := ugate.NewAuth(nil, name, "m.webinf.info")
 	return NewTransport(certs)
 }
 
@@ -74,7 +74,7 @@ func NewH2(confdir string) (*H2, error) {
 // This will also initialize a GRPC server and 2 Mux, one for localhost and one for ingress.
 //
 // Verification is disabled in transport, but implemented in a wrapper, using authz.
-func NewTransport(authz *auth.Auth) (*H2, error) {
+func NewTransport(authz *ugate.Auth) (*H2, error) {
 	h2 := &H2{
 		MTLSMux:     &http.ServeMux{},
 		LocalMux:    &http.ServeMux{},
@@ -121,53 +121,54 @@ func CleanQuic(httpClient *http.Client) {
 	}
 }
 
-// Used by a H2 server to 'fake' a secure connection.
-type FakeTLSConn struct {
-	net.Conn
-}
+//// Used by a H2 server to 'fake' a secure connection.
+//// Testing.
+//type FakeTLSConn struct {
+//	net.Conn
+//}
+//
+//func (c *FakeTLSConn) ConnectionState() tls.ConnectionState {
+//	return tls.ConnectionState{
+//		Version:     tls.VersionTLS12,
+//		CipherSuite: 0xC02F,
+//	}
+//}
 
-func (c *FakeTLSConn) ConnectionState() tls.ConnectionState {
-	return tls.ConnectionState{
-		Version:     tls.VersionTLS12,
-		CipherSuite: 0xC02F,
-	}
-}
-
-// Multiplexed plaintext server, using MTLSMux and GRPCServer
-func (h2 *H2) InitPlaintext(port string) {
-	l, err := net.Listen("tcp", port)
-	if err != nil {
-		log.Fatal(err)
-	}
-	m := cmux.New(l)
-
-	grpcL := m.Match(cmux.HTTP2HeaderField("content-type", "application/grpc"))
-	// TODO: MTLS should probably be disabled in this case, but it's using Handle so may be ok
-	go h2.GRPC.Serve(grpcL)
-
-	httpL := m.Match(cmux.HTTP1Fast())
-	hs := &http.Server{
-		Handler: h2.handlerWrapper(h2.MTLSMux),
-	}
-	go hs.Serve(httpL)
-
-	h2L := m.Match(cmux.HTTP2())
-
-	go func() {
-		conn, err := h2L.Accept()
-		if err != nil {
-			return
-		}
-
-		h2Server := &http2.Server{}
-		h2Server.ServeConn(
-			conn, //&FakeTLSConn{conn},
-			&http2.ServeConnOpts{
-				Handler: h2.handlerWrapper(h2.MTLSMux)})
-	}()
-
-	go m.Serve()
-}
+//// Multiplexed plaintext server, using MTLSMux and GRPCServer
+//func (h2 *H2) InitPlaintext(port string) {
+//	l, err := net.Listen("tcp", port)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	m := cmux.New(l)
+//
+//	grpcL := m.Match(cmux.HTTP2HeaderField("content-type", "application/grpc"))
+//	// TODO: MTLS should probably be disabled in this case, but it's using Handle so may be ok
+//	go h2.GRPC.Serve(grpcL)
+//
+//	httpL := m.Match(cmux.HTTP1Fast())
+//	hs := &http.Server{
+//		Handler: h2.HandlerWrapper(h2.MTLSMux),
+//	}
+//	go hs.Serve(httpL)
+//
+//	h2L := m.Match(cmux.HTTP2())
+//
+//	go func() {
+//		conn, err := h2L.Accept()
+//		if err != nil {
+//			return
+//		}
+//
+//		h2Server := &http2.Server{}
+//		h2Server.ServeConn(
+//			conn, //&FakeTLSConn{conn},
+//			&http2.ServeConnOpts{
+//				Handler: h2.HandlerWrapper(h2.MTLSMux)})
+//	}()
+//
+//	go m.Serve()
+//}
 
 // Start QUIC and HTTPS servers on port, using handler.
 func (h2 *H2) InitMTLSServer(port int, handler http.Handler) error {
@@ -210,7 +211,7 @@ func (h2 *H2) InitH2ServerListener(tcpConn *net.TCPListener, handler http.Handle
 		//tlsServerConfig.ClientAuth = tls.RequireAnyClientCert
 		tlsServerConfig.ClientAuth = tls.RequestClientCert
 	}
-	hw := h2.handlerWrapper(handler)
+	hw := h2.HandlerWrapper(handler)
 	// Self-signed cert
 	s := &http.Server{
 		TLSConfig: tlsServerConfig,
@@ -272,7 +273,7 @@ type handlerWrapper struct {
 	h2      *H2
 }
 
-func (h2 *H2) handlerWrapper(h http.Handler) *handlerWrapper { // http.Handler {
+func (h2 *H2) HandlerWrapper(h http.Handler) *handlerWrapper { // http.Handler {
 	return &handlerWrapper{handler: h, h2: h2}
 }
 
