@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/costinm/ugate"
+	"github.com/costinm/ugate/pkg/ugatesvc"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 )
@@ -80,7 +80,7 @@ func (gw *HTTPGate) captureHttpProxyAbsURL(w http.ResponseWriter, r *http.Reques
 	}
 	origBody := resp.Body
 	defer origBody.Close()
-	ugate.CopyResponseHeaders(w.Header(), resp.Header)
+	ugatesvc.CopyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 

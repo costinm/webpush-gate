@@ -21,7 +21,8 @@ import (
 	"strings"
 
 	"github.com/costinm/ugate"
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
+	ugates "github.com/costinm/ugate/pkg/ugatesvc"
 	"github.com/costinm/wpgate/pkg/streams"
 
 	"net"
@@ -63,7 +64,7 @@ var (
 type Gateway struct {
 	m sync.RWMutex
 
-	*ugate.UGate
+	*ugates.UGate
 
 	// Vpn is the currently active VPN server. Will be selected from the list of
 	// known VPN servers (in future - for now hardcoded to the test server)
@@ -81,7 +82,7 @@ type Gateway struct {
 	DNS ugate.IPResolver
 
 	// SSHClientConn-based gateway
-	SSHGate ugate.Transport
+	SSHGate ugates.Transport
 
 	// Client to VPN
 	SSHClient ugate.MuxedConn
@@ -94,14 +95,14 @@ type Gateway struct {
 	// TODO: this can also be used as 'egressGateway'
 	SSHClientUp ugate.MuxedConn
 
-	Auth *ugate.Auth
+	Auth *auth.Auth
 }
 
 func (gw *Gateway) ActiveTCP() map[int]*streams.TcpProxy {
 	return gw.ActiveTcp
 }
 
-func New(certs *ugate.Auth, gcfg *ugate.GateCfg) *Gateway {
+func New(certs *auth.Auth, gcfg *ugate.GateCfg) *Gateway {
 	if gcfg == nil {
 		gcfg = &ugate.GateCfg{}
 	}
@@ -152,7 +153,7 @@ func (gw *Gateway) Node(pub []byte) *ugate.DMNode {
 
 	node, f := gw.UGate.Nodes[dmFrom]
 	if !f {
-		node = ugate.NewDMNode()
+		node = ugates.NewDMNode()
 		node.PublicKey = pub
 		node.VIP = auth.Pub2VIP(pub)
 		gw.UGate.Nodes[dmFrom] = node

@@ -6,8 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/costinm/ugate"
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/conf"
 	"github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/h2"
@@ -45,7 +44,7 @@ func main() {
 	// File-based config, load identity and auth
 	config := conf.NewConf(cfgDir, "./var/lib/dmesh/")
 
-	authz := ugate.NewAuth(config, "", "m.webinf.info")
+	authz := auth.NewAuth(config, "", "m.webinf.info")
 	//authz.Dump()
 
 	// Init Auth on the DefaultMux, for messaging
@@ -70,12 +69,12 @@ func main() {
 	// - will accept reverse connections
 	// - will send mesh connections
 	// - messaging
-	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
-
-	if meshH != "" && meshH != "OFF" {
-		GW.Vpn = meshH
-		go sshgate.MaintainVPNConnection(GW)
-	}
+	//meshH := ugate.Conf(config, "MESH", "v.webinf.info:5222")
+	//
+	//if meshH != "" && meshH != "OFF" {
+	//	GW.Vpn = meshH
+	//	go sshgate.MaintainVPNConnection(GW)
+	//}
 
 	// HTTPS server - grpc, messaging.
 	wp := &xds.GrpcService{}
@@ -85,7 +84,7 @@ func main() {
 	h2s.MTLSMux.HandleFunc("/subscribe", msgs.SubscribeHandler)
 
 	// Messages and streams over websocket - HTTP/1.1 compatible
-	websocket.WSTransport(msgs.DefaultMux, sshg, h2s.MTLSMux)
+	websocket.WSTransport(msgs.DefaultMux, h2s.MTLSMux)
 
 	hgw := httpproxy.NewHTTPGate(GW, h2s)
 	hgw.HttpProxyCapture(laddr(bp, 3))

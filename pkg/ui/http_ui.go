@@ -20,7 +20,7 @@ import (
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
-	"github.com/costinm/wpgate/pkg/transport/local"
+	//"github.com/costinm/wpgate/pkg/transport/local"
 )
 
 // curl -v http://s6.webinf.info:5227/status
@@ -34,7 +34,7 @@ type DMUI struct {
 	dm *mesh.Gateway
 	h2 *h2.H2
 
-	ld *local.LLDiscovery
+	//ld *local.LLDiscovery
 
 	// Debug recent events
 	mutex  sync.Mutex
@@ -68,11 +68,10 @@ func (dm *DMUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Println("LMHTTP: ", pattern, r.Method, r.Host, r.RemoteAddr, r.URL)
 }
 
-func NewUI(dm *mesh.Gateway, h2 *h2.H2, hgate *httpproxy.HTTPGate, ld *local.LLDiscovery) (*DMUI, error) {
+func NewUI(dm *mesh.Gateway, h2 *h2.H2, hgate *httpproxy.HTTPGate) (*DMUI, error) {
 	dmui := &DMUI{
 		dm:     dm,
 		h2:     h2,
-		ld:     ld,
 		events: list.New(),
 	}
 
@@ -122,10 +121,10 @@ func NewUI(dm *mesh.Gateway, h2 *h2.H2, hgate *httpproxy.HTTPGate, ld *local.LLD
 	mux.HandleFunc("/dmesh/rd", dmui.HttpRefreshAndRegister)
 	mux.HandleFunc("/dmesh/ip6", dmui.dm.HttpGetNodes)
 
-	//mux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
-	if dmui.ld != nil {
-		mux.HandleFunc("/dmesh/ll/if", dmui.ld.HttpGetLLIf)
-	}
+	////mux.HandleFunc("/dmesh/rr", lm.HttpGetRoutes)
+	//if dmui.ld != nil {
+	//	mux.HandleFunc("/dmesh/ll/if", dmui.ld.HttpGetLLIf)
+	//}
 
 	h2.LocalMux.Handle("/debug/", http.DefaultServeMux)
 	if hgate != nil {
@@ -178,11 +177,11 @@ func (lm *DMUI) DebugEventsHandler(w http.ResponseWriter, req *http.Request) {
 // HttpRefreshAndRegister (/dmesh/rd) will initiate a multicast UDP, asking for local masters.
 // After a small wait it'll return the list of peers. Debugging only.
 func (lm *DMUI) HttpRefreshAndRegister(w http.ResponseWriter, r *http.Request) {
-	if lm.ld == nil {
-		return
-	}
-	lm.ld.RefreshNetworks()
-	lm.ld.AnnounceMulticast()
+	//if lm.ld == nil {
+	//	return
+	//}
+	//lm.ld.RefreshNetworks()
+	//lm.ld.AnnounceMulticast()
 
 	time.Sleep(5000 * time.Millisecond)
 
@@ -245,13 +244,13 @@ func (ui *DMUI) Merge(s string) func(http.ResponseWriter, *http.Request) {
 		conf := ui.dm.Auth.Config.(*conf.Conf)
 
 		err = tmpl.ExecuteTemplate(writer, s, struct {
-			Local *local.LLDiscovery
+			//Local *local.LLDiscovery
 			Conf  map[string]string
 			GW    *mesh.Gateway
 			H2    *h2.H2
 			Req   *http.Request
 			XPath string
-		}{Local: ui.ld,
+		}{//Local: ui.ld,
 			GW:    ui.dm,
 			H2:    ui.h2,
 			Conf:  conf.Conf,

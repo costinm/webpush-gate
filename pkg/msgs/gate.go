@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
 )
 
 // One connection - incoming or outgoing. Can send messages to the remote end, which may

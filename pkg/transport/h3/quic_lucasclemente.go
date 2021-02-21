@@ -12,10 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/h2"
-	"github.com/costinm/wpgate/pkg/streams"
-	"github.com/costinm/wpgate/pkg/telemetry"
+	"github.com/costinm/ugate/pkg/auth"
+
 	"github.com/lucas-clemente/quic-go"
 	h2quic "github.com/lucas-clemente/quic-go/http3"
 )
@@ -95,7 +93,7 @@ func NewH3(certs *auth.Auth) *H3 {
 
 
 // InitQuicServer starts a regular QUIC server, bound to a port, using the H2 certificates.
-func InitQuicServer(h2 *h2.H2, port int, handler http.Handler) error {
+func InitQuicServer(h2 *auth.Auth, port int, handler http.Handler) error {
 	c, err := net.ListenUDP("udp",
 		&net.UDPAddr{
 			Port: port,
@@ -115,14 +113,14 @@ func InitQuicServer(h2 *h2.H2, port int, handler http.Handler) error {
 }
 
 // InitQuicServerConn starts a QUIC server, using H2 certs, on a connection.
-func InitQuicServerConn(h2 *h2.H2,port int,
+func InitQuicServerConn(auth *auth.Auth,port int,
 	conn net.PacketConn, handler http.Handler) error {
 
-	conn = &telemetry.PacketConnWrapper{
-		PacketConn: conn,
-	}
+	//conn = &telemetry.PacketConnWrapper{
+	//	PacketConn: conn,
+	//}
 
-	mtlsServerConfig := h2.Certs.GenerateTLSConfigServer()
+	mtlsServerConfig :=auth.GenerateTLSConfigServer()
 
 	// called with ClientAuth is RequestClientCert or RequireAnyClientCert
 	mtlsServerConfig.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
@@ -154,7 +152,7 @@ func InitQuicServerConn(h2 *h2.H2,port int,
 
 		Server: &http.Server{
 			Addr:        ":" + strconv.Itoa(port),
-			Handler:     h2.HandlerWrapper(handler),
+			Handler:     handler,
 			TLSConfig:   mtlsServerConfig,
 			ReadTimeout: 5 * time.Second,
 		},
@@ -206,10 +204,10 @@ func (qw *quicWrapper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return res, err
 }
 
-// QUIC_GO_LOG_LEVEL
 // InitQuicClient will configure h2.QuicClient as mtls
 // using the h2 private key
-func InitQuicClient(h2 *h2.H2, destHost string) *http.Client {
+// QUIC_GO_LOG_LEVEL
+func InitQuicClient(h2 *auth.Auth, destHost string) *http.Client {
 	/*
 		May 2018 - quic uses mint. client-state-machine implements the handshake.
 
@@ -218,7 +216,7 @@ func InitQuicClient(h2 *h2.H2, destHost string) *http.Client {
 
 	*/
 	// tlsconfig.hostname can override the SNI
-	ctls := h2.Certs.GenerateTLSConfigClient()
+	ctls := h2.GenerateTLSConfigClient()
 	//ctls.VerifyPeerCertificate = verify(destHost)
 
 	qtorig := &h2quic.RoundTripper{
@@ -248,9 +246,9 @@ func InitQuicClient(h2 *h2.H2, destHost string) *http.Client {
 	qt1 := &quicWrapper{Transport: qtorig}
 	qrtt := http.RoundTripper(qt1)
 
-	if streams.MetricsClientTransportWrapper != nil {
-		qrtt = streams.MetricsClientTransportWrapper(qrtt)
-	}
+	//if streams.MetricsClientTransportWrapper != nil {
+	//	qrtt = streams.MetricsClientTransportWrapper(qrtt)
+	//}
 
 	//if UseQuic {
 	//	if strings.Contains(host, "p2p") ||

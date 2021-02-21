@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/costinm/ugate"
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"golang.org/x/crypto/ssh"
 )
@@ -38,7 +38,7 @@ func (sshGate *SSHGate) authPub(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.
 		if cpk, ok := cert.Key.(ssh.CryptoPublicKey); ok {
 			pubk := cpk.CryptoPublicKey()
 
-			kbytes := auth.KeyBytes(pubk)
+			kbytes := auth.MarshalPublicKey(pubk)
 			kbs := string(kbytes)
 			vip := auth.Pub2VIP(kbytes)
 
@@ -65,7 +65,7 @@ func (sshGate *SSHGate) authPub(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.
 	if cpk, ok := key.(ssh.CryptoPublicKey); ok {
 		pubk := cpk.CryptoPublicKey()
 
-		kbytes := auth.KeyBytes(pubk)
+		kbytes := auth.MarshalPublicKey(pubk)
 		kbs := string(kbytes)
 		vip := auth.Pub2VIP(kbytes)
 

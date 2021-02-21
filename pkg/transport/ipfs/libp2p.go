@@ -12,7 +12,7 @@ import (
 
 	"fmt"
 
-	"github.com/costinm/ugate"
+	"github.com/costinm/ugate/pkg/auth"
 	"github.com/ipfs/go-datastore"
 
 	config "github.com/ipfs/go-ipfs-config"
@@ -124,7 +124,7 @@ func (p2p *IPFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Println("Conns: ", h.Network().Conns())
 }
 
-func InitIPFS(auth *ugate.Auth, p2pport int, mux *http.ServeMux) *IPFS {
+func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 	p2p := &IPFS{}
 	ctx := context.Background()
 

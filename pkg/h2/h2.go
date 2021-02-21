@@ -1,27 +1,20 @@
 package h2
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/asn1"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/costinm/ugate"
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/streams"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -50,7 +43,7 @@ type H2 struct {
 
 	//GrpcServer http.Handler
 
-	Certs *ugate.Auth
+	Certs *auth.Auth
 
 	GRPC *grpc.Server
 }
@@ -65,7 +58,7 @@ var (
 // Deprecated, test only
 func NewH2(confdir string) (*H2, error) {
 	name, _ := os.Hostname()
-	certs := ugate.NewAuth(nil, name, "m.webinf.info")
+	certs := auth.NewAuth(nil, name, "m.webinf.info")
 	return NewTransport(certs)
 }
 
@@ -74,7 +67,7 @@ func NewH2(confdir string) (*H2, error) {
 // This will also initialize a GRPC server and 2 Mux, one for localhost and one for ingress.
 //
 // Verification is disabled in transport, but implemented in a wrapper, using authz.
-func NewTransport(authz *ugate.Auth) (*H2, error) {
+func NewTransport(authz *auth.Auth) (*H2, error) {
 	h2 := &H2{
 		MTLSMux:     &http.ServeMux{},
 		LocalMux:    &http.ServeMux{},
@@ -283,32 +276,6 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		T0: t0,
 	}
 
-	defer func() {
-		// TODO: add it to an event buffer
-		if accessLogs && h2c != nil && !strings.Contains(r.URL.Path, "/dns") {
-			log.Println("HTTP", h2c.SAN, h2c.ID(), r.RemoteAddr, r.URL, time.Since(t0))
-		}
-		if r := recover(); r != nil {
-			fmt.Println("Recovered in f", r)
-
-			debug.PrintStack()
-
-			// find out exactly what the error was and set err
-			var err error
-
-			switch x := r.(type) {
-			case string:
-				err = errors.New(x)
-			case error:
-				err = x
-			default:
-				err = errors.New("Unknown panic")
-			}
-			if err != nil {
-				fmt.Println("ERRROR: ", err)
-			}
-		}
-	}()
 
 	vapidH := r.Header["Authorization"]
 	if len(vapidH) > 0 {
@@ -321,9 +288,9 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 		pk1 := r.TLS.PeerCertificates[0].PublicKey
-		h2c.Pub = auth.KeyBytes(pk1)
+		h2c.Pub = auth.MarshalPublicKey(pk1)
 		// TODO: Istio-style, signed by a trusted CA. This is also for SSH-with-cert
-		h2c.SAN, _ = GetSAN(r.TLS.PeerCertificates[0])
+		h2c.SAN, _ = auth.GetSAN(r.TLS.PeerCertificates[0])
 	}
 	if h2c.Pub == nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -361,102 +328,4 @@ func (hw *handlerWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 var (
 	accessLogs = true
 )
-
-func GetPeerCertBytes(r *http.Request) []byte {
-	if r.TLS != nil {
-		if len(r.TLS.PeerCertificates) > 0 {
-			pke, ok := r.TLS.PeerCertificates[0].PublicKey.(*ecdsa.PublicKey)
-			if ok {
-				return elliptic.Marshal(auth.Curve256, pke.X, pke.Y)
-			}
-			rsap, ok := r.TLS.PeerCertificates[0].PublicKey.(*rsa.PublicKey)
-			if ok {
-				return x509.MarshalPKCS1PublicKey(rsap)
-			}
-		}
-	}
-	return nil
-}
-
-func GetResponseCertBytes(r *http.Response) []byte {
-	if r.TLS != nil {
-		if len(r.TLS.PeerCertificates) > 0 {
-			pke, ok := r.TLS.PeerCertificates[0].PublicKey.(*ecdsa.PublicKey)
-			if ok {
-				return elliptic.Marshal(auth.Curve256, pke.X, pke.Y)
-			}
-			rsap, ok := r.TLS.PeerCertificates[0].PublicKey.(*rsa.PublicKey)
-			if ok {
-				return x509.MarshalPKCS1PublicKey(rsap)
-			}
-		}
-	}
-	return nil
-}
-
-var (
-	oidExtensionSubjectAltName = []int{2, 5, 29, 17}
-)
-
-const (
-	nameTypeEmail = 1
-	nameTypeDNS   = 2
-	nameTypeURI   = 6
-	nameTypeIP    = 7
-)
-
-func getSANExtension(c *x509.Certificate) []byte {
-	for _, e := range c.Extensions {
-		if e.Id.Equal(oidExtensionSubjectAltName) {
-			return e.Value
-		}
-	}
-	return nil
-}
-
-func GetSAN(c *x509.Certificate) ([]string, error) {
-	extension := getSANExtension(c)
-	dns := []string{}
-	// RFC 5280, 4.2.1.6
-
-	// SubjectAltName ::= GeneralNames
-	//
-	// GeneralNames ::= SEQUENCE SIZE (1..MAX) OF GeneralName
-	//
-	// GeneralName ::= CHOICE {
-	//      otherName                       [0]     OtherName,
-	//      rfc822Name                      [1]     IA5String,
-	//      dNSName                         [2]     IA5String,
-	//      x400Address                     [3]     ORAddress,
-	//      directoryName                   [4]     Name,
-	//      ediPartyName                    [5]     EDIPartyName,
-	//      uniformResourceIdentifier       [6]     IA5String,
-	//      iPAddress                       [7]     OCTET STRING,
-	//      registeredID                    [8]     OBJECT IDENTIFIER }
-	var seq asn1.RawValue
-	rest, err := asn1.Unmarshal(extension, &seq)
-	if err != nil {
-		return dns, err
-	} else if len(rest) != 0 {
-		return dns, errors.New("x509: trailing data after X.509 extension")
-	}
-	if !seq.IsCompound || seq.Tag != 16 || seq.Class != 0 {
-		return dns, asn1.StructuralError{Msg: "bad SAN sequence"}
-	}
-
-	rest = seq.Bytes
-	for len(rest) > 0 {
-		var v asn1.RawValue
-		rest, err = asn1.Unmarshal(rest, &v)
-		if err != nil {
-			return dns, err
-		}
-
-		if v.Tag == nameTypeDNS {
-			dns = append(dns, string(v.Bytes))
-		}
-	}
-
-	return dns, nil
-}
 

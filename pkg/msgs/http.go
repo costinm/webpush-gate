@@ -9,7 +9,7 @@ import (
 	"net/textproto"
 	"strings"
 
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
 )
 
 type Backoff interface {
@@ -211,17 +211,41 @@ type UA struct {
 	PushService string
 }
 
+// Subscription holds the useful values from a PushSubscription object acquired
+// from the browser.
+//
+// https://w3c.github.io/push-api/
+//
+// Returned as result of /subscribe
+type Subscription struct {
+	// Endpoint is the URL to send the Web Push message to. Comes from the
+	// endpoint field of the PushSubscription.
+	Endpoint string
+
+	// Key is the client's public key. From the getKey("p256dh") or keys.p256dh field.
+	Key []byte
+
+	// Auth is a value used by the client to validate the encryption. From the
+	// keys.auth field.
+	// The encrypted aes128gcm will have 16 bytes authentication tag derived from this.
+	// This is the pre-shared authentication secret.
+	Auth []byte
+
+	// Used by the UA to receive messages, as PUSH promises
+	Location string
+}
+
 // Create a subscription, using the Webpush standard protocol.
 //
 // URL is "/subscribe", no header required ( but passing a VAPID or mtls),
 // response in 'location' for read and Link for sub endpoint.
-func (ua *UA) Subscribe() (sub *auth.Subscription, err error) {
+func (ua *UA) Subscribe() (sub *Subscription, err error) {
 	res, err := http.Post(ua.PushService+"/subscribe", "text/plain", nil)
 
 	if err != nil {
 		return
 	}
-	sub = &auth.Subscription{}
+	sub = &Subscription{}
 	sub.Location = res.Header.Get("location")
 	links := textproto.MIMEHeader(res.Header)["Link"]
 	for _, l := range links {

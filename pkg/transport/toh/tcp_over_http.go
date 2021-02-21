@@ -29,15 +29,6 @@ func New(gw *mesh.Gateway, mux *http.ServeMux) *TcpOverH2 {
 
 // Server side 'TCP-over-H2+QUIC
 //
-// URL format:
-// - /tcp/HOSTNAME:PORT - egress using hostname (may also be ipv4 IP)
-// - /tcp/[IPADDR]:PORT - egress using IP6 address
-// - /tcp/[fd00::MESHID]:port - mesh routing. Send to the port on the identified node, possibly via VPN and gateways.
-//
-// - WIP: /tcp/[fd00::MESHID]/.../HOSTNAME:port - mesh circuit routing. Last component is the final destination.
-//
-// Returns 50x errors or 200 followed by a body starting with 'OK' (to flush headers)
-// Additional metadata using headers.
 func (toh *TcpOverH2) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
 	// TODO: meta: via, trace, t0, loop detection
 
@@ -98,10 +89,6 @@ func (toh *TcpOverH2) HTTPTunnelTCP(w http.ResponseWriter, r *http.Request) {
 }
 
 const HEADER_PREV_PATH = "x-dm-p"
-
-func (toh *TcpOverH2) httpEgressProxy(proxy *streams.TcpProxy, clientWriter http.ResponseWriter) {
-	// like in socks, need to write some header to start the process.
-}
 
 // TcpProxy implements Read, so it can be passed to a HTTP connection while capturing stats.
 // This is for using the regular http.Client - where the body must be passed as a Reader to POST.

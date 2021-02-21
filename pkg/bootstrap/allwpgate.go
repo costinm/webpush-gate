@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/costinm/ugate"
-	"github.com/costinm/wpgate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/conf"
+	"github.com/costinm/ugate/pkg/auth"
+	ugates "github.com/costinm/ugate/pkg/ugatesvc"
 	"github.com/costinm/wpgate/pkg/dns"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
@@ -19,7 +19,7 @@ import (
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	"github.com/costinm/wpgate/pkg/transport/ipfs"
-	"github.com/costinm/wpgate/pkg/transport/local"
+	rtc2 "github.com/costinm/wpgate/pkg/transport/rtc"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/udp"
 	"github.com/costinm/wpgate/pkg/transport/uds"
@@ -104,8 +104,7 @@ type ServerAll struct {
 	// UI interface Handler for localhost:5227
 	UI     *ui.DMUI
 	UDPNat *udp.UDPGate
-	Local  *local.LLDiscovery
-	Conf   *conf.Conf
+	Conf   ugate.ConfStore
 	sshg   *sshgate.SSHGate
 	IPFS   *ipfs.IPFS
 }
@@ -116,7 +115,7 @@ func (sa *ServerAll) Close() {
 
 func StartAll(a *ServerAll) {
 	// File-based config
-	config := conf.NewConf(a.ConfDir, "./var/lib/dmesh/")
+	config := ugates.NewConf(a.ConfDir, "./var/lib/dmesh/")
 	a.Conf = config
 
 	cfg := &ugate.GateCfg{
@@ -131,9 +130,9 @@ func StartAll(a *ServerAll) {
 		}
 	}
 
-	authz := ugate.NewAuth(config, cfg.Name, cfg.Domain)
+	authz := auth.NewAuth(config, cfg.Name, cfg.Domain)
 	// By default, pass through using net.Dialer
-	ug := ugate.NewGate(&net.Dialer{}, authz, cfg)
+	ug := ugates.NewGate(&net.Dialer{}, authz, cfg)
 
 
 	// Init Auth on the DefaultMux, for messaging
@@ -168,7 +167,7 @@ func StartAll(a *ServerAll) {
 	// TODO: init socks on TLS, for inbound
 
 	// Connect to a mesh node
-	meshH := auth.Conf(config, "MESH", "v.webinf.info:5222")
+	meshH := ugate.ConfStr(config,"MESH", "v.webinf.info:5222")
 	if meshH != "" && meshH != "OFF" {
 		a.GW.Vpn = meshH
 		go sshgate.MaintainVPNConnection(a.GW)
@@ -177,15 +176,15 @@ func StartAll(a *ServerAll) {
 	// Non-critical, for testing
 	a.StartExtra()
 
-	// Local discovery interface - multicast, local network IPs
-	ld := local.NewLocal(a.GW, authz)
-	local.ListenUDP(ld)
-	go ld.PeriodicThread()
-	local.ListenUDP(ld)
-	a.Local = ld
+	//// Local discovery interface - multicast, local network IPs
+	//ld := local.NewLocal(a.GW, authz)
+	//local.ListenUDP(ld)
+	//go ld.PeriodicThread()
+	//local.ListenUDP(ld)
+	//a.Local = ld
 
 	// Start a basic UI on the debug port
-	a.UI, _ = ui.NewUI(a.GW, h2s, a.hgw, ld)
+	a.UI, _ = ui.NewUI(a.GW, h2s, a.hgw)
 
 	a.StartMsg()
 
@@ -209,7 +208,7 @@ func (a *ServerAll) StartMsg() {
 	a.H2.LocalMux.HandleFunc("/s/", msgs.HTTPHandlerSend)
 
 	// /ws - registered on the HTTPS server
-	websocket.WSTransport(msgs.DefaultMux, a.sshg, a.H2.MTLSMux)
+	websocket.WSTransport(msgs.DefaultMux, a.H2.MTLSMux)
 
 	msgs.DefaultMux.AddHandler(mesh.TopicConnectUP, msgs.HandlerCallbackFunc(func(ctx context.Context, cmdS string, meta map[string]string, data []byte) {
 		log.Println(cmdS, meta, data)
@@ -237,9 +236,15 @@ func (a *ServerAll) StartExtra() {
 	a.IPFS = ipfs.InitIPFS(a.GW.Auth, 5231, a.H2.MTLSMux)
 
 	a.H2.LocalMux.Handle("/ipfs/", a.IPFS)
+
+	rtcg := &rtc2.RTC{
+		UGate: a.GW.UGate,
+	}
+
+	a.GW.UGate.Mux.HandleFunc("/wrtc/direct/", rtcg.RTCDirectHandler)
 }
 
-func ServerUDSConnection(gw *mesh.Gateway, cfg *conf.Conf) {
+func ServerUDSConnection(gw *mesh.Gateway, cfg ugate.ConfStore) {
 	srv, err := uds.NewServer("lproxy", msgs.DefaultMux)
 	if err != nil {
 		log.Println("Can't start lproxy UDS", err)
@@ -249,7 +254,7 @@ func ServerUDSConnection(gw *mesh.Gateway, cfg *conf.Conf) {
 	go srv.Start()
 }
 
-func ClientUDSConnection(gw *mesh.Gateway, cfg *conf.Conf) {
+func ClientUDSConnection(gw *mesh.Gateway, cfg ugate.ConfStore) {
 	// Attempt to connect to local UDS socket, to communicate with android app.
 	for i := 0; i < 5; i++ {
 		ucon, err := uds.Dial("dmesh", msgs.DefaultMux, map[string]string{})

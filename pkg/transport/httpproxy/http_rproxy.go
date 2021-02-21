@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/costinm/ugate"
+	"github.com/costinm/ugate/pkg/ugatesvc"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
 )
@@ -54,7 +54,7 @@ type HTTPGate struct {
 // Used if the Host header found is configured explicitly to forward to a specific address.
 func (gw *HTTPGate) ForwardHTTP(w http.ResponseWriter, r *http.Request, pathH string) {
 	r.Host = pathH
-	r1, cancel := ugate.CreateUpstreamRequest(w, r)
+	r1, cancel := ugatesvc.CreateUpstreamRequest(w, r)
 	defer cancel()
 
 	r1.URL.Scheme = "http"
@@ -66,7 +66,7 @@ func (gw *HTTPGate) ForwardHTTP(w http.ResponseWriter, r *http.Request, pathH st
 	// can add headers to the response
 
 	res, err := gw.h2.Client(r1.URL.Host).Transport.RoundTrip(r1)
-	ugate.SendBackResponse(w, r, res, err)
+	ugatesvc.SendBackResponse(w, r, res, err)
 }
 
 // HTTP proxy.
@@ -321,7 +321,7 @@ func (gw *HTTPGate) DMNodeHttpRequestViaNeighbor(or *http.Request, w http.Respon
 		return err
 	}
 
-	ugate.SendBackResponse(w, r, res, err)
+	ugatesvc.SendBackResponse(w, r, res, err)
 	log.Println("HFWD-VIA", nurl, oldPath, oldPathIp, res.StatusCode)
 
 	return nil
@@ -348,7 +348,7 @@ func (gw *HTTPGate) ProxyHttp(cl *http.Client, or *http.Request, w http.Response
 		return err
 	}
 
-	ugate.SendBackResponse(w, r, res, err)
+	ugatesvc.SendBackResponse(w, r, res, err)
 	log.Println("HFWD-DIRECT-OUT", nurl, oldPath, res.StatusCode)
 
 	return nil

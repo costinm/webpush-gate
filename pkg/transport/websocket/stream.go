@@ -3,11 +3,11 @@ package websocket
 import (
 	"bufio"
 	"crypto/tls"
+	"net"
 	"net/http"
 
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/msgs"
-	"github.com/costinm/wpgate/pkg/transport/ssh"
 	ws "golang.org/x/net/websocket"
 )
 
@@ -15,29 +15,29 @@ import (
 // Uses VAPID or TLS authentication for client, TLS auth for server
 // Both ends identify with their public key and/or cert.
 
-func WSTransport(gate *msgs.Mux, sshg *ssh.SSHGate, mux *http.ServeMux) {
+func WSTransport(gate *msgs.Mux, mux *http.ServeMux) {
 	wsmsg := &ws.Server{
 		Config:    ws.Config{},
 		Handshake: nil,
 		Handler: func(conn *ws.Conn) {
-			h2ctx := auth.AuthContext(conn.Request().Context())
-			websocketStream(gate, conn, h2ctx, "http-"+conn.Request().RemoteAddr)
+			//h2ctx := auth.AuthContext(conn.Request().Context())
+			websocketStream(gate, conn, "http-"+conn.Request().RemoteAddr)
 		},
 	}
 	mux.Handle("/ws", wsmsg)
-	if sshg != nil {
-		wsssh := &ws.Server{
-			Config:    ws.Config{},
-			Handshake: nil,
-			Handler: func(conn *ws.Conn) {
-				sshg.HandleServerConn(conn)
-			},
-		}
-		mux.Handle("/ssh", wsssh)
-	}
+	//if sshg != nil {
+	//	wsssh := &ws.Server{
+	//		Config:    ws.Config{},
+	//		Handshake: nil,
+	//		Handler: func(conn *ws.Conn) {
+	//			sshg.HandleServerConn(conn)
+	//		},
+	//	}
+	//	mux.Handle("/ssh", wsssh)
+	//}
 }
 
-func websocketStream(gate *msgs.Mux, conn *ws.Conn, ctx *auth.ReqContext, s string) {
+func websocketStream(gate *msgs.Mux, conn *ws.Conn, s string) {
 	// TODO: get auth !
 	mconn := &msgs.MsgConnection{
 		SubscriptionsToSend: nil, // Don't send all messages down - only if explicit subscription.
@@ -49,7 +49,7 @@ func websocketStream(gate *msgs.Mux, conn *ws.Conn, ctx *auth.ReqContext, s stri
 
 }
 
-func WSGateClient(a *auth.Auth,sshg *ssh.SSHGate, dest string) error {
+func WSGateClient(a *auth.Auth, dest string) (net.Conn, error) {
 	wsc, err := ws.NewConfig(dest, dest)
 
 	wsc.Header.Add("Authorization", a.VAPIDToken(dest))
@@ -60,12 +60,10 @@ func WSGateClient(a *auth.Auth,sshg *ssh.SSHGate, dest string) error {
 
 	ws, err := ws.DialConfig(wsc)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	sshg.DialCon(ws, dest, nil)
-
-	return nil
+	return ws, nil
 }
 
 func WSClient(a *auth.Auth, mux *msgs.Mux, dest string) error {
@@ -82,7 +80,7 @@ func WSClient(a *auth.Auth, mux *msgs.Mux, dest string) error {
 		return err
 	}
 
-	websocketStream(mux, ws, nil, "")
+	websocketStream(mux, ws, "")
 
 	return nil
 }

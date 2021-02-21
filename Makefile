@@ -69,9 +69,20 @@ cm/setup:
 	kubectl -n istio-system create secret generic istio-certmanager-ca --from-file tls.crt=tls.crt --from-file ca.crt=tls.crt --from-file tls.key=tls.key || true
 	rm tls.key tls.crt
 
+#cm/install:
+#	kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v0.15.0/cert-manager.yaml
+#	kubectl -n istio-system apply -f istio-issuer.yaml
+
+PROJECT_ID=dmeshgate
+
+cm/prepare:
+	gcloud iam service-accounts create dns01-solver --display-name "dns01-solver"
+
+
 cm/install:
-	kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v0.15.0/cert-manager.yaml
-	kubectl -n istio-system apply -f istio-issuer.yaml
+	kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
+	kubectl -n istio-system apply -f k8s/istio-issuer.yaml
+
 
 HELM3_VERSION=3.1.2
 HELM3_RELEASE_ROOT="https://get.helm.sh"
@@ -129,9 +140,3 @@ install/proto:
 #	go get github.com/gogo/protobuf/protoc-gen-gogo
 #	go get github.com/gogo/protobuf/protoc-gen-gogofast
 #	go get github.com/gogo/protobuf/protoc-gen-gogoslick
-
-run/home:
-    CGO_ENABLED=0 go build -o ${OUT}/ugate github.com/costinm/ugate/cmd/ugate
-    ls -l ${OUT}/ugate
-    strip ${OUT}/ugate
-    ls -l ${OUT}/ugate

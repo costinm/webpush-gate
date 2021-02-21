@@ -1,6 +1,6 @@
 module github.com/costinm/wpgate
 
-go 1.15
+go 1.16
 
 // replace github.com/costinm/go-ws-transport => ../go-ws-transport
 replace github.com/costinm/ugate => ../ugate
@@ -8,8 +8,6 @@ replace github.com/costinm/ugate => ../ugate
 require (
 	cloud.google.com/go v0.56.0
 	cloud.google.com/go/pubsub v1.3.1
-	github.com/cloudevents/sdk-go v1.2.0
-	github.com/cloudevents/sdk-go/protocol/nats/v2 v2.3.1
 	github.com/cloudevents/sdk-go/protocol/pubsub/v2 v2.3.1
 	github.com/cloudevents/sdk-go/v2 v2.3.1
 	github.com/costinm/go-libp2p-h2-transport v0.0.0-20201214154101-77015f9e2b0c
@@ -40,13 +38,18 @@ require (
 	github.com/lucas-clemente/quic-go v0.19.2
 	github.com/miekg/dns v1.1.31
 	github.com/multiformats/go-multiaddr v0.3.1
-	github.com/nats-io/nats-server/v2 v2.1.8-0.20200911161627-53ff94c75004
-	github.com/soheilhy/cmux v0.1.4
+	github.com/pion/datachannel v1.4.21
+	github.com/pion/logging v0.2.2
+	github.com/pion/sctp v1.7.11
+	github.com/pion/stun v0.3.5
+	github.com/pion/turn/v2 v2.0.5
+	github.com/pion/webrtc/v3 v3.0.8
 	github.com/zserge/metric v0.1.0
 	go.opencensus.io v0.22.5
 	golang.org/x/crypto v0.0.0-20201221181555-eec23a3978ad
-	golang.org/x/net v0.0.0-20201224014010-6772e930b67b
+	golang.org/x/net v0.0.0-20210119194325-5f4716e94777
 	golang.org/x/sys v0.0.0-20201201145000-ef89a241ccb3
+	google.golang.org/api v0.24.0
 	google.golang.org/genproto v0.0.0-20200806141610-86f49bd18e98
 	google.golang.org/grpc v1.34.0
 	google.golang.org/grpc/examples v0.0.0-20201212000604-81b95b1854d7 // indirect

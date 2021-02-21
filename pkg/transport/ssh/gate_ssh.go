@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/costinm/ugate"
-	"github.com/costinm/wpgate/pkg/auth"
+	"github.com/costinm/ugate/pkg/auth"
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/streams"
@@ -78,7 +78,7 @@ type SSHGate struct {
 	rAccept   streams.Metric
 	rMesh     *streams.ServiceMetrics
 
-	certs *ugate.Auth
+	certs *auth.Auth
 
 	ConnectTimeout time.Duration
 }
@@ -131,7 +131,7 @@ type SSHConn struct {
 //}
 
 // Initialize the SSH gateway.
-func NewSSHGate(gw *mesh.Gateway, certs *ugate.Auth) *SSHGate {
+func NewSSHGate(gw *mesh.Gateway, certs *auth.Auth) *SSHGate {
 	sg := &SSHGate{
 		SshClients: map[string]*SSHConn{},
 		SshConn:    map[uint64]*SSHServerConn{},
@@ -603,18 +603,18 @@ func (sshGate *SSHGate) clientConfig(sshC *SSHConn, pub []byte) *ssh.ClientConfi
 
 	authm = append(authm, ssh.PublicKeys(signer))
 
-	if sshGate.certs.RSACert != nil {
-		signer1, err := ssh.NewSignerFromKey(sshGate.certs.RSACert.PrivateKey)
-		if err == nil {
-			authm = append(authm, ssh.PublicKeys(signer1))
-		}
-	}
-	if sshGate.certs.ED25519Cert.PrivateKey != nil {
-		signer1, err := ssh.NewSignerFromKey(sshGate.certs.ED25519Cert.PrivateKey)
-		if err == nil {
-			authm = append(authm, ssh.PublicKeys(signer1))
-		}
-	}
+	//if sshGate.certs.RSACert != nil {
+	//	signer1, err := ssh.NewSignerFromKey(sshGate.certs.RSACert.PrivateKey)
+	//	if err == nil {
+	//		authm = append(authm, ssh.PublicKeys(signer1))
+	//	}
+	//}
+	//if sshGate.certs.ED25519Cert.PrivateKey != nil {
+	//	signer1, err := ssh.NewSignerFromKey(sshGate.certs.ED25519Cert.PrivateKey)
+	//	if err == nil {
+	//		authm = append(authm, ssh.PublicKeys(signer1))
+	//	}
+	//}
 
 	// An SSHClientConn client is represented with a ClientConn.
 	// TODO: save and verify public key of server
@@ -630,7 +630,7 @@ func (sshGate *SSHGate) clientConfig(sshC *SSHConn, pub []byte) *ssh.ClientConfi
 			if cpk, ok := key.(ssh.CryptoPublicKey); ok {
 				pubk := cpk.CryptoPublicKey()
 
-				kbytes := auth.KeyBytes(pubk)
+				kbytes := auth.MarshalPublicKey(pubk)
 
 				sshC.pubKey = kbytes
 
