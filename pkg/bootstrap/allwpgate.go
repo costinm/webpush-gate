@@ -11,18 +11,17 @@ import (
 
 	"github.com/costinm/ugate"
 	"github.com/costinm/ugate/pkg/auth"
+	"github.com/costinm/ugate/pkg/msgs"
+	"github.com/costinm/ugate/pkg/udp"
+	"github.com/costinm/ugate/pkg/uds/uds"
 	ugates "github.com/costinm/ugate/pkg/ugatesvc"
-	"github.com/costinm/wpgate/pkg/dns"
+	"github.com/costinm/wpgate/dns"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
-	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
-	"github.com/costinm/wpgate/pkg/transport/ipfs"
 	rtc2 "github.com/costinm/wpgate/pkg/transport/rtc"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
-	"github.com/costinm/wpgate/pkg/transport/udp"
-	"github.com/costinm/wpgate/pkg/transport/uds"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 	"github.com/costinm/wpgate/pkg/ui"
@@ -73,8 +72,6 @@ var (
 	// can be added to 27/debug
 	HTTP_PROXY = 3
 
-	NOISE = 19
-
 	// on H2 and HTTP_DEBUG
 	CLOUD_EVENTS = 21
 
@@ -106,7 +103,6 @@ type ServerAll struct {
 	UDPNat *udp.UDPGate
 	Conf   ugate.ConfStore
 	sshg   *sshgate.SSHGate
-	IPFS   *ipfs.IPFS
 }
 
 func (sa *ServerAll) Close() {
@@ -132,7 +128,7 @@ func StartAll(a *ServerAll) {
 
 	authz := auth.NewAuth(config, cfg.Name, cfg.Domain)
 	// By default, pass through using net.Dialer
-	ug := ugates.NewGate(&net.Dialer{}, authz, cfg)
+	ug := ugates.NewGate(&net.Dialer{}, authz, cfg, nil)
 
 
 	// Init Auth on the DefaultMux, for messaging
@@ -230,12 +226,8 @@ func (a *ServerAll) StartExtra() {
 	a.GW.DNS = dnss
 
 
-	udpNat := udp.NewUDPGate(a.GW)
+	udpNat := udp.NewUDPGate(dnss, dnss)
 	a.UDPNat = udpNat
-
-	a.IPFS = ipfs.InitIPFS(a.GW.Auth, 5231, a.H2.MTLSMux)
-
-	a.H2.LocalMux.Handle("/ipfs/", a.IPFS)
 
 	rtcg := &rtc2.RTC{
 		UGate: a.GW.UGate,

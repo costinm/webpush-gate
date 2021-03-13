@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/costinm/ugate/pkg/auth"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/ssh"
 )
@@ -134,7 +135,7 @@ type ReqContext struct {
 	// VIP associated with the public key.
 	VIP net.IP
 
-	VAPID *JWT
+	VAPID *auth.JWT
 }
 
 // ID of the caller, validated based on certs.
@@ -264,9 +265,9 @@ func NewVapid(publicKey, privateKey string) (v *Auth) {
 	publicUncomp, _ := base64.RawURLEncoding.DecodeString(publicKey)
 	privateUncomp, _ := base64.RawURLEncoding.DecodeString(privateKey)
 
-	x, y := elliptic.Unmarshal(curve, publicUncomp)
+	x, y := elliptic.Unmarshal(elliptic.P256(), publicUncomp)
 	d := new(big.Int).SetBytes(privateUncomp)
-	pubkey := ecdsa.PublicKey{Curve: curve, X: x, Y: y}
+	pubkey := ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
 	pkey := ecdsa.PrivateKey{PublicKey: pubkey, D: d}
 
 	v = _new()

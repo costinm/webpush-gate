@@ -20,6 +20,7 @@ func main() {
 	}
 
 	cfgDir := os.Getenv("HOME") + "/.ssh/"
+
 	all := &bootstrap.ServerAll{
 		ConfDir:  cfgDir,
 		BasePort: bp,

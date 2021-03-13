@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/ugate/pkg/msgs"
 )
 
 // Client or server event-stream connection.

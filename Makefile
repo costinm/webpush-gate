@@ -8,6 +8,16 @@ build:
 	go build -o ${OUT}/wps ./cmd/wps
 	go build -o ${OUT}/wp ./cmd/wp
 
+run/c1:
+	HOST=v $(MAKE) run
+
+# Must have a $HOME/ugate dir
+run:
+	cd ipfs && CGO_ENABLED=0 go build -o ${OUT}/ugateipfs ./cmd
+	ssh ${HOST} pkill ugateipfs || true
+	scp ${OUT}/ugateipfs ${HOST}:/x/ugate
+	ssh  ${HOST} "cd /x/ugate; HOME=/x/ugate /x/ugate/ugateipfs"
+
 # Must be run first, to initialize the registry and req.
 prepare: skaffold/registry
 

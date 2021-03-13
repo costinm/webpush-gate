@@ -107,21 +107,3 @@ type MeshDevice struct {
 }
 
 func (md *MeshDevice) String() string { return fmt.Sprintf("%s/%d", md.SSID, md.Level) }
-
-// Keyed by Hostname:port (if found in dns tables) or IP:port
-type HostStats struct {
-	// First open
-	Open time.Time
-
-	// Last usage
-	Last time.Time
-
-	SentBytes   int
-	RcvdBytes   int
-	SentPackets int
-	RcvdPackets int
-	Count       int
-
-	LastLatency time.Duration
-	LastBPS     int
-}

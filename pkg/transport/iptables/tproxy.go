@@ -9,8 +9,9 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/costinm/wpgate/pkg/mesh"
-	"github.com/costinm/wpgate/pkg/transport/udp"
+	"github.com/costinm/ugate"
+	"github.com/costinm/ugate/pkg/udp"
+
 	"golang.org/x/net/ipv4"
 	"golang.org/x/sys/unix"
 )
@@ -18,44 +19,39 @@ import (
 // WIP: requires root, UDP proxy using orig dest.
 // Only useful for inbound - where we already know the dest.
 
-func StartTproxy(p *mesh.Gateway, udpNat *udp.UDPGate, addr string) error {
+// To preserve the original srcIP it is also possible to use udp.WriteMsg.
+
+func NewTproxy(udpNat *udp.UDPGate, addr string) (*TProxyUDP, error) {
 	var f *os.File
 	var err error
-	// Requires root, not starting UDP proxy
-	//return nil
+
 	f, err = StartUDPTProxyListener(15006)
 	if err != nil {
 		log.Println("Error starting TPROXY", err)
-		return err
+		return nil, err
 	}
 	c, err := net.FileConn(f)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	lu, ok := c.(*net.UDPConn)
 	if !ok {
-		return errors.New("failed to cast")
+		return nil, errors.New("failed to cast")
 	}
 
-	udpNat.UDPWriter = &transparentUdp{con: lu}
+	//udpNat.UDPWriter
+	return &TProxyUDP{con: lu}, nil
+}
 
-	//lu, err := net.ListenUDP("udp", &net.UDPAddr{
-	//	Port: 15000,
-	//})
-	//if err != nil {
-	//	return err
-	//}
-	//int flags = 1;
-	//ret = setsockopt(udp_socket, IPPROTO_IP, IP_RECVORIGDSTADDR, &flags, sizeof(flags));
-
-	go func() {
+// Handle packets received on the tproxy interface.
+func (tu *TProxyUDP) BlockingLoop(u ugate.UDPHandler) {
 		data := make([]byte, 1600)
 		oob := ipv4.NewControlMessage(ipv4.FlagDst)
 		//oob := make([]byte, 256)
 		for {
 
-			n, noob, _, addr, err := lu.ReadMsgUDP(data[0:], oob)
+			n, noob, _, addr, err := tu.con.ReadMsgUDP(data[0:], oob)
 			if err != nil {
 				continue
 			}
@@ -87,11 +83,8 @@ func StartTproxy(p *mesh.Gateway, udpNat *udp.UDPGate, addr string) error {
 			//	dstaddr.sin_family = AF_INET;
 			//}
 
-			go udpNat.HandleUdp(origIP, origPort, addr.IP, uint16(addr.Port), data[0:n])
+			go u.HandleUdp(origIP, origPort, addr.IP, uint16(addr.Port), data[0:n])
 		}
-	}()
-
-	return nil
 }
 
 // Initialize a port as a TPROXY socket. This can be sent over UDS from the root, and used for
@@ -139,13 +132,14 @@ func StartUDPTProxyListener(port int) (*os.File, error) {
 	return f, nil
 }
 
-//
-type transparentUdp struct {
+// Handles UDP packets intercepted using TProxy.
+// Can send packets preserving original IP/port.
+type TProxyUDP struct {
 	con *net.UDPConn
 }
 
 // UDP write with source address control.
-func (tudp *transparentUdp) WriteTo(data []byte, dstAddr *net.UDPAddr, srcAddr *net.UDPAddr) (int, error) {
+func (tudp *TProxyUDP) WriteTo(data []byte, dstAddr *net.UDPAddr, srcAddr *net.UDPAddr) (int, error) {
 
 	// Attempt to write as UDP
 	cm4 := new(ipv4.ControlMessage)

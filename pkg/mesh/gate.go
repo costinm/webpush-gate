@@ -76,13 +76,13 @@ type Gateway struct {
 	tcpLock   sync.RWMutex
 	ActiveTcp map[int]*streams.TcpProxy
 
-	AllTcpCon map[string]*HostStats
+	AllTcpCon map[string]*ugate.HostStats
 
 	// DNS forward DNS requests, may resolve local addresses
 	DNS ugate.IPResolver
 
 	// SSHClientConn-based gateway
-	SSHGate ugates.Transport
+	SSHGate ugate.Transport
 
 	// Client to VPN
 	SSHClient ugate.MuxedConn
@@ -110,7 +110,7 @@ func New(certs *auth.Auth, gcfg *ugate.GateCfg) *Gateway {
 		//ActiveUdp: make(map[string]*UdpNat),
 		ActiveTcp: make(map[int]*streams.TcpProxy),
 		//AllUdpCon: make(map[string]*HostStats),
-		AllTcpCon: make(map[string]*HostStats),
+		AllTcpCon: make(map[string]*ugate.HostStats),
 		JumpHosts: map[string]ugate.MuxedConn{},
 		//upstreamMessageChannel: make(chan packet, 100),
 		Auth:           certs,
@@ -675,7 +675,7 @@ func (gw *Gateway) OnProxyClose(tp *streams.TcpProxy) {
 	hs, f := gw.AllTcpCon[tp.Dest]
 
 	if !f {
-		hs = &HostStats{Open: time.Now()}
+		hs = &ugate.HostStats{Open: time.Now()}
 		gw.AllTcpCon[tp.Dest] = hs
 	}
 	hs.Last = time.Now()

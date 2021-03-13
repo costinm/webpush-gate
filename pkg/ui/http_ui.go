@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/costinm/ugate"
-	"github.com/costinm/wpgate/pkg/conf"
-	"github.com/costinm/wpgate/pkg/dns"
+	"github.com/costinm/ugate/pkg/msgs"
+	"github.com/costinm/ugate/pkg/ugatesvc"
+	"github.com/costinm/wpgate/dns"
 	"github.com/costinm/wpgate/pkg/h2"
 	"github.com/costinm/wpgate/pkg/mesh"
-	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
 	//"github.com/costinm/wpgate/pkg/transport/local"
@@ -241,7 +241,7 @@ func (ui *DMUI) Merge(s string) func(http.ResponseWriter, *http.Request) {
 			xp = xp + "/"
 		}
 
-		conf := ui.dm.Auth.Config.(*conf.Conf)
+		conf := ui.dm.Auth.Config.(*ugatesvc.Conf)
 
 		err = tmpl.ExecuteTemplate(writer, s, struct {
 			//Local *local.LLDiscovery

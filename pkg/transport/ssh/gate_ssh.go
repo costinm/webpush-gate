@@ -13,8 +13,8 @@ import (
 
 	"github.com/costinm/ugate"
 	"github.com/costinm/ugate/pkg/auth"
+	"github.com/costinm/ugate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/mesh"
-	"github.com/costinm/wpgate/pkg/msgs"
 	"github.com/costinm/wpgate/pkg/streams"
 	"golang.org/x/crypto/ssh"
 )

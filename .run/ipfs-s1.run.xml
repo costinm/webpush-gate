@@ -1,0 +1,16 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="ipfs-s1" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="dmesh" />
+    <working_directory value="$PROJECT_DIR$/../wpgate/ipfs/cmd/testdata/s1" />
+    <envs>
+      <env name="IPFS_ROOTV" value="/ip6/2001:19f0:ac01:137e:5400:1ff:febe:4856/udp/4001/quic/p2p/12D3KooWLePVbQbv3PqsDZt6obMcWa99YyqRWjeiCtStSydQ6zjH" />
+      <env name="IPFS_ROOT2" value="/ip4/10.1.10.228/tcp/15100/p2p/QmNZpRjHnEGkuHQezWHk4C7XGPfZxF1Kss3nV5JJMkwwVC" />
+      <env name="DHT" value="" />
+    </envs>
+    <kind value="PACKAGE" />
+    <filePath value="$PROJECT_DIR$/../wpgate/ipfs/cmd/ugateipfs.go" />
+    <package value="github.com/costinm/wpgate/ipfs/cmd" />
+    <directory value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>

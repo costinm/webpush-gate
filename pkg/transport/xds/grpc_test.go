@@ -9,7 +9,7 @@ import (
 	"crypto/tls"
 	"flag"
 
-	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/wpgate/pkg/transport/xds/webpush"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -46,7 +46,7 @@ func startLocalServer(t *testing.T) (*grpc.Server, string) {
 	addr := lis.Addr().String()
 
 	wp := &GrpcService{
-		Mux: msgs.DefaultMux,
+		Mux: webpush.DefaultMux,
 	}
 	RegisterAggregatedDiscoveryServiceServer(s, wp)
 	go s.Serve(lis)

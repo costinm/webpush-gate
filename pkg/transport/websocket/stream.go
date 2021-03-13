@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/costinm/ugate/pkg/auth"
-	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/ugate/pkg/msgs"
 	ws "golang.org/x/net/websocket"
 )
 

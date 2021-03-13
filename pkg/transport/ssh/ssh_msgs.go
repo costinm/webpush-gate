@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/costinm/ugate"
-	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/ugate/pkg/msgs"
 	"golang.org/x/crypto/ssh"
 )
 

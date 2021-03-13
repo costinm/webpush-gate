@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/costinm/wpgate/pkg/msgs"
+	"github.com/costinm/ugate/pkg/msgs"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
