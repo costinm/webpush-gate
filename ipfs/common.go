@@ -135,7 +135,7 @@ func (p2p *IPFS) Put(key ed25519.PrivateKey, v []byte, seq uint64, exp time.Dura
 	data, err := proto.Marshal(rec)
 
 	// Store ipns entry at "/ipns/"+h(pubkey)
-	err = p2p.DHT.WAN.PutValue(context.Background(), ipns.RecordKey(id), data)
+	err = p2p.DHT.PutValue(context.Background(), ipns.RecordKey(id), data)
 
 	log.Println("Published ", id, err)
 
@@ -186,7 +186,7 @@ func (p2p *IPFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if p2p.DHT != nil {
 			ctx, _ := context.WithTimeout(context.Background(), 5 * time.Second)
-			pchan, err := p2p.DHT.WAN.GetClosestPeers(ctx, string(pi))
+			pchan, err := p2p.DHT.GetClosestPeers(ctx, string(pi))
 			for x := range pchan {
 				log.Println(x)
 			}

@@ -1,5 +1,5 @@
 {
-  "basePort": 15000,
+  "basePort": 12000,
   "listeners": {
     ":15101": {
       "forwardTo": "127.0.0.1:5201"

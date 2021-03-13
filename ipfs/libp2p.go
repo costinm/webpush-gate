@@ -12,15 +12,14 @@ import (
 	"strings"
 	"time"
 
-
 	"github.com/costinm/ugate/pkg/auth"
 	"github.com/libp2p/go-libp2p/p2p/host/relay"
 
 	"github.com/multiformats/go-multiaddr"
 
-	ipfslog "github.com/ipfs/go-log"
 	"github.com/ipfs/go-datastore"
 	config "github.com/ipfs/go-ipfs-config"
+	ipfslog "github.com/ipfs/go-log"
 
 	"github.com/ipfs/go-ipns"
 
@@ -33,10 +32,9 @@ import (
 	record "github.com/libp2p/go-libp2p-record"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
-	"github.com/libp2p/go-libp2p-kad-dht/dual"
-	libp2ptls "github.com/libp2p/go-libp2p-tls"
 	libp2pquic "github.com/libp2p/go-libp2p-quic-transport"
 	secio "github.com/libp2p/go-libp2p-secio"
+	libp2ptls "github.com/libp2p/go-libp2p-tls"
 )
 
 type IPFSConfig struct {
@@ -57,7 +55,12 @@ type IPFS struct {
 
 	ctx context.Context
 	Host host.Host
-	DHT  *dual.DHT
+
+	// Only set for discovery nodes.
+	// Mobile/battery powered/clients use Routing
+	DHT  *dht.IpfsDHT
+
+	// Combines ContentRouting, PeerRouting, ValueStore
 	Routing routing.Routing // may be same as DHT
 	store datastore.Batching
 }
@@ -104,7 +107,7 @@ func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 	//la = append(la, listen)
 	//listen, err = multiaddr.NewMultiaddr(fmt.Sprintf("/ip6/::/tcp/%d", p2pport))
 	//la = append(la, listen)
-	listen, _ = multiaddr.NewMultiaddr("/ip6/::/udp/4005/quic")
+	listen, _ = multiaddr.NewMultiaddr(fmt.Sprintf("/ip6/::/udp/%d/quic", p2pport))
 	la = append(la, listen)
 	//listen, _ = multiaddr.NewMultiaddr("/ip4/0.0.0.0/udp/4005/quic")
 	//la = append(la, listen)
@@ -183,22 +186,27 @@ func InitIPFS(auth *auth.Auth, p2pport int, mux *http.ServeMux) *IPFS {
 		finalOpts = append(finalOpts, libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
 			ddht, err := newDHT(ctx, h, ds)
 			p2p.DHT = ddht
+			//p2p.PeerStore = ddht
 			p2p.Routing = ddht
 			return ddht, err
 		}))
 	} else {
-		// In-memory peer store
-		//finalOpts = append(finalOpts, libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
-		//	ps  := pstoremem.NewPeerstore()
-		//	return ps, nil
-		//})
-		finalOpts = append(finalOpts, libp2p.DefaultPeerstore)
+		// in memory peer store
+		// HTTPS/XDS/etc for discovery, using a discovery server with DHT
+		// or other backend.
+
+
+		// This allows the node to be contacted behind NAT
 		// Set the 'official' relays.
-		// TODO: replace with 'root' as StaticRelay
+		// TODO: get relay dynamically, from discovery server
 		finalOpts = append(finalOpts, libp2p.DefaultStaticRelays())
+
+		// TODO: add option, use only if discovery server is local.
+		finalOpts = append(finalOpts, libp2p.ForceReachabilityPrivate())
 	}
 
 	var pi *peer.AddrInfo
+	// Connects to this node - mostly for testing.
 	if rt := os.Getenv("IPFS_ROOT"); rt != "" {
 		pi, err = P2PAddrFromString(rt)
 		if err != nil {
@@ -278,18 +286,19 @@ var blockInit func(*IPFS)
 
 // DHT results in a lot of connections. To debug, set a break on dial_sync (in swarm), in getActiveDial
 // query.spawnQuery is causing the request
-func newDHT(ctx context.Context, h host.Host, ds datastore.Batching) (*dual.DHT, error) {
-	dhtOpts := []dual.Option{
-		dual.DHTOption(dht.NamespacedValidator("pk", record.PublicKeyValidator{})),
-		dual.DHTOption(dht.NamespacedValidator("ipns", ipns.Validator{KeyBook: h.Peerstore()})),
-		dual.DHTOption(dht.Concurrency(10)),
+func newDHT(ctx context.Context, h host.Host, ds datastore.Batching) (*dht.IpfsDHT, error) {
+	dhtOpts := []dht.Option{
+		dht.NamespacedValidator("pk", record.PublicKeyValidator{}),
+		dht.NamespacedValidator("ipns", ipns.Validator{KeyBook: h.Peerstore()}),
+		dht.Concurrency(10),
 		//dual.DHTOption(dht.Mode(dht.ModeClient)),
 		//dual.DHTOption(dht.DisableAutoRefresh()),
+		dht.QueryFilter(dht.PublicQueryFilter),
 	}
 	if ds != nil {
-		dhtOpts = append(dhtOpts, dual.DHTOption(dht.Datastore(ds)))
+		dhtOpts = append(dhtOpts, dht.Datastore(ds))
 	}
 
-	return dual.New(ctx, h, dhtOpts...)
+	return dht.New(ctx, h, dhtOpts...)
 }
 

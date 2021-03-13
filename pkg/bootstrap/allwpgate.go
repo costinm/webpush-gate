@@ -20,11 +20,11 @@ import (
 	"github.com/costinm/wpgate/pkg/mesh"
 	"github.com/costinm/wpgate/pkg/transport/eventstream"
 	"github.com/costinm/wpgate/pkg/transport/httpproxy"
-	rtc2 "github.com/costinm/wpgate/pkg/transport/rtc"
 	sshgate "github.com/costinm/wpgate/pkg/transport/ssh"
 	"github.com/costinm/wpgate/pkg/transport/websocket"
 	"github.com/costinm/wpgate/pkg/transport/xds"
 	"github.com/costinm/wpgate/pkg/ui"
+	rtc2 "github.com/costinm/wpgate/rtc"
 )
 
 // bootstrap loads all the components of wpgate together
